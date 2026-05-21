@@ -1,0 +1,136 @@
+{
+  "version": "1.0",
+  "createdAt": "2026-05-19",
+  "sourceFile": {
+    "figmaFileKey": "nUPtVhjH8uQJu0bt6gYbRR",
+    "figmaFileName": "首充有礼"
+  },
+  "designNodeId": "12002:2",
+  "templateNodeId": "12004:10",
+  "sectionBoundingBox": {
+    "x": 104,
+    "y": 1335,
+    "width": 1920,
+    "height": 1080
+  },
+  "elements": [
+    {
+      "id": "使君形象",
+      "nodeId": "12002:33",
+      "label": "使君角色立绘（限定）",
+      "requirementRefs": ["标记4"],
+      "boundingBox": { "x": 444, "y": 1566, "width": 521, "height": 618 },
+      "mappedCenter": { "x": 601, "y": 540 },
+      "notes": "拍脸图左侧大图，由美术提供使君立绘资源"
+    },
+    {
+      "id": "弹窗主体背景",
+      "nodeId": "12002:6",
+      "label": "弹窗主体背景板",
+      "requirementRefs": ["标记1"],
+      "boundingBox": { "x": 104, "y": 1543, "width": 1920, "height": 678 },
+      "mappedCenter": { "x": 960, "y": 547 },
+      "notes": "弹窗底板，全宽，含弹窗内所有内容区"
+    },
+    {
+      "id": "金额标注",
+      "nodeId": "12002:36",
+      "label": "首充门槛金额（6元）",
+      "requirementRefs": ["标记1"],
+      "boundingBox": { "x": 1063, "y": 1598, "width": 143, "height": 108 },
+      "mappedCenter": { "x": 1031, "y": 317 },
+      "notes": "弹窗标题区金额文字，数值从 activity 表 typeParam 读取"
+    },
+    {
+      "id": "弹窗主标题",
+      "nodeId": "12002:22",
+      "label": "弹窗主标题「充值」",
+      "requirementRefs": ["标记1"],
+      "boundingBox": { "x": 974, "y": 1628, "width": 80, "height": 48 },
+      "mappedCenter": { "x": 910, "y": 317 },
+      "notes": "弹窗顶部标题文字"
+    },
+    {
+      "id": "弹窗副标题",
+      "nodeId": "12002:37",
+      "label": "弹窗副标题「超值好礼相赠」",
+      "requirementRefs": ["标记1"],
+      "boundingBox": { "x": 965, "y": 1715, "width": 386, "height": 78 },
+      "mappedCenter": { "x": 1054, "y": 419 },
+      "notes": "说明性副标题"
+    },
+    {
+      "id": "道具图标1",
+      "nodeId": "12003:41",
+      "label": "礼包道具图标（第1个）",
+      "requirementRefs": ["标记4"],
+      "boundingBox": { "x": 975, "y": 1857, "width": 104, "height": 103 },
+      "mappedCenter": { "x": 923, "y": 574 },
+      "notes": "道具图标 + 数量常驻显示；道具名称隐藏，hover 触发通用道具说明 tips"
+    },
+    {
+      "id": "道具图标2",
+      "nodeId": "12003:43",
+      "label": "礼包道具图标（第2个）",
+      "requirementRefs": ["标记4"],
+      "boundingBox": { "x": 1133, "y": 1857, "width": 104, "height": 103 },
+      "mappedCenter": { "x": 1081, "y": 574 },
+      "notes": "道具图标 + 数量常驻显示；道具名称隐藏，hover 触发通用道具说明 tips"
+    },
+    {
+      "id": "道具图标3",
+      "nodeId": "12003:45",
+      "label": "礼包道具图标（第3个）",
+      "requirementRefs": ["标记4"],
+      "boundingBox": { "x": 1291, "y": 1857, "width": 104, "height": 103 },
+      "mappedCenter": { "x": 1239, "y": 574 },
+      "notes": "道具图标 + 数量常驻显示；道具名称隐藏，hover 触发通用道具说明 tips"
+    },
+    {
+      "id": "主按钮",
+      "nodeId": "12002:25",
+      "label": "主按钮（前往充值 / 领取）",
+      "requirementRefs": ["标记2"],
+      "boundingBox": { "x": 944, "y": 2132, "width": 240, "height": 65 },
+      "mappedCenter": { "x": 960, "y": 830 },
+      "notes": "双态按钮：未完成首充显示「前往充值」；已完成未领取显示「领取」。样式/位置不变，仅文字切换。领取态设计稿截图待补充。"
+    },
+    {
+      "id": "关闭ESC区域",
+      "nodeId": "12002:16",
+      "label": "关闭按钮 + ESC 提示",
+      "requirementRefs": ["标记5"],
+      "boundingBox": { "x": 1014, "y": 2240, "width": 100, "height": 26 },
+      "mappedCenter": { "x": 960, "y": 918 },
+      "notes": "PC 端关闭区域：含「关闭弹窗」文字标签 + ESC 图标提示。PC 端支持 ESC 键关闭弹窗（已补充进需求）。"
+    }
+  ],
+  "alignmentPoints": [
+    {
+      "id": "AP-01",
+      "type": "resolved",
+      "element": "关闭ESC区域",
+      "issue": "设计稿有 PC 端 ESC 快捷键提示，原需求文档无此关闭方式",
+      "resolution": "需求文档已更新：PC 端支持键盘 ESC 键关闭弹窗"
+    },
+    {
+      "id": "AP-02",
+      "type": "pending",
+      "element": "主按钮",
+      "issue": "按钮「领取」态设计稿图片待补充",
+      "resolution": "文档内以文字说明：样式同充值态，仅切换文字。图片由设计师后续补入"
+    },
+    {
+      "id": "AP-03",
+      "type": "resolved",
+      "element": "道具图标1/2/3",
+      "issue": "原需求要求道具名称常驻显示，设计稿改为 hover tips",
+      "resolution": "需求文档已更新：道具图标+数量常驻，名称 hover 显示通用道具说明 tips"
+    }
+  ],
+  "stageSummary": {
+    "stage2Designer": "首充有礼 Figma 文件，设计节点 12002:2，模板节点 12004:10",
+    "stage3Completed": "2026-05-19",
+    "readyForStage4": true
+  }
+}

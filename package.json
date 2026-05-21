@@ -1,0 +1,24 @@
+{
+  "name": "game-interaction-sop-monorepo",
+  "version": "0.2.0",
+  "description": "Game UI interaction-doc SOP. Monorepo: engine (TS library) + skill (Markdown bundle for AI agents).",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "node scripts/check-skill-migration.mjs && npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "install-skill": "node scripts/install-skill.mjs",
+    "install-mcp": "node scripts/install-mcp.mjs",
+    "release": "node scripts/release.mjs",
+    "test-parse": "node scripts/test-parse.mjs",
+    "check-skill-migration": "node scripts/check-skill-migration.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

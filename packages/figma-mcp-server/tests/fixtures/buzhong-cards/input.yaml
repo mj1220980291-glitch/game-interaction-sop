@@ -1,0 +1,44 @@
+meta:
+  title: 部从卡牌TIPS 战斗交互
+  version: 1.0.0
+  project: 部从卡牌TIPS
+  designUrl: https://www.figma.com/design/V9nCGuAA0UwxYyI3Mtw86A/M1?node-id=6144-48215
+sections:
+  - index: 1
+    title: 部从选中与入口
+    bubbles:
+      - id: "1"
+        text: 部从选中与入口
+        layer: overlay
+        anchor:
+          nodeId: "6144:48215"
+  - index: 2
+    title: 主TIPS固定面板
+    bubbles:
+      - id: "2"
+        text: 主TIPS固定面板
+        layer: overlay
+        anchor:
+          sectionRelXY: [120, 80]
+  - index: 3
+    title: 基础信息与能力描述
+    bubbles:
+      - id: "3"
+        text: 基础信息与能力描述
+        layer: overlay
+        anchor:
+          absXY: [800, 600]
+designRefs:
+  - name: 主图
+    url: https://www.figma.com/design/V9nCGuAA0UwxYyI3Mtw86A/M1?node-id=6144-48215
+    nodeId: "6144:48215"
+screenshots:
+  - sectionIndex: 1
+    alt: cap1
+    src: ./assets/01.png
+  - sectionIndex: 2
+    alt: cap2
+    src: ./assets/02.png
+  - sectionIndex: 3
+    alt: cap3
+    src: ./assets/03.png

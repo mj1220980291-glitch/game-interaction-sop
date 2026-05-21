@@ -1,0 +1,52 @@
+meta:
+  title: 幻神槽位重选
+  version: 1.0.0
+  project: 幻神槽位
+  designUrl: https://www.figma.com/design/illusion?node-id=1-1
+sections:
+  - index: 1
+    title: 顶部选择状态与倒计时
+    bubbles:
+      - id: "1"
+        text: 顶部选择状态
+        layer: overlay
+        anchor: { nodeId: "1:1" }
+  - index: 2
+    title: 本局阵营图标
+    bubbles:
+      - id: "2"
+        text: 本局阵营图标
+        layer: overlay
+        anchor: { nodeId: "1:2" }
+  - index: 3
+    title: 标题与重选币资源栏
+    bubbles:
+      - id: "3"
+        text: 资源栏
+        layer: overlay
+        anchor: { nodeId: "1:3" }
+  - index: 4
+    title: 基础幻神槽位
+    bubbles:
+      - id: "4"
+        text: 基础幻神槽位
+        layer: overlay
+        anchor: { nodeId: "1:4" }
+  - index: 5
+    title: 已解锁特权槽位
+    bubbles:
+      - id: "5"
+        text: 已解锁特权槽位
+        layer: overlay
+        anchor: { nodeId: "1:5" }
+designRefs: []
+screenshots:
+  - sectionIndex: 1
+    alt: top
+    src: ./assets/top.png
+  - sectionIndex: 2
+    alt: factions
+    src: ./assets/factions.png
+  - sectionIndex: 3
+    alt: title
+    src: ./assets/title.png

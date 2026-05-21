@@ -1,0 +1,55 @@
+{
+  "name": "game-interaction-sop",
+  "version": "0.2.0",
+  "description": "Game UI interaction-doc SOP — Phase 1 requirement confirmation → Phase 2 v2 Markdown → Phase 3 asset collection → Phase 4 Figma rendering.",
+  "entry": "SKILL.md",
+  "phases": [
+    "phases/phase1-analysis.md",
+    "phases/phase2-markdown.md",
+    "phases/phase3-asset.md",
+    "phases/phase4-figma.md"
+  ],
+  "references": [
+    "references/markdown-v2-spec.md",
+    "references/role-tags.md",
+    "references/template-1-14.md"
+  ],
+  "agents": {
+    "openai": "agents/openai.yaml"
+  },
+  "engineVersion": "^0.2.0",
+  "mcp": {
+    "name": "figma-console",
+    "package": "figma-console-mcp",
+    "version": "1.23.0",
+    "tarball": "vendor/figma-console-mcp-1.23.0.tgz",
+    "entry": "dist/local.js",
+    "bridgeDir": "figma-desktop-bridge",
+    "installDir": {
+      "windows": "~/.game-interaction-sop/mcp/figma-console-mcp",
+      "unix": "~/.game-interaction-sop/mcp/figma-console-mcp"
+    }
+  },
+  "installTargets": {
+    "codemaker": {
+      "windows": "~/.codemaker/skills/game-interaction-sop",
+      "unix": "~/.codemaker/skills/game-interaction-sop"
+    },
+    "codex": {
+      "windows": "~/.codex/skills/game-interaction-sop",
+      "unix": "~/.codex/skills/game-interaction-sop"
+    },
+    "claude": {
+      "windows": "~/.claude/skills/game-interaction-sop",
+      "unix": "~/.claude/skills/game-interaction-sop"
+    },
+    "cursor": {
+      "windows": "~/.cursor/rules/game-interaction-sop",
+      "unix": "~/.cursor/rules/game-interaction-sop"
+    },
+    "cline": {
+      "windows": "~/.cline/skills/game-interaction-sop",
+      "unix": "~/.cline/skills/game-interaction-sop"
+    }
+  }
+}

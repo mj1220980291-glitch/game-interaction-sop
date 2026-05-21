@@ -1,0 +1,22 @@
+meta:
+  title: 最小用例
+  version: 0.1.0
+  project: minimal
+  designUrl: https://www.figma.com/design/min?node-id=1-2
+sections:
+  - index: 1
+    title: 唯一章节
+    bubbles:
+      - id: "1"
+        text: 唯一气泡
+        layer: overlay
+        anchor:
+          nodeId: "1:2"
+designRefs:
+  - name: 主图
+    url: https://www.figma.com/design/min?node-id=1-2
+    nodeId: "1:2"
+screenshots:
+  - sectionIndex: 1
+    alt: cap
+    src: ./shot.png

@@ -1,0 +1,45 @@
+{
+  "name": "@game-interaction-sop/engine",
+  "version": "0.2.0",
+  "description": "Deterministic engine that turns v2 interaction-doc Markdown into Figma documents via a pluggable FigmaBackend (typically wired through figma-console MCP).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./v2": {
+      "types": "./dist/v2/index.d.ts",
+      "import": "./dist/v2/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "figma",
+    "interaction-doc",
+    "mcp",
+    "game-ui",
+    "sop"
+  ],
+  "license": "MIT"
+}

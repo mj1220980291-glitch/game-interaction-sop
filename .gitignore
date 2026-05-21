@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+release/
+tmp/
+runs/
+e2e/diffs/
+e2e/results/
+*.log
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,30 @@
+{
+  "templateChoice": "design-driven",
+  "sections": [
+    {
+      "index": 1,
+      "title": "唯一章节",
+      "bubbles": [
+        {
+          "bubbleId": "1",
+          "text": "唯一气泡",
+          "insert": {
+            "op": "appendChild",
+            "parentId": "1:2",
+            "childId": "bubble-1@1:2"
+          },
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "screenshot": {
+        "sectionIndex": 1,
+        "src": "./shot.png",
+        "alt": "cap"
+      }
+    }
+  ],
+  "warnings": []
+}
