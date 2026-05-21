@@ -35,27 +35,39 @@ export const HEADER_SLOTS = {
 
 /**
  * Overview FRAME slots. Inside `设计总览组件` (1:32) → `设计总览` (1:33).
- * Each is a FRAME container; the actual TEXT child inside is identified
- * by the renderer at runtime via `figma_get_file_for_plugin` / scan.
+ * Each is a FRAME container that holds TWO TEXT children:
+ *   - one named `#Title`   ("1.功能背景" / "2.核心交互" small heading) —
+ *     MUST be left untouched.
+ *   - one named `#Content` (body placeholder "功能背景说明文本...") —
+ *     the renderer fills this one with the markdown overview paragraph.
+ * The renderer resolves the body TEXT at runtime by `name === '#Content'`,
+ * falling back to the last TEXT child if names ever change.
  */
 export const OVERVIEW_SLOTS = {
-  /** 功能背景 frame — body TEXT child receives `### 功能背景` 段 */
+  /** 功能背景 frame — #Content TEXT child receives `### 功能背景` 段 */
   background: '1:36',
-  /** 核心交互 frame — body TEXT child receives `### 核心交互` 段 */
+  /** 核心交互 frame — #Content TEXT child receives `### 核心交互` 段 */
   coreInteraction: '1:39'
 } as const;
 
 /**
- * Section template. The first 界面说明 group is the master we clone.
- * 界面说明2 (1:124) is a pre-existing duplicate in the template; we treat
- * it as expendable evidence of the slot shape, but always clone from
- * 界面说明1.
+ * Section template. The renderer clones from this master once per `## NN.`
+ * markdown section.
+ *
+ * IMPORTANT — TEMPLATE CONSTRAINT:
+ *   The parent `需求目标 frame (1:43)` MUST contain exactly ONE
+ *   界面说明 child (the master, id 1:44). Any additional sibling
+ *   placeholders (e.g. an older 界面说明2 at 1:124) MUST be removed
+ *   from the master template, otherwise the renderer's clone+append
+ *   ordering will mis-trim and silently drop a freshly-filled section.
+ *
+ *   The renderer defensively strips spare siblings at runtime via
+ *   `removeSparesExceptMaster()`, but the master template itself
+ *   should still satisfy this invariant.
  */
 export const SECTION_TEMPLATE = {
   /** Master to clone for each `## NN.` */
   masterGroupId: '1:44',
-  /** Pre-existing second instance; renderer should delete-or-recycle */
-  spareInstanceId: '1:124',
   /** Parent frame that holds all 界面说明 children */
   parentFrameId: '1:43'
 } as const;

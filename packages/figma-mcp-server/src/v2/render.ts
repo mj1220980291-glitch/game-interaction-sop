@@ -12,9 +12,11 @@
  *   6. Fill overview functional-background + core-interaction (drill into
  *      the body TEXT child of each frame).
  *   7. For each `## NN.` section:
- *        a. Get/clone an 界面说明 group (first uses spareInstanceId
- *           recycled or 界面说明1 directly for #01; subsequent clones from
- *           界面说明1).
+ *        a. Before iterating, strip any pre-existing spare 界面说明
+ *           sibling placeholders that ship with some templates, so the
+ *           parent contains only the master 界面说明1. Then reuse master
+ *           for #01, clone master for #02..N (clones appended after
+ *           master, in markdown order).
  *        b. Scan the cloned subtree once → cache all named children.
  *        c. Set 界面名称 label to `## NN.` text.
  *        d. For each ### cluster (in section):
@@ -206,6 +208,18 @@ async function renderInner(
     throw new Error('master section group has no parent — cannot clone siblings');
   }
 
+  // 5a. Remove any pre-existing spare 界面说明 placeholders carried in from
+  //     the master template, EXCEPT the master we are about to reuse.
+  //
+  //     Bug fix (2026-05-20): the template historically shipped with two
+  //     sibling 界面说明 placeholders (界面说明1 = master, 界面说明2 = spare).
+  //     If we left them in place, the renderer's downstream clone-append +
+  //     trim-from-tail logic would delete a freshly-filled section instead
+  //     of the spare, producing a silent "section missing, summary reports
+  //     success" bug. Strip spares up-front so the parent only contains the
+  //     master before we clone.
+  await removeSparesExceptMaster(backend, parentOfSections, masterSectionGroup.id);
+
   let placeholdersUsed = 0;
   let imagesPlaced = 0;
 
@@ -229,10 +243,6 @@ async function renderInner(
     if (input.assetMap?.[section.index]?.type === 'image') imagesPlaced++;
     else placeholdersUsed++;
   }
-
-  // 6. Suppress the spare 界面说明2 from the original template clone if it
-  //    was carried in as an extra child past sections.length.
-  await trimSpareInstances(backend, parentOfSections, ir.sections.length);
 
   return root.id;
 }
@@ -592,14 +602,25 @@ async function fillOverviewBody(
   body: string
 ): Promise<void> {
   if (!frameNode) return;
-  // The 功能背景 / 核心交互 frame typically holds a TEXT child for the
-  // body. Find the first TEXT descendant by scanning one level.
+  // The 功能背景 / 核心交互 frame holds two TEXT children:
+  //   - #Title    : "1.功能背景" / "2.核心交互"     (must NOT be overwritten)
+  //   - #Content  : "功能背景说明文本..." 占位         (target of this fill)
+  // Bug fix (2026-05-20): historically the renderer picked the FIRST TEXT,
+  // which is #Title, leaving the real body placeholder untouched and
+  // clobbering the small section heading. Now we resolve by name; fall
+  // back to "last TEXT" if names ever change, since the layout convention
+  // is heading-on-top / body-below.
   const info = await backend.getNodeInfo(frameNode.id);
   if (!info.childIds || info.childIds.length === 0) return;
   const children = await backend.getNodesInfo(info.childIds);
-  const textChild = children.find((c) => c.type === 'TEXT');
-  if (textChild) {
-    await backend.setTextContent(textChild.id, body);
+  const texts = children.filter((c) => c.type === 'TEXT');
+  if (texts.length === 0) return;
+  const byName =
+    texts.find((c) => c.name === '#Content') ||
+    texts.find((c) => c.name === '#Body');
+  const target = byName ?? texts[texts.length - 1];
+  if (target) {
+    await backend.setTextContent(target.id, body);
   }
 }
 
@@ -671,14 +692,22 @@ async function indexCloneByName(
   return found;
 }
 
-async function trimSpareInstances(
+/**
+ * Remove every direct child of `parentId` whose id is not `masterId`.
+ *
+ * Used to strip pre-existing duplicate 界面说明 placeholders that some
+ * historical templates shipped with. We do this BEFORE cloning so the
+ * remaining clone+append+fill path operates on a clean parent containing
+ * only the master section group.
+ */
+async function removeSparesExceptMaster(
   backend: FigmaBackend,
   parentId: string,
-  keepCount: number
+  masterId: string
 ): Promise<void> {
   const parent = await backend.getNodeInfo(parentId);
-  if (!parent.childIds || parent.childIds.length <= keepCount) return;
-  const toDelete = parent.childIds.slice(keepCount);
+  if (!parent.childIds || parent.childIds.length <= 1) return;
+  const toDelete = parent.childIds.filter((id) => id !== masterId);
   if (toDelete.length > 0) await backend.deleteNodes(toDelete);
 }
 
