@@ -166,3 +166,17 @@ The v2 Markdown contract, the Figma template design rules, and the
   engine enforces safety
 - [`openspec/changes/restructure-sop-to-6-stages/`](./openspec/changes/restructure-sop-to-6-stages/)
   for the rationale behind the v0.3 stage redesign
+
+---
+
+## BREAKING change — proxy-figma-console-tools-from-engine
+
+The MCP server `figma-interaction-doc-engine` now **proxies all
+`figma-console-mcp` tools** through itself. MCP hosts (CodeMaker, Cursor,
+etc.) MUST configure only **one** Figma-related MCP server going forward.
+
+If you previously configured a standalone `figma-console` MCP server in
+addition to `figma-interaction-doc-engine`, **remove the standalone entry**.
+
+See migration steps in
+[`packages/figma-mcp-server/README.md`](./packages/figma-mcp-server/README.md#configuration-migration-breaking--proxy-figma-console-tools-from-engine).

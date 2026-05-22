@@ -15,7 +15,8 @@
     "install-mcp": "node scripts/install-mcp.mjs",
     "release": "node scripts/release.mjs",
     "test-parse": "node scripts/test-parse.mjs",
-    "check-skill-migration": "node scripts/check-skill-migration.mjs"
+    "check-skill-migration": "node scripts/check-skill-migration.mjs",
+    "cleanup-mcp": "node scripts/cleanup-orphan-mcp.mjs"
   },
   "engines": {
     "node": ">=20.0.0"

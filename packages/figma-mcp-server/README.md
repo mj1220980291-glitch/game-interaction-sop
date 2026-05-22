@@ -123,3 +123,54 @@ docs/INSTALL.md
 - Spec: `openspec/changes/build-figma-interaction-doc-engine/`
 - Skill (LLM facing): `C:\Users\miaochengming\.codex\skills\game-interaction-doc\SKILL.md` (v5)
 - Legacy fallback: `legacy/SKILL.v4.md` in the same skill directory
+
+---
+
+## Configuration migration (BREAKING — proxy-figma-console-tools-from-engine)
+
+Since the OpenSpec change `proxy-figma-console-tools-from-engine`, this engine
+**proxies all `figma-console-mcp` tools** through itself. As a consequence,
+only **one** Figma-related MCP server should be configured in your MCP host
+(e.g. CodeMaker, Cursor, Claude Desktop).
+
+### Required steps
+
+1. Open the host's MCP settings panel.
+2. **Remove the standalone `figma-console` MCP server** entry (the one that
+   runs `npx -y figma-console-mcp@latest` directly).
+3. Keep only `figma-interaction-doc-engine` configured, pointing at this
+   package's `dist/server/index.js` with `FIGMA_BACKEND=figma-console`.
+4. Restart the host so it spawns a fresh engine process.
+5. Reload the Figma Desktop Bridge plugin in Figma Desktop.
+
+### Why
+
+Hosts previously typically configured **two** MCP servers exposing Figma tools:
+
+- `figma-console` (standalone) — exposing `figma_execute`,
+  `figma_capture_screenshot`, `figma_get_selection`, ...
+- `figma-interaction-doc-engine` — exposing `render_v2_markdown_to_figma`,
+  `validate_v2_markdown`, ...
+
+But the engine internally also spawns its own `figma-console-mcp` child to
+power v2 rendering. The `figma-console-mcp` package binds a unique WebSocket
+port per process, and the **Figma Desktop Bridge plugin can only connect to
+one of them** — leading to silent "Cannot connect to Figma Desktop" errors
+whenever the wrong instance won the port race.
+
+After this change, the engine's child is the **only** `figma-console-mcp`
+instance, the plugin connects to it predictably, and **all `figma_*` tools
+are forwarded transparently** through the engine's MCP server. The host
+sees one server that exposes the union of the engine's native v2 tools plus
+all `figma-console` tools.
+
+### Symptoms of incomplete migration
+
+If you forget step 2, the engine detects another `figma-console-mcp` port
+advertisement file in `os.tmpdir()` at startup and emits a stderr warning:
+
+```
+[figma-interaction-doc-engine] WARNING: external figma-console-mcp detected (port=..., pid=..., ...)
+```
+
+Watch the engine's stderr in your host's MCP logs for this line.
