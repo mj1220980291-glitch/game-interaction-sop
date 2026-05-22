@@ -272,7 +272,12 @@ async function renderInner(
 //               fillCluster 里只操作第 1 个，多余的（若有）整体删除。
 //               类似地 #Title 也有两份，只保留第一个。
 //
-// Bug 10 [FIXED]: bullet 前缀统一写入 "· " + 内容，parser 侧已去除 "- "/"* " 等原始前缀。
+// Bug 10 [SUPERSEDED 2026-05-22]: 早期版本统一给 bullet 写入 "· " 前缀以补齐
+//                列表外观；现版本改为 **不写任何前缀字符**，让模板 TEXT 节点
+//                自带的 listOptions / paragraphIndent 负责视觉列表样式，避免
+//                "· " 与图层样式重叠出现两个 marker。同时 inline strip
+//                markdown emphasis (**xxx** / __xxx__) 防止字面星号残留。
+//                parser 侧仍负责去除 "- "/"* " 等原始 bullet 标记。
 
 const INDEX_PREFIX_RE = /^\s*\d+\s*[.、．]\s*/;
 const IMAGE_BULLET_RE = /(^|\s|^[-·•*]+\s*)配图\s*[：:]/;
@@ -440,12 +445,19 @@ async function fillCluster(
     );
   }
 
-  // (Bug 9) #Title — template ships two "说明" sub-labels; keep first, delete rest.
+  // (Bug 9 / 2026-05-22 follow-up) #Title — placeholder slot reserved for
+  // future #### sub-grouping inside a cluster.
+  // The v2 IR currently has NO #### support (parser does not emit
+  // sub-groups, SemanticCluster has no subgroups field), so every
+  // remaining #Title in the cloned cluster would otherwise leak the
+  // template's literal "小标题1 / 小标题2" placeholder into the output.
+  // Delete all of them. When/if #### support lands, switch this back to
+  // "clone+fill per subgroup, drop the rest".
   const subTitles = allDescendants.filter(
     (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle
   );
-  if (subTitles.length > 1) {
-    await backend.deleteNodes(subTitles.slice(1).map((n) => n.id));
+  if (subTitles.length > 0) {
+    await backend.deleteNodes(subTitles.map((n) => n.id));
   }
 
   // Role tags (Bug 9): template may carry multiple "Frame 4273..." role frames.
@@ -493,9 +505,20 @@ async function fillCluster(
     const node = bulletNodes[i];
     const raw = cluster.bullets[i] ?? '';
     if (node) {
-      // (Bug 10) Normalize to "· " prefix regardless of source ("- ", "* ", etc.).
-      const body = raw.replace(/^\s*[-·•*]+\s*/, '').trim();
-      bulletUpdates.push({ nodeId: node.id, characters: `· ${body}` });
+      // (Bug 10 / 2026-05-22 follow-up)
+      // - Strip leading bullet marker ("- " / "* " / "· " / "• ") if any.
+      //   The bullet TEXT node in the template is responsible for any
+      //   visual list-marker styling; do NOT inline a duplicate "· "
+      //   prefix into characters or it shows up twice.
+      // - Strip inline markdown emphasis (**bold**, __bold__) — the
+      //   template TEXT does not interpret markdown so "**xxx**" would
+      //   otherwise leak through as literal asterisks.
+      const body = raw
+        .replace(/^\s*[-·•*]+\s*/, '')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/__([^_]+)__/g, '$1')
+        .trim();
+      bulletUpdates.push({ nodeId: node.id, characters: body });
     }
   }
   if (bulletUpdates.length > 0) {
