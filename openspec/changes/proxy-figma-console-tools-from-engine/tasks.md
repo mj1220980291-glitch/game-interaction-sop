@@ -47,7 +47,7 @@
 
 - [x] 7.1 在 `packages/figma-mcp-server/README.md` 增加"配置迁移"章节：要求 CodeMaker 用户删除独立 figma-console MCP 配置项，仅保留 figma-interaction-doc-engine
 - [x] 7.2 在仓库根 `README.md` 添加 BREAKING change 提示，链接 7.1
-- [ ] 7.3 在 commit 信息里引用 OpenSpec change `proxy-figma-console-tools-from-engine`，方便未来 archive 时追溯
+- [x] 7.3 在 commit 信息里引用 OpenSpec change `proxy-figma-console-tools-from-engine`，方便未来 archive 时追溯
 
 ## 8. 环境清理脚本（可选附属）
 

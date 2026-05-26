@@ -124,4 +124,6 @@ for each group in cluster.groups:
 ## Open Questions
 
 - **Q1**：`clusterSubTitle` TEXT 是模板的固定节点还是可选节点？（当前代码已有对它的 keep-first 处理，推测为固定节点，待验证）
+  - **A1（已验证 2026-05-26）**：固定节点。每个克隆出的 cluster block 内 `#Title` (SECTION_CHILD_NAMES.clusterSubTitle) TEXT 必然存在，`insertSubgroupTitleText` 直接 `setTextContent(block.subTitle.id, title)` 即可，无需 fallback 克隆路径。代码位置：`packages/engine/src/v2/render.ts:283-284`。
 - **Q2**：多个说明块在 Figma 里的纵向间距——模板是 AUTO_LAYOUT 还是手动定位？若是 AUTO_LAYOUT，克隆后 Figma 会自动排版，无需手动 move；若不是，需要计算 Y 偏移。待真实 API 调用时确认（如不是 AUTO_LAYOUT，渲染结果可能重叠，需加 moveNode 补偿）。
+  - **A2（已验证 2026-05-26）**：右栏说明块容器使用 AUTO_LAYOUT FRAME（命名 `Text`）。克隆的说明块 append 进去后由 Figma 引擎自动按 itemSpacing 纵向堆叠，**无需手动 moveNode 计算 Y 偏移**。代码位置：`packages/engine/src/v2/render.ts:285-286, 522`。`insertSubgroupTitleText` 中保留的 `moveNode` 仅用于子组小标题在自己说明块内部的 4px 偏移，不影响外部块间距。

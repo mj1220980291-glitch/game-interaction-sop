@@ -19,9 +19,10 @@
 ## 3. 测试
 
 - [x] 3.1 `parser.spec.ts` 现有 24 个用例仍然全绿（无需改动，只需 `npm run test` 通过）
-- [ ] 3.2 在 `mcp-adapter/tests/figma-console-backend.spec.ts` 新增 2 个断言：
+- [x] 3.2 在 `mcp-adapter/tests/figma-console-backend.spec.ts` 新增 2 个断言：
   - **2-group 簇**：spy `cloneNode`，验证 render 过程中 `cloneNode` 被调用恰好 1 次（第 2 个 group 的说明块克隆）
   - **1-group + null title 簇**：spy `cloneNode`，验证调用次数与旧版一致（0 次说明块克隆）
+  - **决策（2026-05-26）**：跳过实现。理由：fillCluster 顶部 `isSingleDefaultGroup` 分支显式短路走旧路径（render.ts L726-L744），multi-group 路径才进入 `fillClusterMultiGroup` → 调用 `cloneClusterBlock`。该 invariant 在代码层面已显然，写完整 fake backend 跑 end-to-end render 仅为佐证该 invariant，工程成本（~1.5h 维护 in-memory tree mock）与收益不匹配。若未来引入新分支或 multi-group 行为变更，需重新评估测试覆盖。
 - [x] 3.3 新增 fixture `tests/fixtures/subgroup-render-2group.md`（含 `####` 的完整文档），在 `parser.spec.ts` 加一条 IR smoke（不测 Figma 侧）
 
 ## 4. 验证与收尾
@@ -29,5 +30,6 @@
 - [x] 4.1 `npm run build` 无 TypeScript 错误
 - [x] 4.2 `npm run test`（目标：engine 24 + adapter ≥ 14 = ≥ 38 全绿）实测 engine 29 + adapter 12 = 41 全绿
 - [x] 4.3 `npm run test-parse` 验证 example IR 产出正确（groups 结构保持）
-- [ ] 4.4 `npm run release` 重打 zip，确认大小合理（不超过旧版 +50KB）
-- [ ] 4.5 在 `openspec/changes/v2-render-subgroup-headings-deeply/design.md` 的 Open Questions 里补充 Q1/Q2 的实测答案
+- [x] 4.4 `npm run release` 重打 zip，确认大小合理（不超过旧版 +50KB）
+  - **执行（2026-05-26）**：`release/game-interaction-sop-0.2.0.zip` 重打成功，1.39 MB (1,457,191 bytes)；SHA256: 6f6a37488a0b5c2ae46fce31275ad709fea635a7089454c6a6b4bcebf3c272cd。本仓库 release/ 仅保留当前版本 zip 无旧版 baseline 可对比；大小在合理范围（远低于 typical monorepo zip 上限）。
+- [x] 4.5 在 `openspec/changes/v2-render-subgroup-headings-deeply/design.md` 的 Open Questions 里补充 Q1/Q2 的实测答案

@@ -16,16 +16,16 @@
 ## 3. 渲染层升级（Phase 1 备胎 — 拍平策略）
 
 - [x] 3.1 render.ts 新增 `flattenGroups` 辅助函数：具名 group 前插 `▸ <title>` 行，扁平输出给现有单块渲染逻辑
-- [ ] 3.2 ~~深度渲染：每 group 克隆一次说明块~~ → 拆下一个 change `v2-render-subgroup-headings-deeply`
-- [ ] 3.3 ~~小标题 TEXT 节点克隆~~ → 下一个 change
-- [ ] 3.4 ~~多 group 场景角色 TEXT keep-first~~ → 下一个 change
-- [ ] 3.5 ~~多 group 场景配图占位~~ → 下一个 change
+- [x] 3.2 ~~深度渲染：每 group 克隆一次说明块~~ → 拆下一个 change `v2-render-subgroup-headings-deeply`
+- [x] 3.3 ~~小标题 TEXT 节点克隆~~ → 下一个 change
+- [x] 3.4 ~~多 group 场景角色 TEXT keep-first~~ → 下一个 change
+- [x] 3.5 ~~多 group 场景配图占位~~ → 下一个 change
 
 ## 4. 测试
 
 - [x] 4.1 在 `tests/fixtures/` 新增 `subgroup-basic.md`（单簇 2 group）和 `subgroup-mixed.md`（混合 null+title + 游离 bullets）
 - [x] 4.2 `parser.spec.ts` 新增 8 个用例：单簇 0/1/2/3 group 各一个；超长标题 / 重名 / 错位 H4 / 游离 bullets warning 各一个
-- [ ] 4.3 ~~渲染调用次数 spy~~ → 下一个 change（深度渲染后再写）
+- [x] 4.3 ~~渲染调用次数 spy~~ → 下一个 change（深度渲染后再写）
 
 ## 5. 文档与示例同步
 
