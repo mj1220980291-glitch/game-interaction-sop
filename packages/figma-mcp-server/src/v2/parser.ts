@@ -56,7 +56,7 @@ const DEAD_CATEGORY_NAMES = new Set([
 
 // --- Public entry --------------------------------------------------------
 
-export function parseV2(markdown: string): ParseResult {
+export function parseV2(markdown: string, opts?: ParseClustersOpts): ParseResult {
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
   const errors: HardError[] = [];
   const warnings: SoftWarning[] = [];
@@ -68,7 +68,7 @@ export function parseV2(markdown: string): ParseResult {
   const overview = parseOverview(lines, errors);
 
   // 3) Sections
-  const sections = parseSections(lines, errors, warnings);
+  const sections = parseSections(lines, errors, warnings, opts);
 
   const ir: DocIR | undefined =
     header && overview && sections
@@ -266,7 +266,8 @@ const SECTION_HEAD_RE = /^##\s+(\d{2})\.\s*(.+)$/;
 function parseSections(
   lines: string[],
   errors: HardError[],
-  warnings: SoftWarning[]
+  warnings: SoftWarning[],
+  opts?: ParseClustersOpts
 ): InterfaceSection[] | undefined {
   // Collect all `## NN. xxx` heading positions.
   const sectionStarts: Array<{ idx: number; numStr: string; name: string }> = [];
@@ -319,7 +320,7 @@ function parseSections(
     const stop = nxt ? nxt.idx : lines.length;
     const scope = lines.slice(start + 1, stop);
 
-    const clusters = parseClusters(scope, start + 1, errors, warnings);
+    const clusters = parseClusters(scope, start + 1, errors, warnings, opts);
     if (clusters.length === 0) {
       errors.push({
         code: HARD_ERROR_CODES.C1_NO_CLUSTERS,
@@ -356,11 +357,30 @@ function isGlobalSpecName(name: string): boolean {
   return keywords.some((k) => name.includes(k));
 }
 
+/**
+ * Options for parseClusters.
+ *
+ * stripH4 (default true):
+ *   When true, lines starting with `####` are silently skipped and do NOT
+ *   appear in SemanticCluster.bullets[]. This prevents the literal string
+ *   "#### 基础信息" from leaking into Figma text nodes when the document
+ *   uses sub-group headings.
+ *
+ *   Set to false to restore the original behaviour (#### lines are pushed
+ *   as plain-text bullets). This escape-hatch is intentionally undocumented
+ *   to the user; it exists only as a migration path for the future
+ *   "unify-parser-ir-across-packages" change.
+ */
+interface ParseClustersOpts {
+  stripH4?: boolean;
+}
+
 function parseClusters(
   scope: string[],
   scopeStartLineNo: number,
   errors: HardError[],
-  warnings: SoftWarning[]
+  warnings: SoftWarning[],
+  opts?: ParseClustersOpts
 ): SemanticCluster[] {
   const blocks = collectThreeHashSubsections(scope);
   const out: SemanticCluster[] = [];
@@ -407,6 +427,9 @@ function parseClusters(
     }
 
     // bullets: 跳过角色行后的所有 `- xxx`
+    // stripH4 (default true): skip lines that start with `####` so they
+    // don't appear as literal "#### 基础信息" text inside Figma text nodes.
+    const doStripH4 = opts?.stripH4 !== false; // default true
     const bullets: string[] = [];
     let pastRoleLine = false;
     for (const raw of b.bodyLines) {
@@ -418,6 +441,8 @@ function parseClusters(
         }
         continue;
       }
+      // Skip #### sub-heading lines when stripH4 is enabled.
+      if (doStripH4 && /^\s*#{4}/.test(t)) continue;
       const m = t.match(/^\s*[-*]\s+(.*)$/);
       if (m) bullets.push((m[1] ?? '').trim());
       // 非 bullet 的正文行（说明性段落）也保留为 bullet，以避免内容丢失

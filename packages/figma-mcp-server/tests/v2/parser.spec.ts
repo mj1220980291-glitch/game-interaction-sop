@@ -278,3 +278,98 @@ core
     expect(r.warnings.some((w) => w.code === SOFT_WARNING_CODES.W2_DEAD_CATEGORY_CLUSTER_NAME)).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// strip-h4-in-mcp-server-parser:
+// parseClusters STRIP_H4 behaviour
+// ─────────────────────────────────────────────────────────────
+
+describe('parseV2 — #### strip behaviour (h4-strip.md)', () => {
+  const r = parseV2(fixture('h4-strip.md'));
+
+  it('parses ok with no errors', () => {
+    expect(r.ok).toBe(true);
+    expect(r.errors).toEqual([]);
+  });
+
+  it('#### 行不出现在 bullets[] 里（默认 stripH4=true）', () => {
+    const cluster = r.ir!.sections[0]!.clusters[0]!;
+    const hasH4Literal = cluster.bullets.some((b) => b.startsWith('####'));
+    expect(hasH4Literal).toBe(false);
+  });
+
+  it('#### 分组下的真实 bullet 被保留', () => {
+    const cluster = r.ir!.sections[0]!.clusters[0]!;
+    // h4-strip.md has 5 real bullets across 2 subgroups
+    expect(cluster.bullets.length).toBe(5);
+    expect(cluster.bullets[0]).toBe('当前等级标签右侧显示一条黄色进度条');
+    expect(cluster.bullets[4]).toBe('升级音效同步播放');
+  });
+});
+
+describe('parseV2 — #### strip edge: 只有 #### 无真实 bullet', () => {
+  it('bullets 为空数组', () => {
+    const md = `# Demo
+跟进UI：a
+需求组：b
+易协作链接：c
+最后更新时间：2026.05.27
+
+## 设计总览
+
+### 功能背景
+bg
+
+### 核心交互
+core
+
+## 01. 测试界面
+
+### 仅分组标题簇
+@GUI
+
+#### 只有标题没有bullet
+#### 另一个标题也没有bullet
+`;
+    const r = parseV2(md);
+    expect(r.ok).toBe(true);
+    const cluster = r.ir!.sections[0]!.clusters[0]!;
+    expect(cluster.bullets).toEqual([]);
+  });
+});
+
+describe('parseV2 — stripH4: false 回退原始行为', () => {
+  it('stripH4=false 时 #### 字面量出现在 bullets[]', () => {
+    const md = `# Demo
+跟进UI：a
+需求组：b
+易协作链接：c
+最后更新时间：2026.05.27
+
+## 设计总览
+
+### 功能背景
+bg
+
+### 核心交互
+core
+
+## 01. 测试界面
+
+### 含分组标题的簇
+@GUI
+
+#### 基础信息
+- 规则1
+- 规则2
+`;
+    const r = parseV2(md, { stripH4: false });
+    expect(r.ok).toBe(true);
+    const cluster = r.ir!.sections[0]!.clusters[0]!;
+    // With stripH4=false, the "#### 基础信息" line is pushed as-is
+    expect(cluster.bullets.some((b) => b.startsWith('####'))).toBe(true);
+    // Real bullets still present
+    expect(cluster.bullets).toContain('规则1');
+    expect(cluster.bullets).toContain('规则2');
+  });
+});
