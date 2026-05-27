@@ -36,12 +36,10 @@ npm run build
 
 ```bash
 npm run test
-npm run test-parse
 ```
 
 期望看到：
-- `test`: 69/69 通过（migration smoke + 46 engine + 23 adapter）
-- `test-parse`: 解析 `examples/玩家等级系统/玩家等级系统_交互文档.md`，IR 列出 3 个 section、12 个 cluster，第 3 个标 `isGlobalSpec=true`
+- `test`: 全部通过（migration smoke + engine + adapter）
 
 ### 4. 把 figma-console MCP 配到你的 Agent
 
@@ -165,8 +163,6 @@ game-interaction-sop/
 │   └── adapter-dry-run.mjs → 打印 adapter 会生成的 JS 脚本 (debug 用)
 ├── vendor/
 │   └── figma-console-mcp-1.23.0.tgz   → 内置 MCP runtime, MIT
-├── examples/
-│   └── 玩家等级系统/  → 已跑通的参考输入
 ├── README.md          → 项目说明
 ├── SETUP.md           → 本文件
 └── package.json

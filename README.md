@@ -10,10 +10,8 @@ Figma interaction document — end-to-end in a single conversation.
 
 > **🔄 v0.3 升级提示**：从 v0.3 起 SOP 由原本的 4-Phase 重构为 **6-Stage**
 > 流程（含设计师独立创作阶段 Stage 2 + 设计稿对齐阶段 Stage 3）。已有的
-> v2 Markdown 文件、Figma 模板、引擎调用契约**完全向后兼容**——但 skill
-> 文档全部重写，使用本仓库的旧版例子（如 `examples/玩家等级系统/`）建议
-> 重新跑一遍 SOP 以生成新的 `_requirements.md` / `_design-understanding.json`
-> 双副产物。详见 [`openspec/changes/restructure-sop-to-6-stages/`](./openspec/changes/restructure-sop-to-6-stages/) 的迁移记录。
+> v2 Markdown 文件、Figma 模板、引擎调用契约**完全向后兼容**。
+> 详见 [`openspec/changes/restructure-sop-to-6-stages/`](./openspec/changes/restructure-sop-to-6-stages/) 的迁移记录。
 
 ---
 
@@ -85,7 +83,7 @@ directory will pick it up on the next session.
 
 ### 3. Feed it a requirement doc
 
-> "Run `game-interaction-sop` on `examples/玩家等级系统/等级系统.docx`.
+> "Run `game-interaction-sop` on `<your requirement doc>`.
 > Target Figma file: `<your duplicated template file URL>`."
 
 The AI will walk you through Stage 0 → 5 automatically. A complete run
@@ -100,9 +98,6 @@ produces:
   bubbles anchored to UI elements (or DEFAULT_BUBBLE_GRID fallback if
   Stage 3 was deferred), and main images rasterized from the
   designer's Figma frames
-
-See [`examples/玩家等级系统/`](./examples/玩家等级系统/) for a concrete
-reference input/output pair.
 
 ---
 
@@ -143,7 +138,6 @@ reference input/output pair.
 npm install                     # installs workspaces
 npm run build                   # tsc for all packages
 npm run test                    # smoke-check + vitest across packages
-npm run test-parse              # smoke-test parser with examples/玩家等级系统
 npm run check-skill-migration   # smoke that the 4-Phase → 6-Stage migration is clean
 
 # engine-only
