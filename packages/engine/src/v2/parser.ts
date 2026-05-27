@@ -55,7 +55,61 @@ const DEAD_CATEGORY_NAMES = new Set([
   '待确认'
 ]);
 
+// --- Section naming keywords (S3) ----------------------------------------
+//
+// 由 OpenSpec change `add-classify-prephase-for-markdown` 引入：
+//   - INTERFACE_KEYWORDS：章节名包含其中任一即满足 S3（可识别为关键界面 / UI 元素）
+//   - SECTION_ALLOWLIST_KEYWORDS：S3 的全局规范白名单（无独立 UI 主图也合法）
+//
+// 注意 `SECTION_ALLOWLIST_KEYWORDS` 与 `isGlobalSpecName` 的 4 词列表**不同**：
+// 白名单更宽（加了"流程/结算"），用于"S3 通过 + 仍按普通章节渲染（要主图）"；
+// `isGlobalSpec` 决定 renderer 是否跳过主图，仍只识别 4 个原始规范词。
+
+const INTERFACE_KEYWORDS: readonly string[] = [
+  '界面',
+  '面板',
+  '页',
+  '窗',
+  '卡',
+  '弹窗',
+  '弹层',
+  '区',
+  '条',
+  '栏',
+  '区域',
+  '版',
+  '入口',
+  '反馈',
+  '场景'
+];
+
+const SECTION_ALLOWLIST_KEYWORDS: readonly string[] = [
+  '全局',
+  '规范',
+  '组件',
+  '汇总',
+  '流程',
+  '结算'
+];
+
+// --- Cluster naming forbidden suffixes (W6) ------------------------------
+//
+// 由 OpenSpec change `add-classify-prephase-for-markdown` 引入：
+// `### 簇名` 与 `#### 子分类名` 以这些后缀结尾时 emit `W_CLUSTER_NAME_LOOKS_RULE`。
+// 推荐改为名词性界面信息块名（"基础信息" / "出售按钮"）或行为单元短语
+// （"hover 行为" / "折叠流程"）。
+const RULE_NAME_FORBIDDEN_SUFFIXES: readonly string[] = [
+  '时机',
+  '规则',
+  '层级',
+  '限制',
+  '边界',
+  '兼容',
+  '表现'
+];
+
 // --- Public entry --------------------------------------------------------
+
 
 export function parseV2(markdown: string): ParseResult {
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
@@ -330,6 +384,25 @@ function parseSections(
       continue;
     }
 
+    // S3 check: section name must hint a real UI surface (or be allowlisted
+    // as a global-spec chapter). Catches "stage-style" naming like
+    // "准备环节" / "选择环节" / "卡牌交换环节" that group rules by time/process
+    // instead of by interface.
+    if (!isSectionNameAcceptable(cur.name)) {
+      errors.push({
+        code: HARD_ERROR_CODES.H_SECTION_NOT_INTERFACE,
+        message:
+          `\`## ${cur.numStr}. ${cur.name}\` 章节名应含界面关键词或属于全局规范白名单；` +
+          `当前命名疑似按"流程时段"切分（如"xx 环节"）。\n` +
+          `界面关键词：${INTERFACE_KEYWORDS.join(' / ')}\n` +
+          `全局规范白名单：${SECTION_ALLOWLIST_KEYWORDS.join(' / ')}\n` +
+          `建议先按"界面/场景态 → 功能模块"重做分类决策（见 phase2-markdown.md Step 0）。`,
+        line: start + 1,
+        context: cur.name
+      });
+      continue;
+    }
+
     sections.push({
       index: cur.numStr,
       indexNum: parseInt(cur.numStr, 10),
@@ -340,6 +413,20 @@ function parseSections(
   }
 
   return sections;
+}
+
+/**
+ * S3 (add-classify-prephase-for-markdown):
+ * 章节名只要含 `INTERFACE_KEYWORDS` 或 `SECTION_ALLOWLIST_KEYWORDS` 任一即合法。
+ */
+function isSectionNameAcceptable(name: string): boolean {
+  for (const kw of INTERFACE_KEYWORDS) {
+    if (name.includes(kw)) return true;
+  }
+  for (const kw of SECTION_ALLOWLIST_KEYWORDS) {
+    if (name.includes(kw)) return true;
+  }
+  return false;
 }
 
 /**
@@ -411,11 +498,23 @@ function parseClusters(
       }
     }
 
-    // W2: dead-category cluster name
-    if (DEAD_CATEGORY_NAMES.has(b.title)) {
+    // W2: dead-category cluster name (revised by add-classify-prephase-for-markdown).
+    // W6: rule-property suffix. 命中两者只 emit 一次（W2 优先，更严格）。
+    if (DEAD_CATEGORY_NAMES.has(b.title) || endsWithAny(b.title, DEAD_CATEGORY_NAMES)) {
       warnings.push({
         code: SOFT_WARNING_CODES.W2_DEAD_CATEGORY_CLUSTER_NAME,
-        message: `\`### ${b.title}\` 是 v1 死分类，建议改用语义动词短语（如"入口规则"/"显示位置与切换"等）`,
+        message:
+          `\`### ${b.title}\` 是死分类命名（把多个功能的同类规则拍平到一起）。\n` +
+          `建议改用界面上可识别的功能模块 / 信息块名词（如"基础信息"、"出售按钮"、"hover 触发区"）。`,
+        line: absLine,
+        context: b.title
+      });
+    } else if (endsWithAny(b.title, RULE_NAME_FORBIDDEN_SUFFIXES)) {
+      warnings.push({
+        code: SOFT_WARNING_CODES.W_CLUSTER_NAME_LOOKS_RULE,
+        message:
+          `\`### ${b.title}\` 以规则属性后缀结尾（${RULE_NAME_FORBIDDEN_SUFFIXES.join(' / ')}）。\n` +
+          `建议改成名词性命名（如 "xxx 区" / "xxx 按钮"）或行为单元（"xxx 行为" / "xxx 流程"）。`,
         line: absLine,
         context: b.title
       });
@@ -572,6 +671,28 @@ function parseClusterGroups(
       }
       seenTitles.add(normalised);
 
+      // W2 / W6: dead-category & rule-property suffix also apply to #### sub-groups.
+      // Same precedence as on ###: W2 wins over W6.
+      if (DEAD_CATEGORY_NAMES.has(gt) || endsWithAny(gt, DEAD_CATEGORY_NAMES)) {
+        warnings.push({
+          code: SOFT_WARNING_CODES.W2_DEAD_CATEGORY_CLUSTER_NAME,
+          message:
+            `\`#### ${gt}\` 子分类是死分类命名。\n` +
+            `建议改用维度切分命名（如"基础信息" / "升级反馈" / "未锁定态" / "已锁定态"）。`,
+          line: absLineHint,
+          context: `${clusterTitle} > ${gt}`
+        });
+      } else if (endsWithAny(gt, RULE_NAME_FORBIDDEN_SUFFIXES)) {
+        warnings.push({
+          code: SOFT_WARNING_CODES.W_CLUSTER_NAME_LOOKS_RULE,
+          message:
+            `\`#### ${gt}\` 子分类以规则属性后缀结尾（${RULE_NAME_FORBIDDEN_SUFFIXES.join(' / ')}）。\n` +
+            `建议改成名词性维度切分名（"基础信息" / "升级反馈" / "默认态" 等）。`,
+          line: absLineHint,
+          context: `${clusterTitle} > ${gt}`
+        });
+      }
+
       groups.push({ title: gt, bullets: extractBullets(rg.lines) });
     }
   }
@@ -613,4 +734,16 @@ function parseRoleLine(line: string): string[] {
 
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
+}
+
+/**
+ * 任一后缀命中（区分大小写，按 endsWith 判定）。
+ * 接受 `readonly string[]` 或 `Set<string>` 作为词表。
+ */
+function endsWithAny(name: string, suffixes: readonly string[] | Set<string>): boolean {
+  const iter = suffixes instanceof Set ? Array.from(suffixes) : suffixes;
+  for (const sfx of iter) {
+    if (name.endsWith(sfx)) return true;
+  }
+  return false;
 }

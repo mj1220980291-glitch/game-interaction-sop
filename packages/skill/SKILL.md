@@ -25,8 +25,9 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
    细则：phases/phase1-analysis.md
         ↓
 [Phase 2 — v2 Markdown]
-   按 v2 格式产出 Markdown → 用户审核 → 用户确认 → 保存到磁盘
-   细则：phases/phase2-markdown.md
+   先做分类决策（界面清单 → 模块清单 → 规则归位 → 用户确认）
+   再按 v2 格式产出 Markdown → 用户审核 → 用户确认 → 保存到磁盘
+   细则：phases/phase2-markdown.md（含 Step 0 分类决策必经路径）
    规范：references/markdown-v2-spec.md
         ↓
 [Phase 3 — 索要设计稿]

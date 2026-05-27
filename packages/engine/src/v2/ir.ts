@@ -126,6 +126,12 @@ export const HARD_ERROR_CODES = {
   O2_OVERVIEW_SUBSECTIONS_INVALID: 'V2_O2_OVERVIEW_SUBSECTIONS_INVALID',
   S1_NO_SECTIONS: 'V2_S1_NO_SECTIONS',
   S2_SECTION_INDEX_NOT_CONTIGUOUS: 'V2_S2_SECTION_INDEX_NOT_CONTIGUOUS',
+  /**
+   * S3 (added by `add-classify-prephase-for-markdown`):
+   * 章节名既不含界面关键词清单也不在全局规范白名单内。
+   * Parser 通过启发式词表匹配，避免按"流程时段"切章节（"准备环节" / "选择环节" 等）。
+   */
+  H_SECTION_NOT_INTERFACE: 'V2_H_SECTION_NOT_INTERFACE',
   C1_NO_CLUSTERS: 'V2_C1_NO_CLUSTERS',
   C2_ROLE_LINE_MISSING: 'V2_C2_ROLE_LINE_MISSING',
   // G* — Group-level (#### subgroup headings)
@@ -142,7 +148,13 @@ export type HardErrorCode = (typeof HARD_ERROR_CODES)[keyof typeof HARD_ERROR_CO
 export const SOFT_WARNING_CODES = {
   W1_UNKNOWN_ROLE: 'V2_W1_UNKNOWN_ROLE',
   W2_DEAD_CATEGORY_CLUSTER_NAME: 'V2_W2_DEAD_CATEGORY_CLUSTER_NAME',
-  W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS: 'V2_W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS'
+  W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS: 'V2_W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS',
+  /**
+   * W6 (added by `add-classify-prephase-for-markdown`):
+   * 簇名 / 子分类名以规则属性后缀结尾（时机/规则/层级/限制/边界/兼容/表现）。
+   * 推荐用名词性界面信息块名（"基础信息"/"出售按钮"）或行为单元短语（"hover 行为"/"折叠流程"）。
+   */
+  W_CLUSTER_NAME_LOOKS_RULE: 'V2_W_CLUSTER_NAME_LOOKS_RULE'
 } as const;
 
 export type SoftWarningCode =

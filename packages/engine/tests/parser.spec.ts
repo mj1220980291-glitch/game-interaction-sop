@@ -49,7 +49,7 @@ describe('parseV2 — happy path (buzhong.md)', () => {
     expect(s1.clusters).toHaveLength(2);
     expect(s1.clusters[0]).toMatchObject({
       order: 1,
-      title: '入口规则',
+      title: '卡牌入口',
       roles: ['程序', 'GUI']
     });
     expect(s1.clusters[0]!.groups[0]!.bullets.length).toBeGreaterThan(0);
@@ -241,7 +241,7 @@ bg
 ### 核心交互
 core
 
-## 01. xx
+## 01. xx 界面
 ### foo
 @程序 @后端
 
@@ -268,7 +268,7 @@ bg
 ### 核心交互
 core
 
-## 01. xx
+## 01. xx 界面
 ### 显示规则
 @GUI
 
@@ -455,5 +455,101 @@ describe('parseV2 — subgroup-render-2group fixture', () => {
     expect(cluster.title).toBe('等级徽章');
     expect(cluster.groups).toHaveLength(1);
     expect(cluster.groups[0]!.title).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// add-classify-prephase-for-markdown:
+// S3 (H_SECTION_NOT_INTERFACE) + W6 (W_CLUSTER_NAME_LOOKS_RULE)
+// + W2 (W2_DEAD_CATEGORY_CLUSTER_NAME) for ### / #### naming
+// ─────────────────────────────────────────────────────────────
+
+describe('parseV2 — S3 / W6 / W2 命名校验', () => {
+  it('reports H_SECTION_NOT_INTERFACE for stage-style section name', () => {
+    const md = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'naming-violation-section.md'),
+      'utf8'
+    );
+    const r = parseV2(md);
+    expect(r.ok).toBe(false);
+    expect(
+      r.errors.some((e) => e.code === HARD_ERROR_CODES.H_SECTION_NOT_INTERFACE)
+    ).toBe(true);
+    const sectionErr = r.errors.find(
+      (e) => e.code === HARD_ERROR_CODES.H_SECTION_NOT_INTERFACE
+    );
+    expect(sectionErr?.message).toContain('准备环节');
+    expect(sectionErr?.message).toContain('界面关键词');
+  });
+
+  it('reports W_CLUSTER_NAME_LOOKS_RULE for rule-property suffix on ### cluster', () => {
+    const md = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'naming-violation-cluster.md'),
+      'utf8'
+    );
+    const r = parseV2(md);
+    expect(r.ok).toBe(true);
+    expect(
+      r.warnings.some(
+        (w) =>
+          w.code === SOFT_WARNING_CODES.W_CLUSTER_NAME_LOOKS_RULE &&
+          (w.context?.includes('展开 / 收起时机') ?? false)
+      )
+    ).toBe(true);
+  });
+
+  it('reports W2_DEAD_CATEGORY for legacy dead-category cluster name', () => {
+    const md = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'naming-violation-cluster.md'),
+      'utf8'
+    );
+    const r = parseV2(md);
+    expect(
+      r.warnings.some(
+        (w) =>
+          w.code === SOFT_WARNING_CODES.W2_DEAD_CATEGORY_CLUSTER_NAME &&
+          (w.context?.includes('显示规则') ?? false)
+      )
+    ).toBe(true);
+  });
+
+  it('W6 also applies to #### sub-group title with rule-property suffix', () => {
+    const md = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'naming-violation-cluster.md'),
+      'utf8'
+    );
+    const r = parseV2(md);
+    expect(
+      r.warnings.some(
+        (w) =>
+          w.code === SOFT_WARNING_CODES.W_CLUSTER_NAME_LOOKS_RULE &&
+          (w.context?.includes('视觉层级') ?? false)
+      )
+    ).toBe(true);
+  });
+
+  it('合法命名（"锁定天书按钮" / "升级反馈"）不触发 W6 / W2', () => {
+    const md = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'naming-violation-cluster.md'),
+      'utf8'
+    );
+    const r = parseV2(md);
+    // ### 锁定天书按钮 (context 恰好等于 "锁定天书按钮")
+    const noiseForLockButton = r.warnings.filter(
+      (w) =>
+        w.context === '锁定天书按钮' &&
+        (w.code === SOFT_WARNING_CODES.W_CLUSTER_NAME_LOOKS_RULE ||
+          w.code === SOFT_WARNING_CODES.W2_DEAD_CATEGORY_CLUSTER_NAME)
+    );
+    expect(noiseForLockButton).toHaveLength(0);
+
+    // #### 升级反馈 (context 形如 "锁定天书按钮 > 升级反馈")
+    const noiseForUpgradeFeedback = r.warnings.filter(
+      (w) =>
+        w.context?.endsWith('> 升级反馈') &&
+        (w.code === SOFT_WARNING_CODES.W_CLUSTER_NAME_LOOKS_RULE ||
+          w.code === SOFT_WARNING_CODES.W2_DEAD_CATEGORY_CLUSTER_NAME)
+    );
+    expect(noiseForUpgradeFeedback).toHaveLength(0);
   });
 });
