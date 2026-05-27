@@ -15,5 +15,5 @@
 ## 3. 验证 + 提交
 
 - [x] 3.1 `pnpm test` 全绿
-- [ ] 3.2 用 `选秀环节_交互文档.md` 做手动渲染冒烟：确认 bullet 文本里不再出现 `#### xxx` 字面量
-- [ ] 3.3 `git commit` + `git push`
+- [x] 3.2 用 `选秀环节_交互文档.md` 做手动渲染冒烟：确认 bullet 文本里不再出现 `#### xxx` 字面量
+- [x] 3.3 `git commit` + `git push`

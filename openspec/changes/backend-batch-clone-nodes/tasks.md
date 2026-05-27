@@ -25,7 +25,7 @@
 
 ## 5. 验证 + 提交
 
-- [ ] 5.1 用 `选秀环节_交互文档.md` 做 e2e 冒烟，记录渲染总时间（对比 Change 2 后基线）
-- [ ] 5.2 核查 Figma 里每个 cluster 的 bullet 文本顺序与 Markdown 顺序一致
-- [ ] 5.3 核查含 `####` 的 3 个 cluster（候选卡区、公共卡池、玩家浮岛）bullet 文本干净（Change 1 已修）
-- [ ] 5.4 `git commit` + `git push`
+- [x] 5.1 用 `选秀环节_交互文档.md` 做 e2e 冒烟，记录渲染总时间（对比 Change 2 后基线）
+- [x] 5.2 核查 Figma 里每个 cluster 的 bullet 文本顺序与 Markdown 顺序一致
+- [x] 5.3 核查含 `####` 的 3 个 cluster（候选卡区、公共卡池、玩家浮岛）bullet 文本干净（Change 1 已修）
+- [x] 5.4 `git commit` + `git push`
