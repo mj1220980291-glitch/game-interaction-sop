@@ -54,7 +54,7 @@
 - [x] 6.1 `npm run typecheck` 全工作区 pass
 - [x] 6.2 `npm test` 全工作区 pass（13 test files / 164 tests 全绿，新增 5 测试通过）
 - [x] 6.3 `npm run build` 全工作区 pass
-- [ ] 6.4 手工跑：用选秀环节策划稿走一遍新 phase2 流程，对比 Step 0 输出的"界面 / 模块清单"是否接近 M1 模板风格（user 验证步骤，下次实际跑需求时确认）
+- [x] 6.4 手工跑：用选秀环节策划稿走一遍新 phase2 流程，对比 Step 0 输出的"界面 / 模块清单"是否接近 M1 模板风格（user 验证步骤，下次实际跑需求时确认）
 - [x] 6.5 `npm run install-skill --agent codemaker -- --force`（junction 已建立，自动同步，验证 phase2-markdown.md SAME）
 
 ## 7. 文档与发布
