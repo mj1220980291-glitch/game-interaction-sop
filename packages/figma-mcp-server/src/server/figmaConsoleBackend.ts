@@ -120,6 +120,33 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
       return (r ?? []).map(mapNode);
     },
 
+    async scanSubtree(rootId, maxNodes = 500) {
+      const r = await exec(client, `
+        ${SERIALIZE_NODE_FN}
+        const root = await figma.getNodeByIdAsync(${JSON.stringify(rootId)});
+        if (!root) return { nodes: [], truncated: false };
+        const result = [];
+        let truncated = false;
+        const budget = ${maxNodes};
+        // Iterative BFS — avoids deep recursion; children prop is sync
+        const queue = [root];
+        while (queue.length > 0) {
+          if (result.length >= budget) { truncated = true; break; }
+          const node = queue.shift();
+          const s = await serNode(node);
+          if (s) result.push(s);
+          if ('children' in node) {
+            for (const c of node.children) queue.push(c);
+          }
+        }
+        return { nodes: result, truncated };
+      `, 25000) as { nodes: Array<Record<string, unknown>>; truncated: boolean };
+      return {
+        nodes: (r?.nodes ?? []).map(mapNode),
+        truncated: r?.truncated ?? false
+      };
+    },
+
     // --- Write ops -------------------------------------------------------
 
     async cloneNode({ sourceId, parentId, x, y, name }) {

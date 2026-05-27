@@ -59,6 +59,20 @@ export interface NodeInfo {
 }
 
 /**
+ * Result of a single-RTT subtree scan.
+ * @see FigmaBackend.scanSubtree
+ */
+export interface ScanSubtreeResult {
+  /** Flat array of all nodes in the subtree (BFS order, root included). */
+  nodes: NodeInfo[];
+  /**
+   * True when the scan hit the `maxNodes` budget and stopped early.
+   * Callers should fall back to the multi-RTT `scanAllDescendants` helper.
+   */
+  truncated: boolean;
+}
+
+/**
  * Backend the host must wire. Each method maps roughly 1:1 to a
  * figma-console MCP tool but with sane typing. Implementations are
  * expected to be async and may throw. The engine wraps every call to
@@ -70,6 +84,18 @@ export interface FigmaBackend {
 
   /** Read multiple nodes in one round-trip. */
   getNodesInfo(nodeIds: string[]): Promise<NodeInfo[]>;
+
+  /**
+   * Scan an entire subtree in a single `figma_execute` call.
+   *
+   * Returns a flat array of all descendants (BFS order, root included)
+   * and a `truncated` flag if the node count reached `maxNodes` (default 500).
+   *
+   * When `truncated` is true the caller SHOULD fall back to the old
+   * `scanAllDescendants` helper which uses multiple `getNodeInfo` RTTs but
+   * is guaranteed to be complete.
+   */
+  scanSubtree(rootId: string, maxNodes?: number): Promise<ScanSubtreeResult>;
 
   /**
    * Clone a node. If `parentId` omitted, clone next to the source.

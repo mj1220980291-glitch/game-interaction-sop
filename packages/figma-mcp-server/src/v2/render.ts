@@ -423,8 +423,18 @@ async function fillCluster(
   seedImageGroupId: string | undefined
 ): Promise<NodeInfo | undefined> {
   // Re-index names inside this cluster block.
+  // PR-1 (backend-scan-subtree-batch): use single-RTT scanSubtree instead of
+  // the old multi-RTT BFS. Falls back to scanAllDescendants when truncated.
   const clusterInfo = await backend.getNodeInfo(clusterNode.id);
-  const allDescendants = await scanAllDescendants(backend, clusterNode.id);
+  const { nodes: scanned, truncated } = await backend.scanSubtree(clusterNode.id);
+  const allDescendants = truncated
+    ? await scanAllDescendants(backend, clusterNode.id)
+    : scanned;
+  if (truncated) {
+    process.stderr.write(
+      `[render] scanSubtree truncated for cluster ${clusterNode.id} — fell back to multi-RTT BFS\n`
+    );
+  }
 
   // (Bug 1) Number TEXT → 1-based cluster index.
   const numberTexts = allDescendants.filter(
@@ -587,7 +597,16 @@ async function findSeedImageGroup(
   backend: FigmaBackend,
   sectionRootId: string
 ): Promise<string | undefined> {
-  const all = await scanAllDescendants(backend, sectionRootId);
+  // PR-1 (backend-scan-subtree-batch): single-RTT scanSubtree.
+  const { nodes: scanned, truncated } = await backend.scanSubtree(sectionRootId);
+  const all = truncated
+    ? await scanAllDescendants(backend, sectionRootId)
+    : scanned;
+  if (truncated) {
+    process.stderr.write(
+      `[render] scanSubtree truncated for section ${sectionRootId} in findSeedImageGroup\n`
+    );
+  }
   const hit = all.find(
     (n) => n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder
   );
@@ -685,9 +704,11 @@ async function applyAsset(
 }
 
 /**
- * Scan a node subtree breadth-first and return a name → first-match map,
- * limited to the names we care about. Stops as soon as all names are
- * resolved to keep round-trips low.
+ * Scan a node subtree and return a name → first-match map, limited to the
+ * names we care about.
+ *
+ * PR-1 (backend-scan-subtree-batch): uses single-RTT scanSubtree when
+ * available, falling back to the old multi-RTT BFS when truncated.
  */
 async function indexCloneByName(
   backend: FigmaBackend,
@@ -696,6 +717,22 @@ async function indexCloneByName(
 ): Promise<Record<string, NodeInfo>> {
   const wanted = new Set(names);
   const found: Record<string, NodeInfo> = {};
+
+  // Fast path: get entire subtree in one RTT, then filter in-process.
+  const { nodes: scanned, truncated } = await backend.scanSubtree(rootId);
+  if (!truncated) {
+    for (const info of scanned) {
+      if (wanted.has(info.name) && !found[info.name]) {
+        found[info.name] = info;
+      }
+    }
+    return found;
+  }
+
+  // Fallback: truncated subtree — revert to original multi-RTT BFS.
+  process.stderr.write(
+    `[render] scanSubtree truncated for ${rootId} in indexCloneByName — falling back to multi-RTT BFS\n`
+  );
   const queue: string[] = [rootId];
   const seen = new Set<string>();
   while (queue.length > 0 && Object.keys(found).length < names.length) {
