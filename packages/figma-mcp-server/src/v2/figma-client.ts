@@ -98,6 +98,23 @@ export interface FigmaBackend {
   scanSubtree(rootId: string, maxNodes?: number): Promise<ScanSubtreeResult>;
 
   /**
+   * Clone `count` copies of `sourceId` and append each to `parentId` in a
+   * single `figma_execute` call.
+   *
+   * Returns the cloned nodes in append order (same as calling `cloneNode`
+   * N times serially). Returns `[]` immediately when `count <= 0` without
+   * issuing a `figma_execute` call.
+   *
+   * Safety: throws if `parentId` resolves to a GROUP node (consistent with
+   * the GROUP-parent guard in `cloneNodeSafe`).
+   */
+  batchCloneNodes(p: {
+    sourceId: string;
+    parentId: string;
+    count: number;
+  }): Promise<NodeInfo[]>;
+
+  /**
    * Clone a node. If `parentId` omitted, clone next to the source.
    * If `x`/`y` provided, the backend must respect parent coord semantics
    * (PAGE = absolute; non-auto-layout FRAME = FRAME-local; AUTO_LAYOUT =

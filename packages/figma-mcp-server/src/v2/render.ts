@@ -336,12 +336,20 @@ async function renderSection(
       `section "${section.name}" has no "${SECTION_CHILD_NAMES.clusterBlockPrefix}XX" children to seed from`
     );
   }
-  while (clusterNodes.length < wanted) {
-    const clone = await cloneNodeSafe(backend, {
+  // PR-2 (backend-batch-clone-nodes): replace serial while-loop with single
+  // batchCloneNodes call. Original while-loop left as reference comment:
+  //   while (clusterNodes.length < wanted) {
+  //     const clone = await cloneNodeSafe(backend, { sourceId: source.id, parentId: rightCol.id });
+  //     clusterNodes.push(clone);
+  //   }
+  const clusterNeeded = wanted - clusterNodes.length;
+  if (clusterNeeded > 0) {
+    const newClusters = await backend.batchCloneNodes({
       sourceId: source.id,
-      parentId: rightCol.id
+      parentId: rightCol.id,
+      count: clusterNeeded
     });
-    clusterNodes.push(clone);
+    clusterNodes.push(...newClusters);
   }
   // Trim extras.
   if (existingBlocks.length > wanted) {
@@ -498,12 +506,20 @@ async function fillCluster(
   );
   const bulletNodes: NodeInfo[] = bulletTexts.slice(0, cluster.bullets.length);
   const bulletSource = bulletTexts[0];
-  while (bulletNodes.length < cluster.bullets.length && bulletSource) {
-    const clone = await cloneNodeSafe(backend, {
+  // PR-2 (backend-batch-clone-nodes): replace serial while-loop with single
+  // batchCloneNodes call. Original while-loop left as reference comment:
+  //   while (bulletNodes.length < cluster.bullets.length && bulletSource) {
+  //     const clone = await cloneNodeSafe(backend, { sourceId: bulletSource.id, parentId: bulletSource.parentId });
+  //     bulletNodes.push(clone);
+  //   }
+  const bulletNeeded = cluster.bullets.length - bulletNodes.length;
+  if (bulletNeeded > 0 && bulletSource?.parentId) {
+    const newBullets = await backend.batchCloneNodes({
       sourceId: bulletSource.id,
-      parentId: bulletSource.parentId
+      parentId: bulletSource.parentId,
+      count: bulletNeeded
     });
-    bulletNodes.push(clone);
+    bulletNodes.push(...newBullets);
   }
   if (bulletTexts.length > cluster.bullets.length) {
     await backend.deleteNodes(

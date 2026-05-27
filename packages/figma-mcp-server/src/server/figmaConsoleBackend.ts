@@ -149,6 +149,30 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
 
     // --- Write ops -------------------------------------------------------
 
+    async batchCloneNodes({ sourceId, parentId, count }) {
+      // Short-circuit: no work needed, avoid round-trip.
+      if (count <= 0) return [];
+
+      const r = await exec(client, `
+        ${SERIALIZE_NODE_FN}
+        const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
+        if (!src) throw new Error('batchCloneNodes: source not found: ' + ${JSON.stringify(sourceId)});
+        const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+        if (!parent) throw new Error('batchCloneNodes: parent not found: ' + ${JSON.stringify(parentId)});
+        if (parent.type === 'GROUP') {
+          throw new Error('batchCloneNodes: refusing to clone into a GROUP parent (id=' + ${JSON.stringify(parentId)} + ')');
+        }
+        const results = [];
+        for (let i = 0; i < ${count}; i++) {
+          const clone = src.clone();
+          parent.appendChild(clone);
+          results.push(await serNode(clone));
+        }
+        return results;
+      `, 20000) as Array<Record<string, unknown>>;
+      return (r ?? []).map(mapNode);
+    },
+
     async cloneNode({ sourceId, parentId, x, y, name }) {
       const r = await exec(client, `
         ${SERIALIZE_NODE_FN}
