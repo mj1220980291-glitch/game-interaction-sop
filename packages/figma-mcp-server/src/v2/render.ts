@@ -534,19 +534,22 @@ async function fillCluster(
   }
 
   // Bullets: 1 TEXT ("正文/规则") = 1 bullet. Clone or trim to match count.
+  // 配图：xxx bullets are used only to trigger the 配图占位 GROUP — they are
+  // NOT written into 正文/规则 TEXT nodes and do not consume a bullet slot.
+  const visibleBullets = cluster.bullets.filter((b) => !isImageBullet(b));
   const bulletTexts = allDescendants.filter(
     (n) =>
       n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText
   );
-  const bulletNodes: NodeInfo[] = bulletTexts.slice(0, cluster.bullets.length);
+  const bulletNodes: NodeInfo[] = bulletTexts.slice(0, visibleBullets.length);
   const bulletSource = bulletTexts[0];
   // PR-2 (backend-batch-clone-nodes): replace serial while-loop with single
   // batchCloneNodes call. Original while-loop left as reference comment:
-  //   while (bulletNodes.length < cluster.bullets.length && bulletSource) {
+  //   while (bulletNodes.length < visibleBullets.length && bulletSource) {
   //     const clone = await cloneNodeSafe(backend, { sourceId: bulletSource.id, parentId: bulletSource.parentId });
   //     bulletNodes.push(clone);
   //   }
-  const bulletNeeded = cluster.bullets.length - bulletNodes.length;
+  const bulletNeeded = visibleBullets.length - bulletNodes.length;
   if (bulletNeeded > 0 && bulletSource?.parentId) {
     const newBullets = await backend.batchCloneNodes({
       sourceId: bulletSource.id,
@@ -555,15 +558,15 @@ async function fillCluster(
     });
     bulletNodes.push(...newBullets);
   }
-  if (bulletTexts.length > cluster.bullets.length) {
+  if (bulletTexts.length > visibleBullets.length) {
     await backend.deleteNodes(
-      bulletTexts.slice(cluster.bullets.length).map((n) => n.id)
+      bulletTexts.slice(visibleBullets.length).map((n) => n.id)
     );
   }
   const bulletUpdates: Array<{ nodeId: string; characters: string }> = [];
-  for (let i = 0; i < cluster.bullets.length; i++) {
+  for (let i = 0; i < visibleBullets.length; i++) {
     const node = bulletNodes[i];
-    const raw = cluster.bullets[i] ?? '';
+    const raw = visibleBullets[i] ?? '';
     if (node) {
       // (Bug 10 / 2026-05-22 follow-up)
       // - Strip leading bullet marker ("- " / "* " / "· " / "• ") if any.
@@ -590,15 +593,45 @@ async function fillCluster(
   const existingImageGroups = allDescendants.filter(
     (n) => n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder
   );
+  // Track the live 配图 GROUP node ID after reconciliation.
+  let liveImageGroupId: string | undefined;
   if (needsImage && existingImageGroups.length === 0 && seedImageGroupId) {
-    await cloneNodeSafe(backend, {
+    const cloned = await cloneNodeSafe(backend, {
       sourceId: seedImageGroupId,
       parentId: clusterNode.id
     });
+    liveImageGroupId = cloned.id;
   } else if (!needsImage && existingImageGroups.length > 0) {
     await backend.deleteNodes(existingImageGroups.map((n) => n.id));
   } else if (needsImage && existingImageGroups.length > 1) {
     await backend.deleteNodes(existingImageGroups.slice(1).map((n) => n.id));
+    liveImageGroupId = existingImageGroups[0]?.id;
+  } else if (needsImage && existingImageGroups.length === 1) {
+    liveImageGroupId = existingImageGroups[0]?.id;
+  }
+
+  // If this cluster has a 配图：xxx bullet, write the description into the
+  // 配图占位文案 TEXT node so the designer knows what image to replace.
+  if (needsImage && liveImageGroupId) {
+    const imageBullet = cluster.bullets.find(isImageBullet);
+    if (imageBullet) {
+      const desc = imageBullet
+        .replace(/^\s*[-·•*]+\s*/, '')      // strip bullet marker
+        .replace(/^配图\s*[：:]\s*/u, '')   // strip "配图：" prefix
+        .trim();
+      if (desc) {
+        // Scan inside the 配图 GROUP for the hint TEXT node.
+        const { nodes: groupChildren } = await backend.scanSubtree(liveImageGroupId);
+        const hintText = groupChildren.find(
+          (n) =>
+            n.type === 'TEXT' &&
+            n.name === SECTION_CHILD_NAMES.optionalImagePlaceholderHint
+        );
+        if (hintText) {
+          await backend.setTextContent(hintText.id, `配图占位：${desc}`);
+        }
+      }
+    }
   }
 
   void clusterInfo;

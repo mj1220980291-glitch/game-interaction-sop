@@ -128,7 +128,9 @@ export const SECTION_CHILD_NAMES = {
   /** TEXT — one bullet line. Multiple instances per cluster; clone/trim to match bullet count. */
   clusterBulletText: '正文/规则',
   /** GROUP — optional main-image placeholder inside a cluster block. */
-  optionalImagePlaceholder: '配图'
+  optionalImagePlaceholder: '配图',
+  /** TEXT inside the 配图 GROUP — shows the image description hint for human reference. */
+  optionalImagePlaceholderHint: '配图占位文案'
 } as const;
 
 /**
