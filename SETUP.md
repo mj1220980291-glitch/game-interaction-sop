@@ -160,6 +160,54 @@ Skill 安装后，新开一个 Agent 会话即可使用。
 
 ---
 
+## 更新到新版本
+
+分发者推送了仓库更新后，**根据改动类型**执行对应步骤：
+
+```bash
+git pull
+```
+
+然后判断本次更新改了什么：
+
+```bash
+git log --oneline -5   # 看最近几条提交
+```
+
+| 改动类型 | 如何判断 | 需要做什么 |
+|---|---|---|
+| 引擎代码（`src/**/*.ts`） | commit 里有 `fix(render)` / `feat(render)` / `perf` 等 | ① `npm run build --prefix packages/figma-mcp-server` <br> ② 重启 MCP Server（见下） |
+| Skill 文件（`packages/skill/**`） | commit 里有 `feat(skill)` / `docs` 等 | `npm run install-skill -- --agent <你的 agent> --force` |
+| 两者都有 | | 以上步骤都做 |
+
+### 重启 MCP Server
+
+引擎代码编译完成后，需要重启 MCP Server 进程才能加载新代码：
+
+- **CodeMaker**：扳手图标 → MCP Servers → `figma-interaction-doc-engine` → 禁用，再启用
+- **Claude Desktop / Cursor / Cline**：完全退出并重新打开 Agent
+
+> 只重启会话（新建对话）**不够**，必须重启 MCP Server 进程本身。
+
+---
+
+## 开发模式（仅限本地迭代）
+
+如果你自己在改引擎代码或 Skill 文件，可以开启 watch 模式，文件保存后自动同步：
+
+```bash
+npm run watch                        # 默认 agent: codemaker
+npm run watch -- --agent claude      # 指定其他 agent
+```
+
+watch 模式会：
+- 监听 `packages/skill/**` → 自动执行 `install-skill --force`
+- 监听 `packages/figma-mcp-server/src/**` → 自动执行 `npm run build`，并提示你重启 MCP Server
+
+> **注意**：watch 只处理「同步到运行时」，每次引擎 build 后仍需手动重启 MCP Server 进程。
+
+---
+
 ## 开始使用
 
 配置完成后，在 Agent 里新开会话：
