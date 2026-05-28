@@ -120,8 +120,13 @@ function makeBackend() {
 
   const bubbleFrameId = uid('frame');
   addNode(master1Id, bubbleFrameId, '气泡', 'FRAME');  // SECTION_CHILD_NAMES.bubbleOverlayFrame = '气泡'
+  // Replicate real template 1:14: [标号/2 (first), 标号/1 (second)].
+  // 标号/2 is picked by find(startsWith '标号/'); 标号/1 becomes orphan without the fix.
+  const seed标号2Id = uid('frame');
+  addNode(bubbleFrameId, seed标号2Id, '标号/2', 'FRAME');  // first seed (picked by find)
+  addNode(seed标号2Id, uid('txt'), '#Number', 'TEXT', { characters: '2' });
   const seed标号Id = uid('frame');
-  addNode(bubbleFrameId, seed标号Id, '标号/1', 'FRAME');  // SECTION_CHILD_NAMES.bubbleNumberPrefix = '标号/'
+  addNode(bubbleFrameId, seed标号Id, '标号/1', 'FRAME');   // second seed (orphan without trim)
   addNode(seed标号Id, uid('txt'), '#Number', 'TEXT', { characters: '1' });
 
   const rightColId = uid('frame');
@@ -388,11 +393,14 @@ describe('renderV2MarkdownToFigma — multi-section clone ordering (bug fix 2026
 
     expect(result.ok, JSON.stringify(result.errors)).toBe(true);
 
-    // cloneLog[0] = first clone of masterSectionGroup (for section 2)
-    // At clone time, bubble frame should have been EMPTY (0 bubbles added yet),
-    // because phase 1 clones happen before phase 2 renders.
+    // cloneLog[0] = first clone of masterSectionGroup (for section 2).
+    // At clone time, bubble frame should contain only the TEMPLATE'S original
+    // seed nodes (2 seeds: 标号/2 and 标号/1), NOT any render-added bubbles.
+    // If the old bug were present, clone time would have 3+ items (template
+    // seeds + rendered bubbles from section 1).
     expect(cloneLog).toHaveLength(1); // 2 sections → 1 clone
-    expect(cloneLog[0].contentAtCallTime).toHaveLength(1); // only seed bubble, not rendered ones
+    // Template has 2 seeds; at clone time only template seeds should be present.
+    expect(cloneLog[0].contentAtCallTime).toHaveLength(2); // [标号/2, 标号/1] — template seeds only
   });
 
   it('3 sections: each section clone is made before any rendering fills the master', async () => {
@@ -406,10 +414,10 @@ describe('renderV2MarkdownToFigma — multi-section clone ordering (bug fix 2026
     // 3 sections → 2 clones of masterSectionGroup
     expect(cloneLog).toHaveLength(2);
 
-    // Both clones should have been made when bubble frame still had only the seed bubble.
-    // If old bug present: cloneLog[1].contentAtCallTime would have 3 items (section 1's bubbles).
-    expect(cloneLog[0].contentAtCallTime).toHaveLength(1);
-    expect(cloneLog[1].contentAtCallTime).toHaveLength(1);
+    // Both clones should have been made when bubble frame had only the 2 template seeds.
+    // If old bug present: cloneLog[1].contentAtCallTime would have 3+ items.
+    expect(cloneLog[0].contentAtCallTime).toHaveLength(2);
+    expect(cloneLog[1].contentAtCallTime).toHaveLength(2);
   });
 
   it('2 sections: section 1 has 2 clusters, section 2 has 1 cluster — bubble counts match', async () => {
@@ -483,5 +491,51 @@ describe('renderV2MarkdownToFigma — multi-section clone ordering (bug fix 2026
     expect(result.ok, JSON.stringify(result.errors)).toBe(true);
     // No clones of masterSectionGroup needed for single-section docs
     expect(cloneLog).toHaveLength(0);
+  });
+
+  it('orphan seed trim: template has 2 seeds [标号/2, 标号/1], after render bubble count = cluster count', async () => {
+    // This test verifies the fix for the orphan-seed bug:
+    // Real 1:14 template has [标号/2, 标号/1] in 气泡 FRAME.
+    // Without fix: 标号/1 becomes orphan → extra bubble always present.
+    // With fix: trim deletes 标号/1 before cluster loop → no orphan.
+    const { backend, store } = makeBackend();
+
+    const result = await renderV2MarkdownToFigma(
+      { markdown: MD_2_SECTIONS },
+      backend
+    );
+
+    expect(result.ok, JSON.stringify(result.errors)).toBe(true);
+
+    // Collect all 气泡 FRAMEs after render
+    const allBubbleFrames = Object.values(store).filter((n) => n.name === '气泡');
+    expect(allBubbleFrames.length).toBeGreaterThanOrEqual(2);
+
+    for (const bf of allBubbleFrames) {
+      // Every bubble node inside should be a '标号/...' node (no orphans)
+      const bubbleChildren = bf.children.map((id) => store[id]).filter(Boolean);
+      // None should be the orphan '标号/1' seed that was NOT the primary seed
+      // The primary seed is '标号/2' (first child); '标号/1' should have been deleted.
+      const orphan = bubbleChildren.find((n) => {
+        // An orphan is a 标号/ node whose #Number text was never updated
+        // (still holds the original template value, e.g. '1' or '2')
+        // We detect it by checking it was deleted from the store.
+        return false; // placeholder — real check below
+      });
+      // All remaining children should have names starting with '标号/'
+      for (const child of bubbleChildren) {
+        expect(child.name).toMatch(/^标号\//);
+      }
+    }
+
+    // MD_2_SECTIONS: section 1 has 2 clusters, section 2 has 1 cluster.
+    // With fix: section 1 bubble frame = 2, section 2 bubble frame = 1.
+    // Without fix: both frames would have extra orphan (3 and 2 respectively).
+    const frameSizes = allBubbleFrames.map((f) => f.children.length).sort();
+    expect(frameSizes).toContain(1); // section 2: 1 cluster
+    expect(frameSizes).toContain(2); // section 1: 2 clusters
+    // No frame should have more children than its cluster count + 1
+    // (if orphan is present, it adds 1 extra per section)
+    expect(frameSizes.every((s) => s <= 2)).toBe(true);
   });
 });

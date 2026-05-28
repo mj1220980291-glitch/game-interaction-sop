@@ -378,6 +378,24 @@ async function renderSection(
   const bubbleFrame = named[SECTION_CHILD_NAMES.bubbleOverlayFrame];
   const seedImageGroupId = await findSeedImageGroup(backend, sectionNode.id);
 
+  // Bug fix (2026-05-28): The 1:14 template ships with 2 seed bubbles inside
+  // 气泡 FRAME: [标号/2 (id 1:114), 标号/1 (id 1:118)].  fillCluster uses
+  // find(startsWith '标号/') which picks the FIRST child — 标号/2 — as the
+  // clone source.  标号/1 is never touched and becomes a permanent orphan,
+  // visually duplicating the ① bubble at the template's default position.
+  //
+  // Fix: before the cluster loop, trim the bubble frame to 1 seed.
+  // All excess seeds (index ≥ 1) are deleted here; the first seed is kept
+  // as the clone source.  Safe for isGlobalSpec sections too (bubbleFrame
+  // will be deleted entirely a few lines later).
+  if (bubbleFrame) {
+    const bubbleFrameInfo = await backend.getNodeInfo(bubbleFrame.id);
+    const seedIds = bubbleFrameInfo.childIds ?? [];
+    if (seedIds.length > 1) {
+      await backend.deleteNodes(seedIds.slice(1));
+    }
+  }
+
   const bubbleNodes: NodeInfo[] = [];
   for (let i = 0; i < section.clusters.length; i++) {
     const c = section.clusters[i];
