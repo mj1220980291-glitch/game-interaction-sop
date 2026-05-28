@@ -3,15 +3,10 @@
 AI-driven SOP for turning a game UI requirement doc into a structured
 Figma interaction document — end-to-end in a single conversation.
 
-> Requirement doc → designer Figma draft → v2 Markdown (validated) → Figma 1:14 document  
-> Runs in Claude / Codex / Cursor / Cline via the **figma-console MCP** plugin.
+> Strategy doc / UI spec → v2 Markdown (validated) → Figma 1:14 document  
+> Powered by **figma-interaction-doc-engine** MCP + AI agent skill.
 
-> **首次收到这份压缩包的同事，请先看 [SETUP.md](./SETUP.md) 的 4 步启用指南。**
-
-> **🔄 v0.3 升级提示**：从 v0.3 起 SOP 由原本的 4-Phase 重构为 **6-Stage**
-> 流程（含设计师独立创作阶段 Stage 2 + 设计稿对齐阶段 Stage 3）。已有的
-> v2 Markdown 文件、Figma 模板、引擎调用契约**完全向后兼容**。
-> 详见 [`openspec/changes/restructure-sop-to-6-stages/`](./openspec/changes/restructure-sop-to-6-stages/) 的迁移记录。
+> **首次配置？请把 [SETUP.md](./SETUP.md) 交给你的 AI Agent，让它引导你完成安装。**
 
 ---
 
@@ -58,77 +53,42 @@ TEMPLATE_NODE_ID  = '1:14'
 
 ---
 
-## 3-step quick start
+## Quick start
 
-### 1. Install the skill and the MCP runtime into your agent
+**完整步骤见 [SETUP.md](./SETUP.md)**，以下是最简流程：
 
 ```bash
-git clone https://github.com/YOUR_ORG/game-interaction-sop.git
-cd game-interaction-sop
-npm install
-npm run build
+# 1. 编译引擎
+cd packages/figma-mcp-server && npm install && npm run build
 
-# Unpack bundled figma-console-mcp and print a config snippet to paste:
-npm run install-mcp   -- --agent codex   # or claude / cursor / cline
+# 2. 安装 SOP Skill
+cd ../.. && npm run install-skill -- --agent codemaker   # 或 claude/cursor/cline
 
-# Copy the SOP skill into your agent's skills directory:
-npm run install-skill -- --agent codex   # or claude / cursor / cline
+# 3. 配置 MCP（仅一个 server）
+#    在 agent 的 MCP 配置里指向：
+#    packages/figma-mcp-server/dist/server/index.js
+#    并设置环境变量 FIGMA_ACCESS_TOKEN=<你的 Figma Token>
 ```
 
-### 2. Open your agent and activate the skill
-
-The skill lives at the path printed by the install script, e.g.
-`~/.codex/skills/game-interaction-sop/`. Agents that auto-scan this
-directory will pick it up on the next session.
-
-### 3. Feed it a requirement doc
-
-> "Run `game-interaction-sop` on `<your requirement doc>`.
-> Target Figma file: `<your duplicated template file URL>`."
-
-The AI will walk you through Stage 0 → 5 automatically. A complete run
-produces:
-
-- a `_requirements.md` derivative of the planner doc (planner source
-  preserved untouched)
-- a `_design-understanding.json` recording the UI ↔ requirement mapping
-  produced from the designer's Figma draft
-- a validated v2 Markdown `_交互文档.md` saved next to the source doc
-- a filled-in Figma document with multi-section layouts, numbered
-  bubbles anchored to UI elements (or DEFAULT_BUBBLE_GRID fallback if
-  Stage 3 was deferred), and main images rasterized from the
-  designer's Figma frames
+新开 Agent 会话后直接喂策划文档即可，Skill 会全程引导（Phase 1–4）。
 
 ---
 
-## How it works (1-screen summary)
+## How it works
 
 ```
- Stage 0   Routing            Agent reads planner doc → recommends 1A or 1B
-                              → user confirms / overrides
-       ↓
- Stage 1A  Fast Intake        Agent asks blocking questions only
-   OR     →                   Agent ALSO surfaces filtered UX suggestions
- Stage 1B  UX Co-Creation     (3-layer filter; explicit acceptance required)
-       ↓
- Stage 2   Designer Creation  Agent pauses; designer drafts in Figma
-                              → designer announces node IDs
-       ↓
- Stage 3   Design Alignment   Agent scans draft, maps to requirements,
-                              two-way dialogue → _design-understanding.json
-                              (conflicts ↻ Stage 1 partial re-review)
-       ↓
- Stage 4   Markdown           Agent generates _交互文档.md
-                              (synthesizes _requirements + _design-understanding)
-       ↓
- Stage 5   Figma Render       Engine renders into template 1:14 using
-                              designUnderstanding (preferred) / assetMap (legacy)
+Phase 1  需求挖掘      读策划文档 → 澄清阻塞问题 → 确认信息可用
+     ↓
+Phase 2  v2 Markdown  生成结构化交互文档 → 用户审核 → 保存磁盘
+     ↓
+Phase 3  索要设计稿   收集截图 / Figma 链接 / 或跳过用占位
+     ↓
+Phase 4  写入 Figma   引擎渲染到模板 1:14（气泡 + 说明块 + 配图占位）
 ```
 
-- **Skill** orchestrates the conversation and emits validated artifacts
-- **Engine** parses Markdown, validates, and issues Figma writes
-- **MCP Adapter** bridges agent's `figma_execute` → engine's `FigmaBackend`
-- **figma-console MCP** is the runtime that actually touches Figma
+- **Skill**（`packages/skill/`）— 引导对话，生成并验证 v2 Markdown
+- **Engine**（`packages/figma-mcp-server/`）— 解析 Markdown，写入 Figma 节点
+- **figma-console-mcp**（`vendor/`）— 实际操作 Figma 桌面端的运行时，由引擎内部管理
 
 ---
 

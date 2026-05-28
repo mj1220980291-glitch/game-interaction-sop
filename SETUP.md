@@ -1,176 +1,243 @@
-# 接收者上手指南
+# 上手配置指南
 
-本目录是 `game-interaction-sop` 的源码分发包，解压后请按下列步骤启用。
+> **面向 AI Agent**：本文档是结构化的逐步安装指南。你的 AI 助手可以直接读取这份文档，引导你完成全部配置。
+
+本仓库提供一套 AI 驱动的游戏 UI 交互文档 SOP，核心由三部分组成：
+
+| 部分 | 说明 |
+|---|---|
+| `packages/figma-mcp-server/` | MCP 引擎服务（`figma-interaction-doc-engine`），负责解析 Markdown 并写入 Figma 模板 |
+| `packages/skill/` | AI Agent 使用的 SOP Skill（4 个阶段的 Markdown 指引） |
+| `vendor/` | 内置的 `figma-console-mcp` 运行时（MIT 许可，无需单独安装） |
+
+---
 
 ## 前置要求
-
-必须在对方电脑上已准备好：
 
 | 项 | 最低版本 | 检查命令 |
 |---|---|---|
 | Node.js | ≥ 20 | `node -v` |
 | Figma 桌面端 | 最新 | — |
-| AI Agent | — | CodeMaker（仓库智聊） / Claude Desktop / Codex CLI / Cursor / Cline / … |
+| AI Agent（支持 MCP） | — | CodeMaker / Claude Desktop / Cursor / Cline 等 |
+| Figma Access Token | — | 见步骤 3 |
 
-> **figma-console MCP 不用单独装**：图形界面 Agent（CodeMaker 等）走 `npx -y figma-console-mcp@latest` 在线拉，命令行 Agent 想离线的话本仓库 `vendor/figma-console-mcp-1.23.0.tgz` 也带了一份。
+---
 
-## 5 步启用
+## 配置步骤
 
-### 1. 解压并进入目录
-
-```bash
-# 解压后
-cd game-interaction-sop
-```
-
-### 2. 安装依赖并编译
+### 步骤 1：克隆仓库并编译引擎
 
 ```bash
+git clone <仓库地址>
+cd game-interaction-sop/packages/figma-mcp-server
 npm install
 npm run build
 ```
 
-期望输出：两个包（`@game-interaction-sop/engine`、`@game-interaction-sop/mcp-adapter`）都 tsc 通过，无报错。
+编译成功后 `dist/server/index.js` 会出现，这就是 MCP Server 的入口。
 
-### 3. 跑冒烟测试确认环境 OK
+验证编译（可选）：
 
 ```bash
-npm run test
+node dist/server/index.js
+# 进程停在 stdin 等待，说明启动正常，Ctrl+C 退出
 ```
 
-期望看到：
-- `test`: 全部通过（migration smoke + engine + adapter）
+---
 
-### 4. 把 figma-console MCP 配到你的 Agent
+### 步骤 2：配置 figma-interaction-doc-engine MCP Server
 
-#### 4A · 图形界面 Agent（CodeMaker / 仓库智聊，**推荐**）
+> **重要**：只需配置 `figma-interaction-doc-engine` **一个** MCP Server。  
+> figma-console-mcp 已内置在引擎里，由引擎自动管理，**不需要**单独配置。
 
-照下面这张图操作：输入框右上角扳手图标 → MCP Server 旁的齿轮 → 添加自定义服务，填表保存即可。
+在你的 AI Agent 的 MCP 配置里添加以下条目（根据 agent 类型选对应格式）：
 
-![CodeMaker 配置 figma-console MCP](packages/skill/references/images/codemaker-mcp-setup.png)
+#### CodeMaker（推荐）
 
-字段对照表（**完全照填**）：
+在 CodeMaker 的 MCP 配置界面添加自定义服务：
 
 | 字段 | 值 |
 |---|---|
-| Name | `figma-console` |
+| Name | `figma-interaction-doc-engine` |
 | Type | `stdio` |
-| Command | `npx` |
-| Args | 第一行 `-y`，第二行 `figma-console-mcp@latest` |
-| Env | 一般留空。如要让 MCP 直接读 Figma 云文件再加 `FIGMA_ACCESS_TOKEN` |
-| AutoApprove | `true`（让 SOP 全程不被打断） |
-| Disabled | `false` |
+| Command | `node` |
+| Args（第一行） | `<仓库绝对路径>/packages/figma-mcp-server/dist/server/index.js` |
+| Env | `FIGMA_ACCESS_TOKEN=<你的 Token>` |
+| AutoApprove | `true` |
 | Timeout | `120` |
 
-保存后 MCP Server 列表里 `figma-console` 应该是 ✅ 已启用状态，工具栏会出现 `figma_execute` 等工具。
+#### Claude Desktop / Cursor / Cline（JSON 格式）
 
-#### 4B · 命令行 / IDE Agent（Codex / Claude / Cursor / Cline）
+打开对应 agent 的 MCP 配置文件，合并以下内容：
 
-```bash
-npm run install-mcp -- --agent codex     # 或 claude / cursor / cline
-# 走 npm registry 的话加 --online；默认从 vendor/ 离线解包
+```jsonc
+{
+  "mcpServers": {
+    "figma-interaction-doc-engine": {
+      "command": "node",
+      "args": [
+        "<仓库绝对路径>/packages/figma-mcp-server/dist/server/index.js"
+      ],
+      "env": {
+        "FIGMA_ACCESS_TOKEN": "<你的 Token>"
+      }
+    }
+  }
+}
 ```
 
-脚本会：
-1. 把 `figma-console-mcp` 解包到 `~/.game-interaction-sop/mcp/figma-console-mcp/`
-2. 打印一段 **MCP 配置 snippet**——复制粘贴到你 agent 的 MCP 配置文件里（脚本会告诉你文件路径）
-3. 提示你去 Figma 桌面端导入 `figma-desktop-bridge` 插件（一次性）
+Windows 路径示例：`C:\\Users\\yourname\\game-interaction-sop\\packages\\figma-mcp-server\\dist\\server\\index.js`
 
-粘完 snippet 后重启 agent。
+配置文件位置：
+- Claude Desktop（macOS）：`~/Library/Application Support/Claude/claude_desktop_config.json`
+- Claude Desktop（Windows）：`%APPDATA%\Claude\claude_desktop_config.json`
+- Cursor：`~/.cursor/mcp.json`
 
-> 已经用别的方式装过 `figma-console-mcp` 的话本步可跳过。
+配置完成后**重启 Agent**。
 
-### 5. 安装 skill 到你的 AI Agent
+---
+
+### 步骤 3：获取并配置 Figma Access Token
+
+1. 打开 Figma → 左上角头像 → **Settings** → **Security** → **Personal access tokens**
+2. 点 **Generate new token**，权限勾选 `File content: Read only`
+3. 复制生成的 Token（格式：`figd_xxxxxxx`）
+4. 填入步骤 2 的 `FIGMA_ACCESS_TOKEN` 环境变量
+
+---
+
+### 步骤 4：安装 Figma Desktop Bridge 插件（一次性）
+
+引擎通过 figma-console-mcp 操作 Figma，需要先在 Figma 桌面端安装并运行 bridge 插件。
+
+1. 运行以下命令查看插件 manifest 路径：
+
+   ```bash
+   node scripts/install-mcp.mjs --dry-run
+   ```
+
+   输出末尾会打印类似：
+   ```
+   Choose: ~/.game-interaction-sop/mcp/figma-console-mcp/figma-desktop-bridge/manifest.json
+   ```
+
+   > 也可以先运行 `node scripts/install-mcp.mjs --force`（解包 vendor 里的 tarball），再看路径。
+
+2. 打开 **Figma 桌面端** → 顶部菜单 → **Plugins** → **Development** → **Import plugin from manifest…**
+
+3. 选择上一步打印的 `manifest.json` 文件
+
+4. 每次使用 SOP 前，在目标 Figma 文件里运行这个插件并保持窗口打开
+
+---
+
+### 步骤 5：安装 SOP Skill 到 Agent
 
 ```bash
-# 选一个对应你的 agent
-npm run install-skill -- --agent codex
+# 在仓库根目录运行，选择对应你的 agent
+npm run install-skill -- --agent codemaker   # CodeMaker
 npm run install-skill -- --agent claude
 npm run install-skill -- --agent cursor
 npm run install-skill -- --agent cline
+
+# 确认安装路径（dry-run 不复制）
+npm run install-skill -- --agent codemaker --dry-run
 ```
 
-脚本会把 `packages/skill/` 的内容复制到对应 agent 的 skills 目录（例如 codex → `~/.codex/skills/game-interaction-sop/`）。
+Skill 安装后，新开一个 Agent 会话即可使用。
 
-> CodeMaker 用户：在 CodeMaker 里点扳手图标 → Skills 工具 → 旁边的齿轮 → 选定本仓库的 `packages/skill/` 目录即可，无需运行 install-skill 脚本。
+> **更新 skill**：当你拉取仓库新版本后，重新运行 `npm run install-skill -- --agent <你的 agent> --force` 同步最新内容。
 
-之后在你的 agent 里开新会话，就能调用这个 skill。
+---
 
-## 准备 Figma 模板
+### 步骤 6：准备 Figma 模板
 
-引擎代码里写死了模板文件 key `UYCJok3MXTWITMfeJSqEF6`。**你需要让分发者把模板文件复制到你的 Figma 账号下**（或者用共享权限）。
+引擎写入的目标是一个固定的 Figma 模板（file key `UYCJok3MXTWITMfeJSqEF6`，node `1:14`）。
 
-拿到模板文件后，用 AI Agent 跑流程时告诉它你要写入的 Figma 文件 URL 即可。
+1. 向分发者索取模板文件的 Figma 链接，或让对方把文件共享给你
+2. 将文件复制到你自己的 Figma 团队（`File → Duplicate`）
+3. 使用时把你的副本 URL 告诉 AI Agent
 
-## 日常使用（典型流程）
+---
+
+## 开始使用
+
+配置完成后，在 Agent 里新开会话：
 
 ```
-用户（你）：
-  用 game-interaction-sop 跑这个策划文档：[粘贴 docx 路径或内容]
-  Figma 目标文件：[你的 Figma URL]
-
-AI Agent：
-  Stage 0  → 读策划文档，判断走快速路径（1A）还是 UX 共创路径（1B），公开理由请你确认
-  Stage 1A/1B → 创建 _requirements.md 副本，确认阻塞问题（1B 还会过滤后给 UX 建议，需你点头才入）
-  Stage 2  → 暂停等设计师在 Figma 出稿，告诉 Agent 设计稿的 node ID
-  Stage 3  → Agent 扫描设计稿，把元素映射到需求，双向对话补齐 → _design-understanding.json
-  Stage 4  → 合成 _requirements + _design-understanding，输出 v2 Markdown 给你审核保存
-  Stage 5  → 调引擎写入 Figma（designUnderstanding 优先 / assetMap 回退）
+用 game-interaction-sop 处理这份策划文档：[策划文档路径或内容]
 ```
 
-Stage 5 期间，AI 会通过 figma-console MCP 插件操作 Figma，你可以在 Figma 里实时看到变化。
+Agent 会按 4 个阶段引导你：
+
+```
+Phase 1 — 需求挖掘       分析策划文档，澄清阻塞性问题
+     ↓
+Phase 2 — v2 Markdown    生成并保存结构化交互文档
+     ↓
+Phase 3 — 索要设计稿     收集截图 / Figma 链接 / 或跳过
+     ↓
+Phase 4 — 写入 Figma     调用引擎，渲染到模板 1:14
+```
+
+---
 
 ## 常见问题
 
-### Q1. `npm install` 失败？
+### Q1. 编译时 tsc 报错？
 
-看一下 Node 版本。需要 ≥ 20。有 nvm 的话 `nvm use 20`。
+```bash
+node -v   # 确认 ≥ 20
+cd packages/figma-mcp-server && npm install
+```
 
-### Q2. 测试过了，但 AI 不认识这个 skill？
+### Q2. Agent 不认识这个 skill？
 
-- 确认 skill 装到正确 agent 了：`node scripts/install-skill.mjs --agent <你的 agent> --dry-run` 会打印目标路径
-- 有些 agent 要重启会话才会发现新 skill
+- 确认安装路径正确：`npm run install-skill -- --agent <你的 agent> --dry-run`
+- 重启 Agent 会话（有些 agent 需要重启才扫描新 skill）
 
-### Q3. Stage 5 报"桥超时"？
+### Q3. Phase 4 报错 / Figma 没有变化？
 
-图片比较大时（>1MB）rasterize 可能触发 MCP 7s 超时。引擎已做优雅降级：主图位置保留占位，你自己在 Figma 里手动把图拖到占位矩形上盖住即可。详见 `packages/engine/docs/figma-mcp-pitfalls.md` Bug 15。
+按以下顺序排查：
+1. `figma-interaction-doc-engine` MCP Server 是否显示 ✅ 已连接
+2. `FIGMA_ACCESS_TOKEN` 是否正确设置
+3. Figma Desktop Bridge 插件是否在目标文件里运行中（插件窗口需保持打开）
+4. 目标 Figma 文件的 node `1:14` 是否可访问（权限是否足够）
 
-### Q4. 我想改代码？
+### Q4. 我想修改 skill 内容？
 
-- 改完 `packages/engine/src/**/*.ts` 或 `packages/mcp-adapter/src/**/*.ts` 后跑 `npm run build`
-- 改 skill Markdown 后重跑 `node scripts/install-skill.mjs --agent <你的 agent> --force` 才会同步到 agent 目录
+```bash
+# 编辑 packages/skill/phases/*.md 或 packages/skill/references/*.md
+# 改完后同步到 agent
+npm run install-skill -- --agent <你的 agent> --force
+```
 
-### Q5. figma-console MCP 装到哪了？怎么卸？
+### Q5. 想更新到最新版本？
 
-`install-mcp.mjs` 把 MCP 解包到 `~/.game-interaction-sop/mcp/figma-console-mcp/`（可通过 `npm run install-mcp -- --dry-run` 查看具体路径）。要卸载：
+```bash
+git pull
+cd packages/figma-mcp-server && npm install && npm run build
+npm run install-skill -- --agent <你的 agent> --force
+```
 
-1. 删除该目录
-2. 把当初粘到 agent config 里的 `figma-console` snippet 删掉
-3. 如果不再用这份 SOP，顺手把 `~/.<agent>/skills/game-interaction-sop/` 也删了
+---
 
 ## 目录结构速查
 
 ```
 game-interaction-sop/
 ├── packages/
-│   ├── engine/        → parser + renderer (TypeScript library)
-│   ├── mcp-adapter/   → FigmaBackend 实现, 桥接 figma-console MCP
-│   └── skill/         → AI agent 看的 SOP Markdown (SKILL.md + 4 phases)
+│   ├── figma-mcp-server/   → MCP 引擎服务（figma-interaction-doc-engine）
+│   │   ├── src/v2/         → parser + renderer 核心逻辑
+│   │   ├── bin/            → MCP Server 入口（编译后用 dist/server/index.js）
+│   │   └── tests/          → 单测
+│   └── skill/              → AI Agent SOP（SKILL.md + 4 phases + references）
 ├── scripts/
-│   ├── install-skill.mjs   → 装 skill 到 agent
-│   ├── install-mcp.mjs     → 装 figma-console MCP（离线/在线二选一）
-│   ├── test-parse.mjs      → 验 parser
-│   └── adapter-dry-run.mjs → 打印 adapter 会生成的 JS 脚本 (debug 用)
+│   ├── install-skill.mjs   → 安装 skill 到 agent
+│   └── install-mcp.mjs     → 解包 figma-console-mcp（步骤 4 用）
 ├── vendor/
-│   └── figma-console-mcp-1.23.0.tgz   → 内置 MCP runtime, MIT
-├── README.md          → 项目说明
-├── SETUP.md           → 本文件
+│   └── figma-console-mcp-1.23.0.tgz   → 内置 MCP runtime（MIT）
+├── README.md
+├── SETUP.md                → 本文件
 └── package.json
 ```
-
-## 反馈
-
-跑的过程中发现 bug / pitfalls / 不顺手的地方，直接联系分发者。请附上：
-- 策划文档（或能复现的最小片段）
-- AI Agent 的会话摘要（特别是 Stage 5 的错误信息）
-- `packages/engine/docs/figma-mcp-pitfalls.md` 里有没有类似条目
