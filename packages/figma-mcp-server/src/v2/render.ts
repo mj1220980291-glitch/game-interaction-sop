@@ -223,20 +223,36 @@ async function renderInner(
   let placeholdersUsed = 0;
   let imagesPlaced = 0;
 
+  // Bug fix (2026-05-28): Two-phase section rendering.
+  //
+  // PROBLEM: The original single-loop first rendered section 0 into
+  // masterSectionGroup, then cloned the already-filled masterSectionGroup
+  // for sections 1..N. Each clone inherited section 0's bubble nodes and
+  // cluster blocks, which were never cleaned up, producing:
+  //   - Duplicate bubble numbers (②③ from section 0 appearing in section 1's
+  //     bubble FRAME alongside section 1's own ①②)
+  //   - Section 2/3 main images visually identical to section 1 (inherited
+  //     bubble positions from the filled clone)
+  //
+  // FIX: Split into two phases so ALL clones are made while masterSectionGroup
+  // is still blank (before any content is written into it).
+  //
+  // Phase 1 — Clone all section nodes (masterSectionGroup is still empty).
+  const sectionNodes: NodeInfo[] = [masterSectionGroup]; // section 0 reuses master
+  for (let i = 1; i < ir.sections.length; i++) {
+    const clone = await cloneNodeSafe(backend, {
+      sourceId: masterSectionGroup.id, // ← still blank at this point
+      parentId: parentOfSections,
+      name: `界面说明${i + 1}`
+    });
+    sectionNodes.push(clone);
+  }
+
+  // Phase 2 — Render each section into its pre-cloned node.
   for (let i = 0; i < ir.sections.length; i++) {
     const section = ir.sections[i];
-    if (!section) continue;
-    let sectionNode: NodeInfo;
-    if (i === 0) {
-      // Reuse the master directly to avoid an extra clone.
-      sectionNode = masterSectionGroup;
-    } else {
-      sectionNode = await cloneNodeSafe(backend, {
-        sourceId: masterSectionGroup.id,
-        parentId: parentOfSections,
-        name: `界面说明${i + 1}`
-      });
-    }
+    const sectionNode = sectionNodes[i];
+    if (!section || !sectionNode) continue;
 
     await renderSection(backend, sectionNode, section, input.assetMap?.[section.index]);
 
