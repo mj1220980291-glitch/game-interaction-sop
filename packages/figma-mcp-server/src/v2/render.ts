@@ -59,6 +59,47 @@ import {
 } from './figma-client.js';
 import type { DocIR, HardError, SoftWarning, SemanticCluster } from './ir.js';
 
+// --- Traced clone helper -------------------------------------------------
+
+/**
+ * Contextual info attached to each cloneNode call site so that failures
+ * surface the exact location in the render pipeline instead of a bare ID.
+ */
+interface RenderTrace {
+  /** Logical name of the call site, e.g. 'phase1.master', 'fillCluster.bubble'. */
+  callSite: string;
+  /** `## NN.` section index, e.g. "01". */
+  sectionIndex?: string;
+  /** 0-based cluster index inside the section. */
+  clusterIndex?: number;
+}
+
+/**
+ * Drop-in replacement for `cloneNodeSafe` that enriches any thrown error
+ * with the call-site coordinates, making failures immediately locatable
+ * without re-running with extra logging.
+ *
+ * Error message format (prefix appended):
+ *   [fillCluster.bubble @ section=02 cluster=2] cloneNode: source not found: 184:10800
+ */
+async function tracedClone(
+  backend: FigmaBackend,
+  args: Parameters<typeof cloneNodeSafe>[1],
+  trace: RenderTrace
+): Promise<NodeInfo> {
+  try {
+    return await cloneNodeSafe(backend, args);
+  } catch (e) {
+    const err = e as Error & { code?: string };
+    const parts = [`[${trace.callSite}`];
+    if (trace.sectionIndex !== undefined) parts.push(` @ section=${trace.sectionIndex}`);
+    if (trace.clusterIndex !== undefined) parts.push(` cluster=${trace.clusterIndex}`);
+    parts.push('] ');
+    err.message = parts.join('') + err.message;
+    throw err;
+  }
+}
+
 // --- Public API ----------------------------------------------------------
 
 export type AssetSpec =
@@ -119,15 +160,23 @@ export async function renderV2MarkdownToFigma(
   await backend.commitUndoCheckpoint('v2-render-start');
   let rootInstanceId: string | undefined;
   try {
-    rootInstanceId = await renderInner(parsed.ir, input, backend);
+    rootInstanceId = await renderInner(
+      parsed.ir,
+      input,
+      backend,
+      (id) => { rootInstanceId = id; }   // set as soon as root is created
+    );
   } catch (e) {
     const err = e as Error & { code?: string };
-    // Best-effort rollback. Do NOT loop — one undo undoes the checkpoint
-    // boundary and lets the user inspect.
-    try {
-      await backend.triggerUndo(1);
-    } catch {
-      /* ignore undo failure */
+    // Best-effort rollback: delete the entire root subtree if it was created.
+    // More reliable than triggerUndo(1) which only undoes the last figma_execute
+    // entry and leaves the rest of the partial render on canvas.
+    if (rootInstanceId) {
+      try {
+        await backend.deleteNodes([rootInstanceId]);
+      } catch {
+        /* root may already be partially cleaned up — ignore */
+      }
     }
     return {
       ok: false,
@@ -155,14 +204,21 @@ export async function renderV2MarkdownToFigma(
 async function renderInner(
   ir: DocIR,
   input: RenderInput,
-  backend: FigmaBackend
+  backend: FigmaBackend,
+  onRootCreated?: (id: string) => void
 ): Promise<string> {
   // 1. Clone master template into target page.
-  const root = await cloneNodeSafe(backend, {
-    sourceId: TEMPLATE_NODE_ID,
-    parentId: input.target?.pageId,
-    name: ir.header.title
-  });
+  const root = await tracedClone(
+    backend,
+    {
+      sourceId: TEMPLATE_NODE_ID,
+      parentId: input.target?.pageId,
+      name: ir.header.title
+    },
+    { callSite: 'template.root' }
+  );
+  // Expose root.id immediately so the outer catch can delete it on failure.
+  onRootCreated?.(root.id);
 
   // 2. Resolve all named children of the cloned subtree we need:
   //    - 标题组件 → 4 TEXT slots + 文档标题 (we re-resolve by ID using HEADER_SLOTS' position-equivalents inside the clone)
@@ -240,11 +296,16 @@ async function renderInner(
   // Phase 1 — Clone all section nodes (masterSectionGroup is still empty).
   const sectionNodes: NodeInfo[] = [masterSectionGroup]; // section 0 reuses master
   for (let i = 1; i < ir.sections.length; i++) {
-    const clone = await cloneNodeSafe(backend, {
-      sourceId: masterSectionGroup.id, // ← still blank at this point
-      parentId: parentOfSections,
-      name: `界面说明${i + 1}`
-    });
+    const section = ir.sections[i];
+    const clone = await tracedClone(
+      backend,
+      {
+        sourceId: masterSectionGroup.id, // ← still blank at this point
+        parentId: parentOfSections,
+        name: `界面说明${i + 1}`
+      },
+      { callSite: 'phase1.master', sectionIndex: section?.index }
+    );
     sectionNodes.push(clone);
   }
 
@@ -407,7 +468,9 @@ async function renderSection(
       c,
       section.isGlobalSpec ? undefined : bubbleFrame,
       i + 1,
-      seedImageGroupId
+      seedImageGroupId,
+      section.index,
+      i
     );
     if (bubble) bubbleNodes.push(bubble);
   }
@@ -462,7 +525,9 @@ async function fillCluster(
   cluster: SemanticCluster,
   bubbleFrame: NodeInfo | undefined,
   bubbleNumber: number,
-  seedImageGroupId: string | undefined
+  seedImageGroupId: string | undefined,
+  sectionIndex: string,
+  clusterIndex: number
 ): Promise<NodeInfo | undefined> {
   // Re-index names inside this cluster block.
   // PR-1 (backend-scan-subtree-batch): use single-RTT scanSubtree instead of
@@ -596,10 +661,11 @@ async function fillCluster(
   // Track the live 配图 GROUP node ID after reconciliation.
   let liveImageGroupId: string | undefined;
   if (needsImage && existingImageGroups.length === 0 && seedImageGroupId) {
-    const cloned = await cloneNodeSafe(backend, {
-      sourceId: seedImageGroupId,
-      parentId: clusterNode.id
-    });
+    const cloned = await tracedClone(
+      backend,
+      { sourceId: seedImageGroupId, parentId: clusterNode.id },
+      { callSite: 'fillCluster.seedImage', sectionIndex, clusterIndex }
+    );
     liveImageGroupId = cloned.id;
   } else if (!needsImage && existingImageGroups.length > 0) {
     await backend.deleteNodes(existingImageGroups.map((n) => n.id));
@@ -653,10 +719,11 @@ async function fillCluster(
   if (bubbleNumber === 1) {
     myBubble = sourceBubble;
   } else {
-    myBubble = await cloneNodeSafe(backend, {
-      sourceId: sourceBubble.id,
-      parentId: bubbleFrame.id
-    });
+    myBubble = await tracedClone(
+      backend,
+      { sourceId: sourceBubble.id, parentId: bubbleFrame.id },
+      { callSite: 'fillCluster.bubble', sectionIndex, clusterIndex }
+    );
   }
   // Locate #Number TEXT inside the bubble.
   const myBubbleInfo = await backend.getNodeInfo(myBubble.id);

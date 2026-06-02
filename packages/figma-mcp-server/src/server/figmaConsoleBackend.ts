@@ -156,7 +156,10 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
       const r = await exec(client, `
         ${SERIALIZE_NODE_FN}
         const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
-        if (!src) throw new Error('batchCloneNodes: source not found: ' + ${JSON.stringify(sourceId)});
+        if (!src) {
+          const topLevel = figma.currentPage.children.map(c => ({ id: c.id, name: c.name, type: c.type }));
+          throw new Error('batchCloneNodes: source not found: ' + ${JSON.stringify(sourceId)} + ' | top-level: ' + JSON.stringify(topLevel));
+        }
         const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
         if (!parent) throw new Error('batchCloneNodes: parent not found: ' + ${JSON.stringify(parentId)});
         if (parent.type === 'GROUP') {
@@ -177,7 +180,10 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
       const r = await exec(client, `
         ${SERIALIZE_NODE_FN}
         const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
-        if (!src) throw new Error('cloneNode: source not found: ' + ${JSON.stringify(sourceId)});
+        if (!src) {
+          const topLevel = figma.currentPage.children.map(c => ({ id: c.id, name: c.name, type: c.type }));
+          throw new Error('cloneNode: source not found: ' + ${JSON.stringify(sourceId)} + ' | top-level: ' + JSON.stringify(topLevel));
+        }
         const clone = src.clone();
         ${name != null ? `clone.name = ${JSON.stringify(name)};` : ''}
         ${parentId != null ? `
