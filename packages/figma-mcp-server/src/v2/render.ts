@@ -404,7 +404,12 @@ async function renderSection(
     c.name.startsWith(SECTION_CHILD_NAMES.clusterBlockPrefix)
   );
 
-  const wanted = section.clusters.length;
+  // A cluster with `####` sub-groups occupies one 说明块 PER GROUP. Budget
+  // them all here rather than cloning inside fillCluster: the right column
+  // is an AUTO_LAYOUT stack and the backend can only APPEND, so a late clone
+  // would land after every other cluster's block instead of next to its own.
+  const blocksPerCluster = section.clusters.map((c) => blockCountFor(c));
+  const wanted = blocksPerCluster.reduce((a, b) => a + b, 0);
   const clusterNodes: NodeInfo[] = existingBlocks.slice(0, wanted);
   // Clone from first block for any missing slots.
   const source = existingBlocks[0];
@@ -458,13 +463,16 @@ async function renderSection(
   }
 
   const bubbleNodes: NodeInfo[] = [];
+  let blockCursor = 0;
   for (let i = 0; i < section.clusters.length; i++) {
     const c = section.clusters[i];
-    const cn = clusterNodes[i];
-    if (!c || !cn) continue;
+    const count = blocksPerCluster[i] ?? 1;
+    const blocks = clusterNodes.slice(blockCursor, blockCursor + count);
+    blockCursor += count;
+    if (!c || blocks.length === 0) continue;
     const bubble = await fillCluster(
       backend,
-      cn,
+      blocks,
       c,
       section.isGlobalSpec ? undefined : bubbleFrame,
       i + 1,
@@ -519,9 +527,23 @@ async function renderSection(
   }
 }
 
+/**
+ * How many 说明块 a cluster needs: one per `####` sub-group, minimum 1.
+ * A cluster with no `####` has exactly one implicit group → 1 block, which
+ * keeps the no-subgroup render path byte-identical to the pre-groups engine.
+ */
+function blockCountFor(cluster: SemanticCluster): number {
+  return Math.max(1, cluster.groups.length);
+}
+
+/** True when the cluster carries no `####` at all — the fast path. */
+function isSingleDefaultGroup(cluster: SemanticCluster): boolean {
+  return cluster.groups.length <= 1 && (cluster.groups[0]?.title ?? null) === null;
+}
+
 async function fillCluster(
   backend: FigmaBackend,
-  clusterNode: NodeInfo,
+  blockNodes: NodeInfo[],
   cluster: SemanticCluster,
   bubbleFrame: NodeInfo | undefined,
   bubbleNumber: number,
@@ -529,6 +551,7 @@ async function fillCluster(
   sectionIndex: string,
   clusterIndex: number
 ): Promise<NodeInfo | undefined> {
+  const clusterNode = blockNodes[0]!;
   // Re-index names inside this cluster block.
   // PR-1 (backend-scan-subtree-batch): use single-RTT scanSubtree instead of
   // the old multi-RTT BFS. Falls back to scanAllDescendants when truncated.
@@ -542,6 +565,8 @@ async function fillCluster(
       `[render] scanSubtree truncated for cluster ${clusterNode.id} — fell back to multi-RTT BFS\n`
     );
   }
+
+  const singleDefault = isSingleDefaultGroup(cluster);
 
   // (Bug 1) Number TEXT → 1-based cluster index.
   const numberTexts = allDescendants.filter(
@@ -562,19 +587,21 @@ async function fillCluster(
     );
   }
 
-  // (Bug 9 / 2026-05-22 follow-up) #Title — placeholder slot reserved for
-  // future #### sub-grouping inside a cluster.
-  // The v2 IR currently has NO #### support (parser does not emit
-  // sub-groups, SemanticCluster has no subgroups field), so every
-  // remaining #Title in the cloned cluster would otherwise leak the
-  // template's literal "小标题1 / 小标题2" placeholder into the output.
-  // Delete all of them. When/if #### support lands, switch this back to
-  // "clone+fill per subgroup, drop the rest".
+  // #Title — the sub-group heading slot. The template ships 2 instances
+  // ("小标题1 / 小标题2").
+  //   - no `####` in the markdown → nothing to write, so ALL instances are
+  //     deleted; otherwise the literal placeholder text leaks into the doc.
+  //   - with `####`               → keep the first as the heading slot for
+  //     this block, drop the rest.
   const subTitles = allDescendants.filter(
     (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle
   );
-  if (subTitles.length > 0) {
-    await backend.deleteNodes(subTitles.map((n) => n.id));
+  if (singleDefault) {
+    if (subTitles.length > 0) {
+      await backend.deleteNodes(subTitles.map((n) => n.id));
+    }
+  } else if (subTitles.length > 1) {
+    await backend.deleteNodes(subTitles.slice(1).map((n) => n.id));
   }
 
   // Role tags (Bug 9): template may carry multiple "Frame 4273..." role frames.
@@ -598,10 +625,91 @@ async function fillCluster(
     }
   }
 
+  if (singleDefault) {
+    await fillBlockContent(backend, {
+      blockId: clusterNode.id,
+      allDescendants,
+      bullets: cluster.bullets,
+      seedImageGroupId,
+      sectionIndex,
+      clusterIndex
+    });
+  } else {
+    await fillGroupBlocks(backend, blockNodes, cluster, allDescendants, {
+      seedImageGroupId,
+      sectionIndex,
+      clusterIndex
+    });
+  }
+
+  void clusterInfo;
+
+  // Bubble: clone 标号/N inside 气泡 FRAME, set #Number TEXT.
+  if (!bubbleFrame) return undefined;
+  const bubbleFrameInfo = await backend.getNodeInfo(bubbleFrame.id);
+  if (!bubbleFrameInfo.childIds || bubbleFrameInfo.childIds.length === 0) {
+    return undefined;
+  }
+  const allBubbleChildren = await backend.getNodesInfo(bubbleFrameInfo.childIds);
+  const sourceBubble =
+    allBubbleChildren.find((c) =>
+      c.name.startsWith(SECTION_CHILD_NAMES.bubbleNumberPrefix)
+    ) ?? allBubbleChildren[0];
+  if (!sourceBubble) return undefined;
+
+  let myBubble: NodeInfo;
+  if (bubbleNumber === 1) {
+    myBubble = sourceBubble;
+  } else {
+    myBubble = await tracedClone(
+      backend,
+      { sourceId: sourceBubble.id, parentId: bubbleFrame.id },
+      { callSite: 'fillCluster.bubble', sectionIndex, clusterIndex }
+    );
+  }
+  // Locate #Number TEXT inside the bubble.
+  const myBubbleInfo = await backend.getNodeInfo(myBubble.id);
+  if (myBubbleInfo.childIds && myBubbleInfo.childIds.length > 0) {
+    const kids = await backend.getNodesInfo(myBubbleInfo.childIds);
+    const numText =
+      kids.find(
+        (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.bubbleNumberText
+      ) ?? kids.find((n) => n.type === 'TEXT');
+    if (numText) await backend.setTextContent(numText.id, String(bubbleNumber));
+  }
+  return myBubble;
+}
+
+interface FillBlockContentParams {
+  /** The 说明块 FRAME whose contents are being written. */
+  blockId: string;
+  /** Pre-scanned descendants of `blockId`. Never re-scanned here. */
+  allDescendants: NodeInfo[];
+  /** The bullets belonging to this block (one group's worth, or the whole cluster). */
+  bullets: string[];
+  seedImageGroupId: string | undefined;
+  sectionIndex: string;
+  clusterIndex: number;
+}
+
+/**
+ * Write one 说明块's bullet list and reconcile its 配图占位.
+ *
+ * Shared by the no-`####` fast path (called once with the whole cluster's
+ * bullets) and the `####` path (called once per group). The call sequence is
+ * unchanged from the pre-groups engine, which is what keeps documents
+ * without `####` rendering byte-identically.
+ */
+async function fillBlockContent(
+  backend: FigmaBackend,
+  p: FillBlockContentParams
+): Promise<void> {
+  const { blockId, allDescendants, bullets, seedImageGroupId, sectionIndex, clusterIndex } = p;
+
   // Bullets: 1 TEXT ("正文/规则") = 1 bullet. Clone or trim to match count.
   // 配图：xxx bullets are used only to trigger the 配图占位 GROUP — they are
   // NOT written into 正文/规则 TEXT nodes and do not consume a bullet slot.
-  const visibleBullets = cluster.bullets.filter((b) => !isImageBullet(b));
+  const visibleBullets = bullets.filter((b) => !isImageBullet(b));
   const bulletTexts = allDescendants.filter(
     (n) =>
       n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText
@@ -654,7 +762,7 @@ async function fillCluster(
   }
 
   // (Bug 3+4) Two-way image placeholder reconciliation.
-  const needsImage = cluster.bullets.some(isImageBullet);
+  const needsImage = bullets.some(isImageBullet);
   const existingImageGroups = allDescendants.filter(
     (n) => n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder
   );
@@ -663,7 +771,7 @@ async function fillCluster(
   if (needsImage && existingImageGroups.length === 0 && seedImageGroupId) {
     const cloned = await tracedClone(
       backend,
-      { sourceId: seedImageGroupId, parentId: clusterNode.id },
+      { sourceId: seedImageGroupId, parentId: blockId },
       { callSite: 'fillCluster.seedImage', sectionIndex, clusterIndex }
     );
     liveImageGroupId = cloned.id;
@@ -676,10 +784,10 @@ async function fillCluster(
     liveImageGroupId = existingImageGroups[0]?.id;
   }
 
-  // If this cluster has a 配图：xxx bullet, write the description into the
+  // If this block has a 配图：xxx bullet, write the description into the
   // 配图占位文案 TEXT node so the designer knows what image to replace.
   if (needsImage && liveImageGroupId) {
-    const imageBullet = cluster.bullets.find(isImageBullet);
+    const imageBullet = bullets.find(isImageBullet);
     if (imageBullet) {
       const desc = imageBullet
         .replace(/^\s*[-·•*]+\s*/, '')      // strip bullet marker
@@ -699,51 +807,134 @@ async function fillCluster(
       }
     }
   }
+}
 
-  void clusterInfo;
+/**
+ * Render a cluster that uses `####` sub-groups.
+ *
+ * `blockNodes` was budgeted and cloned by `renderSection` in document order,
+ * so block i belongs to group i and the AUTO_LAYOUT stack already reads
+ * correctly. Block 0 is the cluster's original block — its number badge,
+ * main title and role tags were already handled by `fillCluster`. Blocks
+ * 1..N are clones of that same block, so they carry duplicates of all three;
+ * every one of them is stripped, because the badge, the title and the role
+ * list identify the CLUSTER, not the group. Repeating them once per group
+ * would imply three bubbles on the image when there is only one.
+ */
+async function fillGroupBlocks(
+  backend: FigmaBackend,
+  blockNodes: NodeInfo[],
+  cluster: SemanticCluster,
+  primaryDescendants: NodeInfo[],
+  ctx: {
+    seedImageGroupId: string | undefined;
+    sectionIndex: string;
+    clusterIndex: number;
+  }
+): Promise<void> {
+  for (let i = 0; i < cluster.groups.length; i++) {
+    const group = cluster.groups[i];
+    const block = blockNodes[i];
+    if (!group || !block) continue;
 
-  // Bubble: clone 标号/N inside 气泡 FRAME, set #Number TEXT.
-  if (!bubbleFrame) return undefined;
-  const bubbleFrameInfo = await backend.getNodeInfo(bubbleFrame.id);
-  if (!bubbleFrameInfo.childIds || bubbleFrameInfo.childIds.length === 0) {
-    return undefined;
-  }
-  const allBubbleChildren = await backend.getNodesInfo(bubbleFrameInfo.childIds);
-  const sourceBubble =
-    allBubbleChildren.find((c) =>
-      c.name.startsWith(SECTION_CHILD_NAMES.bubbleNumberPrefix)
-    ) ?? allBubbleChildren[0];
-  if (!sourceBubble) return undefined;
+    let descendants: NodeInfo[];
+    if (i === 0) {
+      descendants = primaryDescendants;
+    } else {
+      const { nodes, truncated } = await backend.scanSubtree(block.id);
+      descendants = truncated ? await scanAllDescendants(backend, block.id) : nodes;
 
-  let myBubble: NodeInfo;
-  if (bubbleNumber === 1) {
-    myBubble = sourceBubble;
-  } else {
-    myBubble = await tracedClone(
-      backend,
-      { sourceId: sourceBubble.id, parentId: bubbleFrame.id },
-      { callSite: 'fillCluster.bubble', sectionIndex, clusterIndex }
-    );
+      // Strip cluster-level identity from the follower blocks.
+      const stripIds: string[] = [];
+      for (const n of descendants) {
+        if (n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterNumberText) {
+          stripIds.push(n.id);
+        } else if (n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterTitle) {
+          stripIds.push(n.id);
+        } else if (
+          n.type === 'FRAME' &&
+          n.name.startsWith(SECTION_CHILD_NAMES.roleTagsFramePrefix)
+        ) {
+          stripIds.push(n.id);
+        }
+      }
+      // Follower blocks inherit both template #Title instances; keep one.
+      const followerSubTitles = descendants.filter(
+        (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle
+      );
+      stripIds.push(...followerSubTitles.slice(1).map((n) => n.id));
+      if (stripIds.length > 0) {
+        await backend.deleteNodes(stripIds);
+        const dropped = new Set(stripIds);
+        descendants = descendants.filter((n) => !dropped.has(n.id));
+      }
+    }
+
+    await writeSubgroupTitle(backend, descendants, group.title);
+
+    await fillBlockContent(backend, {
+      blockId: block.id,
+      allDescendants: descendants,
+      bullets: group.bullets,
+      seedImageGroupId: ctx.seedImageGroupId,
+      sectionIndex: ctx.sectionIndex,
+      clusterIndex: ctx.clusterIndex
+    });
   }
-  // Locate #Number TEXT inside the bubble.
-  const myBubbleInfo = await backend.getNodeInfo(myBubble.id);
-  if (myBubbleInfo.childIds && myBubbleInfo.childIds.length > 0) {
-    const kids = await backend.getNodesInfo(myBubbleInfo.childIds);
-    const numText =
-      kids.find(
-        (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.bubbleNumberText
-      ) ?? kids.find((n) => n.type === 'TEXT');
-    if (numText) await backend.setTextContent(numText.id, String(bubbleNumber));
+}
+
+/**
+ * Write a group's heading into the block's `#Title` TEXT.
+ *
+ * `title === null` only happens for the implicit leading group of a cluster
+ * that mixes free bullets with `####` (parser W3). That group has no heading
+ * to show, so the slot is deleted rather than left holding the template's
+ * literal "小标题1" placeholder.
+ *
+ * Fallback when the block has no `#Title` at all (non-canonical template):
+ * clone the first bullet TEXT and park it 4px above the bullet list. Coords
+ * are FRAME-local, so they are derived from the bullet source's own box.
+ */
+async function writeSubgroupTitle(
+  backend: FigmaBackend,
+  descendants: NodeInfo[],
+  title: string | null
+): Promise<void> {
+  const subTitle = descendants.find(
+    (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle
+  );
+
+  if (title === null) {
+    if (subTitle) await backend.deleteNodes([subTitle.id]);
+    return;
   }
-  return myBubble;
+
+  if (subTitle) {
+    await backend.setTextContent(subTitle.id, title);
+    return;
+  }
+
+  const bulletSource = descendants.find(
+    (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText
+  );
+  if (!bulletSource?.parentId) return;
+  const clone = await backend.cloneNode({
+    sourceId: bulletSource.id,
+    parentId: bulletSource.parentId
+  });
+  await backend.setTextContent(clone.id, title);
+  const srcBox = bulletSource.absoluteBoundingBox;
+  const cloneBox = clone.absoluteBoundingBox;
+  if (srcBox && cloneBox) {
+    await backend.moveNode(clone.id, srcBox.x, srcBox.y - cloneBox.height - 4);
+  }
 }
 
 /**
  * Locate a seed 配图 GROUP anywhere under the section, to use as a clone
  * source for clusters whose template block shipped without one. Falls back
  * to `undefined` if none exists (caller must decide whether to warn).
- */
-async function findSeedImageGroup(
+ */async function findSeedImageGroup(
   backend: FigmaBackend,
   sectionRootId: string
 ): Promise<string | undefined> {

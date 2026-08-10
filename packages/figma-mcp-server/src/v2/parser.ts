@@ -22,6 +22,7 @@ import {
   HARD_ERROR_CODES,
   ROLE_NAMES,
   SOFT_WARNING_CODES,
+  type BulletGroup,
   type DocHeader,
   type DocIR,
   type DesignOverview,
@@ -360,16 +361,17 @@ function isGlobalSpecName(name: string): boolean {
 /**
  * Options for parseClusters.
  *
- * stripH4 (default true):
- *   When true, lines starting with `####` are silently skipped and do NOT
- *   appear in SemanticCluster.bullets[]. This prevents the literal string
- *   "#### 基础信息" from leaking into Figma text nodes when the document
- *   uses sub-group headings.
+ * stripH4:
+ *   Legacy escape-hatch. Before `####` sub-grouping was implemented, this
+ *   flag defaulted to true and made the parser SILENTLY DROP every `####`
+ *   line — hiding "not implemented" behind "discarded". Sub-grouping is now
+ *   real (see `parseClusterGroups`), so `####` lines are always consumed as
+ *   group anchors and never leak into bullets.
  *
- *   Set to false to restore the original behaviour (#### lines are pushed
- *   as plain-text bullets). This escape-hatch is intentionally undocumented
- *   to the user; it exists only as a migration path for the future
- *   "unify-parser-ir-across-packages" change.
+ *   `stripH4: false` restores the pre-grouping behaviour: `####` lines are
+ *   pushed as plain-text bullets and no group is created. It exists only so
+ *   old fixtures can assert the historical shape; do not use it in
+ *   production paths.
  */
 interface ParseClustersOpts {
   stripH4?: boolean;
@@ -382,6 +384,20 @@ function parseClusters(
   warnings: SoftWarning[],
   opts?: ParseClustersOpts
 ): SemanticCluster[] {
+  // G1: `####` appearing before any `###` belongs to the `## NN.` scope
+  // directly, which has no cluster to attach to.
+  for (let i = 0; i < scope.length; i++) {
+    const t = (scope[i] ?? '').trim();
+    if (/^###\s+/.test(t)) break; // first ### found — #### after here is fine
+    if (/^####\s+/.test(t)) {
+      errors.push({
+        code: HARD_ERROR_CODES.H_H4_ORPHAN,
+        message: '`####` 子分类标题必须出现在 `### 语义簇` 内部，不能在章节顶层',
+        line: scopeStartLineNo + i + 1
+      });
+    }
+  }
+
   const blocks = collectThreeHashSubsections(scope);
   const out: SemanticCluster[] = [];
 
@@ -399,7 +415,7 @@ function parseClusters(
         line: absLine,
         context: b.title
       });
-      out.push({ order: i + 1, title: b.title, roles: [], bullets: [] });
+      out.push({ order: i + 1, title: b.title, roles: [], groups: [], bullets: [] });
       continue;
     }
 
@@ -426,38 +442,199 @@ function parseClusters(
       });
     }
 
-    // bullets: 跳过角色行后的所有 `- xxx`
-    // stripH4 (default true): skip lines that start with `####` so they
-    // don't appear as literal "#### 基础信息" text inside Figma text nodes.
-    const doStripH4 = opts?.stripH4 !== false; // default true
-    const bullets: string[] = [];
-    let pastRoleLine = false;
-    for (const raw of b.bodyLines) {
-      const t = raw;
-      if (!pastRoleLine) {
-        if (t.trim().length > 0 && t.trim() === firstNonEmpty.trim()) {
-          pastRoleLine = true;
-          continue;
-        }
-        continue;
-      }
-      // Skip #### sub-heading lines when stripH4 is enabled.
-      if (doStripH4 && /^\s*#{4}/.test(t)) continue;
-      const m = t.match(/^\s*[-*]\s+(.*)$/);
-      if (m) bullets.push((m[1] ?? '').trim());
-      // 非 bullet 的正文行（说明性段落）也保留为 bullet，以避免内容丢失
-      else if (t.trim().length > 0) bullets.push(t.trim());
-    }
+    // Split the cluster body into `####` groups. With no `####` present this
+    // yields exactly one { title: null, bullets } group — the backward-
+    // compatible shape the renderer's fast path keys off.
+    const groups =
+      opts?.stripH4 === false
+        ? [{ title: null, bullets: extractBulletsLegacy(b.bodyLines, firstNonEmpty) }]
+        : parseClusterGroups(
+            b.bodyLines,
+            firstNonEmpty,
+            absLine,
+            b.title,
+            errors,
+            warnings
+          );
 
     out.push({
       order: i + 1,
       title: b.title,
       roles,
-      bullets
+      groups,
+      bullets: groups.flatMap((g) => g.bullets)
     });
   }
 
   return out;
+}
+
+// --- `####` sub-group parsing --------------------------------------------
+
+/** 分组标题最大显示宽度（≈ 12 个中文字）。 */
+const GROUP_TITLE_MAX_WIDTH = 24;
+
+/** 计算字符串的"显示宽度"：CJK 字符宽度 2，其他宽度 1。 */
+function displayWidth(s: string): number {
+  let w = 0;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) ?? 0;
+    // CJK Unified Ideographs, fullwidth forms, Hangul, compatibility ideographs
+    if (
+      (cp >= 0x3000 && cp <= 0x9fff) ||
+      (cp >= 0xac00 && cp <= 0xd7af) ||
+      (cp >= 0xf900 && cp <= 0xfaff) ||
+      (cp >= 0xff00 && cp <= 0xff60)
+    ) {
+      w += 2;
+    } else {
+      w += 1;
+    }
+  }
+  return w;
+}
+
+/**
+ * 从簇的 bodyLines 里解析分组。
+ *
+ * bodyLines 结构（角色行在最前，其余是 bullets 和可选的 #### 行）：
+ *
+ *   @程序 @GUI
+ *
+ *   - 游离bullet          ← 在任何 #### 之前 → 进 title=null 隐式分组，emit W3
+ *
+ *   #### 基础信息
+ *   - bullet1
+ *
+ *   #### 升级反馈
+ *   - bullet2
+ */
+function parseClusterGroups(
+  bodyLines: string[],
+  roleLineText: string,
+  absLineHint: number,
+  clusterTitle: string,
+  errors: HardError[],
+  warnings: SoftWarning[]
+): BulletGroup[] {
+  const afterRoleLines = linesAfterRoleLine(bodyLines, roleLineText);
+
+  // Split by #### anchors. rawGroups[0] is always the implicit group.
+  interface RawGroup {
+    title: string | null;
+    lines: string[];
+  }
+  const rawGroups: RawGroup[] = [];
+  let current: RawGroup = { title: null, lines: [] };
+  for (const raw of afterRoleLines) {
+    const h4 = raw.trim().match(/^####\s+(.+)$/);
+    if (h4) {
+      rawGroups.push(current);
+      current = { title: (h4[1] ?? '').trim(), lines: [] };
+    } else {
+      current.lines.push(raw);
+    }
+  }
+  rawGroups.push(current);
+
+  const hasH4 = rawGroups.length > 1;
+  const freeBullets = extractBullets(rawGroups[0]?.lines ?? []);
+
+  if (!hasH4) {
+    return [{ title: null, bullets: freeBullets }];
+  }
+
+  const groups: BulletGroup[] = [];
+
+  // W5: free bullets mixed with named groups.
+  if (freeBullets.length > 0) {
+    warnings.push({
+      code: SOFT_WARNING_CODES.W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS,
+      message: `\`### ${clusterTitle}\` 中 \`####\` 之前有游离 bullet，建议要么全分组、要么全不分组`,
+      line: absLineHint,
+      context: clusterTitle
+    });
+    groups.push({ title: null, bullets: freeBullets });
+  }
+
+  const seenTitles = new Set<string>();
+  for (const rg of rawGroups.slice(1)) {
+    if (!rg) continue;
+    const gt = rg.title ?? '';
+
+    // G2: title display width
+    const width = displayWidth(gt);
+    if (width > GROUP_TITLE_MAX_WIDTH) {
+      errors.push({
+        code: HARD_ERROR_CODES.H_GROUP_TITLE_LEN_OVERFLOW,
+        message: `\`#### ${gt}\` 子分类标题过长（显示宽度 ${width} > ${GROUP_TITLE_MAX_WIDTH}），请缩短`,
+        line: absLineHint,
+        context: clusterTitle
+      });
+    }
+
+    // G3: duplicate title within the same cluster (case-insensitive)
+    const normalised = gt.toLowerCase();
+    if (seenTitles.has(normalised)) {
+      errors.push({
+        code: HARD_ERROR_CODES.H_GROUP_TITLE_DUPLICATE,
+        message: `\`### ${clusterTitle}\` 中出现重复的子分类标题 \`#### ${gt}\``,
+        line: absLineHint,
+        context: clusterTitle
+      });
+    }
+    seenTitles.add(normalised);
+
+    // W2 also applies to sub-group names.
+    if (DEAD_CATEGORY_NAMES.has(gt)) {
+      warnings.push({
+        code: SOFT_WARNING_CODES.W2_DEAD_CATEGORY_CLUSTER_NAME,
+        message: `\`#### ${gt}\` 是 v1 死分类，建议改用维度切分命名（如"基础信息"/"升级反馈"等）`,
+        line: absLineHint,
+        context: `${clusterTitle} > ${gt}`
+      });
+    }
+
+    groups.push({ title: gt, bullets: extractBullets(rg.lines) });
+  }
+
+  return groups;
+}
+
+/** 丢掉角色行及其之前的所有内容，返回其后的原始行。 */
+function linesAfterRoleLine(bodyLines: string[], roleLineText: string): string[] {
+  const out: string[] = [];
+  let pastRoleLine = false;
+  for (const raw of bodyLines) {
+    if (!pastRoleLine) {
+      if (raw.trim().length > 0 && raw.trim() === roleLineText.trim()) {
+        pastRoleLine = true;
+      }
+      continue;
+    }
+    out.push(raw);
+  }
+  return out;
+}
+
+/** 从行数组里提取 bullet 内容（去掉 `- ` 前缀）；非 bullet 的正文行也保留。 */
+function extractBullets(lines: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (t.length === 0) continue;
+    const m = t.match(/^\s*[-*]\s+(.*)$/);
+    if (m) out.push((m[1] ?? '').trim());
+    else out.push(t);
+  }
+  return out;
+}
+
+/**
+ * `stripH4: false` 的历史行为：不识别分组，`####` 行原样作为 bullet 保留。
+ */
+function extractBulletsLegacy(bodyLines: string[], roleLineText: string): string[] {
+  return extractBullets(linesAfterRoleLine(bodyLines, roleLineText));
 }
 
 /**

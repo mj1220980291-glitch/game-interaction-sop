@@ -44,6 +44,23 @@ export interface DesignOverview {
 }
 
 /**
+ * 一个簇内的分组单元。
+ *
+ * 作者在 `### 簇` 内部可以用 `#### 子分类标题` 把 bullets 切成若干组。
+ * 没有 `####` 时，parser 自动包出一个 title=null 的默认分组。
+ */
+export interface BulletGroup {
+  /**
+   * 子分类标题文本（已 trim）。
+   * - 非 null：由作者写的 `#### 小标题` 提供
+   * - null   ：隐式默认分组（簇内无任何 `####`，或 `####` 之前有游离 bullets）
+   */
+  title: string | null;
+  /** 归属该分组的 bullet 内容，不含开头 `- ` 标记 */
+  bullets: string[];
+}
+
+/**
  * 一个 ### 语义簇。属于某个 ## NN. [界面名称] 章节。
  * order = 章节内 1, 2, 3... ，等于该图上对应气泡编号。
  */
@@ -55,8 +72,19 @@ export interface SemanticCluster {
   /** @角色 行解析出的角色集合（已去重，按出现顺序） */
   roles: string[];
   /**
-   * 该簇下的 bullet 内容（不包含开头的 `- ` 标记）。
-   * `配图：xxx` 也作为一条普通 bullet，由 renderer 检测前缀决定是否走配图槽位。
+   * 分组列表，至少 1 个元素（`C2_ROLE_LINE_MISSING` 的残缺簇除外，为空数组）。
+   * - 无 `####` → 1 个 title=null 的默认分组，bullets 即原全部 bullets。
+   * - 有 `####` → 按出现顺序排列；若 `####` 之前有游离 bullets，
+   *   则额外在 index=0 插入 title=null 的隐式前置分组并 emit W3 警告。
+   */
+  groups: BulletGroup[];
+  /**
+   * `groups` 拍平后的全部 bullet，等价于 `groups.flatMap(g => g.bullets)`。
+   *
+   * 保留此字段的理由：它是「整簇有没有配图 bullet」「整簇一共几条」这类
+   * 跨分组判断的天然载体（见 render.ts 的 `needsImage` / 章节级统计），
+   * 用它比每处都写一遍 flatMap 更不容易漏。**它是派生字段**，
+   * parser 是唯一写入方，任何按分组渲染的逻辑都必须读 `groups`。
    */
   bullets: string[];
 }
@@ -99,6 +127,7 @@ export interface DocIR {
  *   O* — Overview (设计总览)
  *   S* — Section (## 章节级)
  *   C* — Cluster (### 语义簇级)
+ *   H_* — sub-Group (#### 簇内子分类级)
  */
 export const HARD_ERROR_CODES = {
   H1_HEADER_MISSING: 'V2_H1_HEADER_MISSING',
@@ -108,7 +137,13 @@ export const HARD_ERROR_CODES = {
   S1_NO_SECTIONS: 'V2_S1_NO_SECTIONS',
   S2_SECTION_INDEX_NOT_CONTIGUOUS: 'V2_S2_SECTION_INDEX_NOT_CONTIGUOUS',
   C1_NO_CLUSTERS: 'V2_C1_NO_CLUSTERS',
-  C2_ROLE_LINE_MISSING: 'V2_C2_ROLE_LINE_MISSING'
+  C2_ROLE_LINE_MISSING: 'V2_C2_ROLE_LINE_MISSING',
+  /** G1 — `####` 出现在 `## NN.` 直属内容区（`###` 之前） */
+  H_H4_ORPHAN: 'V2_H_H4_ORPHAN',
+  /** G2 — `####` 标题显示宽度 > 24 */
+  H_GROUP_TITLE_LEN_OVERFLOW: 'V2_H_GROUP_TITLE_LEN_OVERFLOW',
+  /** G3 — 同一簇内 `####` 标题重复（大小写不敏感） */
+  H_GROUP_TITLE_DUPLICATE: 'V2_H_GROUP_TITLE_DUPLICATE'
 } as const;
 
 export type HardErrorCode = (typeof HARD_ERROR_CODES)[keyof typeof HARD_ERROR_CODES];
@@ -118,7 +153,10 @@ export type HardErrorCode = (typeof HARD_ERROR_CODES)[keyof typeof HARD_ERROR_CO
  */
 export const SOFT_WARNING_CODES = {
   W1_UNKNOWN_ROLE: 'V2_W1_UNKNOWN_ROLE',
-  W2_DEAD_CATEGORY_CLUSTER_NAME: 'V2_W2_DEAD_CATEGORY_CLUSTER_NAME'
+  W2_DEAD_CATEGORY_CLUSTER_NAME: 'V2_W2_DEAD_CATEGORY_CLUSTER_NAME',
+  /** W5 — `####` 之前存在游离 bullet，分组与不分组混用 */
+  W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS:
+    'V2_W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS'
 } as const;
 
 export type SoftWarningCode =

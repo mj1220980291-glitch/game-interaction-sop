@@ -9,275 +9,9 @@
  * Spec: openspec/changes/fix-section-clone-before-render/specs/
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { renderV2MarkdownToFigma } from '../../src/v2/render.js';
-import type { FigmaBackend, NodeInfo, ScanSubtreeResult } from '../../src/v2/figma-client.js';
-
-// ---------------------------------------------------------------------------
-// Minimal in-memory mock backend
-// ---------------------------------------------------------------------------
-
-let _uid = 1;
-const uid = (prefix = 'n') => `${prefix}-${_uid++}`;
-
-interface NodeStore {
-  [id: string]: NodeInfo & { children: string[]; absoluteBoundingBox?: { x: number; y: number; width: number; height: number } };
-}
-
-/**
- * Build a minimal FigmaBackend backed by an in-memory node store.
- *
- * The mock simulates the Figma tree structure needed by renderInner:
- *   root (FRAME)
- *     ├─ 文档标题 (TEXT)
- *     ├─ 设计师名称 (TEXT)
- *     ├─ 需求组名称 (TEXT)
- *     ├─ 易协作单号链接 (TEXT)
- *     ├─ 更新时间 (TEXT)
- *     ├─ 功能背景 (FRAME)
- *     │    └─ #Content (TEXT)
- *     ├─ 核心交互 (FRAME)
- *     │    └─ #Content (TEXT)
- *     └─ 界面说明容器 (FRAME)  ← parent of 界面说明1
- *          └─ 界面说明1 (FRAME)  ← masterSectionGroup
- *               ├─ 界面名称 (TEXT)
- *               ├─ 气泡层 (FRAME)
- *               │    └─ 标号/1 (FRAME)
- *               │         └─ #Number (TEXT)
- *               ├─ 右栏 (FRAME)
- *               │    └─ 说明块1 (FRAME)
- *               │         ├─ Number (TEXT)
- *               │         ├─ #Title_Main (TEXT)
- *               │         ├─ 正文/规则 (TEXT)
- *               │         └─ 角色标签组 (FRAME)
- *               │              └─ @GUI (TEXT)
- *               └─ 主图占位 (RECTANGLE)
- */
-function makeBackend() {
-  const store: NodeStore = {};
-  // Track the ORDER in which cloneNode is called, and what sourceId was used.
-  const cloneLog: Array<{ sourceId: string; parentId?: string; contentAtCallTime: string[] }> = [];
-
-  function addNode(
-    parentId: string | undefined,
-    id: string,
-    name: string,
-    type: NodeInfo['type'],
-    extra?: Partial<NodeInfo>
-  ): NodeInfo {
-    const node: NodeStore[string] = {
-      id, name, type, children: [],
-      parentId: parentId ?? undefined,
-      ...extra
-    };
-    store[id] = node;
-    if (parentId && store[parentId]) {
-      store[parentId].children.push(id);
-    }
-    return node;
-  }
-
-  function nodeInfo(id: string): NodeInfo {
-    const n = store[id];
-    if (!n) throw new Error(`mock: node ${id} not found`);
-    return {
-      id: n.id,
-      name: n.name,
-      type: n.type,
-      parentId: n.parentId,
-      childIds: n.children.length > 0 ? [...n.children] : undefined,
-      absoluteBoundingBox: n.absoluteBoundingBox ?? { x: 0, y: 0, width: 100, height: 100 }
-    };
-  }
-
-  // --- Build template tree -------------------------------------------------
-
-  const rootId = '1:14';  // must match TEMPLATE_NODE_ID
-  addNode(undefined, rootId, '1:14', 'FRAME');
-
-  addNode(rootId, uid('txt'), '文档标题', 'TEXT', { characters: '' });
-  addNode(rootId, uid('txt'), '设计师名称', 'TEXT', { characters: '' });
-  addNode(rootId, uid('txt'), '需求组名称', 'TEXT', { characters: '' });
-  addNode(rootId, uid('txt'), '易协作单号链接', 'TEXT', { characters: '' });
-  addNode(rootId, uid('txt'), '更新时间', 'TEXT', { characters: '' });
-
-  const bgId = uid('frame');
-  addNode(rootId, bgId, '功能背景', 'FRAME');
-  addNode(bgId, uid('txt'), '#Content', 'TEXT', { characters: '' });
-
-  const ciId = uid('frame');
-  addNode(rootId, ciId, '核心交互', 'FRAME');
-  addNode(ciId, uid('txt'), '#Content', 'TEXT', { characters: '' });
-
-  const secContainerId = uid('frame');
-  addNode(rootId, secContainerId, '需求目标', 'FRAME');
-
-  // 界面说明1 — masterSectionGroup
-  const master1Id = uid('frame');
-  addNode(secContainerId, master1Id, '界面说明1', 'FRAME');
-
-  addNode(master1Id, uid('txt'), '#Name', 'TEXT', { characters: '' });
-
-  const bubbleFrameId = uid('frame');
-  addNode(master1Id, bubbleFrameId, '气泡', 'FRAME');  // SECTION_CHILD_NAMES.bubbleOverlayFrame = '气泡'
-  // Replicate real template 1:14: [标号/2 (first), 标号/1 (second)].
-  // 标号/2 is picked by find(startsWith '标号/'); 标号/1 becomes orphan without the fix.
-  const seed标号2Id = uid('frame');
-  addNode(bubbleFrameId, seed标号2Id, '标号/2', 'FRAME');  // first seed (picked by find)
-  addNode(seed标号2Id, uid('txt'), '#Number', 'TEXT', { characters: '2' });
-  const seed标号Id = uid('frame');
-  addNode(bubbleFrameId, seed标号Id, '标号/1', 'FRAME');   // second seed (orphan without trim)
-  addNode(seed标号Id, uid('txt'), '#Number', 'TEXT', { characters: '1' });
-
-  const rightColId = uid('frame');
-  addNode(master1Id, rightColId, 'Text', 'FRAME');  // SECTION_CHILD_NAMES.rightColumnContainer = 'Text'
-
-  const seedBlockId = uid('frame');
-  addNode(rightColId, seedBlockId, '说明块1', 'FRAME');  // SECTION_CHILD_NAMES.clusterBlockPrefix = '说明块'
-  addNode(seedBlockId, uid('txt'), 'Number', 'TEXT', { characters: '1' });
-  addNode(seedBlockId, uid('txt'), '#Title_Main', 'TEXT', { characters: '' });
-  addNode(seedBlockId, uid('txt'), '正文/规则', 'TEXT', { characters: '' });
-  const roleFrameId = uid('frame');
-  addNode(seedBlockId, roleFrameId, 'Frame 427319720', 'FRAME');  // SECTION_CHILD_NAMES.roleTagsFramePrefix = 'Frame 4273'
-  addNode(roleFrameId, uid('txt'), '@GUI', 'TEXT', { characters: '@GUI' });
-
-  addNode(master1Id, uid('rect'), '主图占位', 'RECTANGLE');
-
-  // --- Mock FigmaBackend ---------------------------------------------------
-
-  function deepClone(srcId: string, newParentId: string | undefined, newName?: string): string {
-    const src = store[srcId];
-    if (!src) throw new Error(`mock clone: src ${srcId} not found`);
-    const newId = uid('clone');
-    addNode(newParentId, newId, newName ?? src.name, src.type, {
-      characters: (src as NodeInfo).characters
-    });
-    // Deep-clone children
-    for (const childId of src.children) {
-      deepClone(childId, newId);
-    }
-    return newId;
-  }
-
-  const backend: FigmaBackend = {
-    async getNodeInfo(id) {
-      return nodeInfo(id);
-    },
-
-    async getNodesInfo(ids) {
-      return ids.map(nodeInfo);
-    },
-
-    async scanSubtree(rootId, maxNodes = 500): Promise<ScanSubtreeResult> {
-      // BFS including root
-      const result: NodeInfo[] = [];
-      const queue = [rootId];
-      while (queue.length > 0 && result.length < maxNodes) {
-        const id = queue.shift()!;
-        const n = store[id];
-        if (!n) continue;
-        result.push(nodeInfo(id));
-        for (const c of n.children) queue.push(c);
-      }
-      return { nodes: result, truncated: false };
-    },
-
-    async cloneNode({ sourceId, parentId, name }) {
-      // Record clone of any node named '界面说明1' — this is masterSectionGroup
-      // inside the root clone. We snapshot the bubble-frame children of the
-      // SOURCE node's sibling 气泡 FRAME at call time to verify phase ordering.
-      const srcNode = store[sourceId];
-      if (srcNode?.name === '界面说明1') {
-        // Find the 气泡 FRAME inside the source section node.
-        const bubbleChild = srcNode.children
-          .map((cid) => store[cid])
-          .find((c) => c?.name === '气泡');
-        cloneLog.push({
-          sourceId,
-          parentId,
-          contentAtCallTime: bubbleChild ? [...bubbleChild.children] : []
-        });
-      }
-      const newId = deepClone(sourceId, parentId, name);
-      return nodeInfo(newId);
-    },
-
-    async batchCloneNodes({ sourceId, parentId, count }) {
-      const results: NodeInfo[] = [];
-      for (let i = 0; i < count; i++) {
-        const newId = deepClone(sourceId, parentId);
-        results.push(nodeInfo(newId));
-      }
-      return results;
-    },
-
-    async moveNode(id, x, y) {
-      const n = store[id];
-      if (n?.absoluteBoundingBox) {
-        n.absoluteBoundingBox = { ...n.absoluteBoundingBox, x, y };
-      } else if (n) {
-        n.absoluteBoundingBox = { x, y, width: 40, height: 40 };
-      }
-    },
-    async setTextContent(id, chars) {
-      const n = store[id];
-      if (n) (n as NodeInfo & { characters: string }).characters = chars;
-    },
-    async setMultipleTextContents(updates) {
-      for (const { nodeId, characters } of updates) {
-        const n = store[nodeId];
-        if (n) (n as NodeInfo & { characters: string }).characters = characters;
-      }
-    },
-    async deleteNodes(ids) {
-      for (const id of ids) {
-        const n = store[id];
-        if (!n) continue;
-        if (n.parentId && store[n.parentId]) {
-          store[n.parentId].children = store[n.parentId].children.filter((c) => c !== id);
-        }
-        delete store[id];
-      }
-    },
-    async reparentNode() {},
-    async commitUndoCheckpoint() {},
-    async triggerUndo() {},
-    async scanByTypes(rootId, types) {
-      const { nodes } = await backend.scanSubtree(rootId);
-      return nodes.filter((n) => types.includes(n.type));
-    }
-  };
-
-  return {
-    backend,
-    store,
-    cloneLog,
-    masterSectionId: master1Id,
-    bubbleFrameId,
-    seedBlockId,
-    rootId
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Helper: count nodes by name under a given parent (recursive)
-// ---------------------------------------------------------------------------
-function countByName(store: NodeStore, rootId: string, name: string): number {
-  let count = 0;
-  const queue = [rootId];
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    const n = store[id];
-    if (!n) continue;
-    if (n.name === name) count++;
-    for (const c of n.children) queue.push(c);
-  }
-  return count;
-}
-
-function childrenIds(store: NodeStore, parentId: string): string[] {
-  return store[parentId]?.children ?? [];
-}
+import { makeBackend } from './helpers/mock-backend.js';
 
 // ---------------------------------------------------------------------------
 // Minimal 2-section markdown
@@ -384,7 +118,7 @@ const MD_3_SECTIONS = `
 describe('renderV2MarkdownToFigma — multi-section clone ordering (bug fix 2026-05-28)', () => {
 
   it('2 sections: section 2 bubble frame contains only 1 bubble (its own cluster)', async () => {
-    const { backend, store, cloneLog } = makeBackend();
+    const { backend, cloneLog } = makeBackend();
 
     const result = await renderV2MarkdownToFigma(
       { markdown: MD_2_SECTIONS },
@@ -400,11 +134,11 @@ describe('renderV2MarkdownToFigma — multi-section clone ordering (bug fix 2026
     // seeds + rendered bubbles from section 1).
     expect(cloneLog).toHaveLength(1); // 2 sections → 1 clone
     // Template has 2 seeds; at clone time only template seeds should be present.
-    expect(cloneLog[0].contentAtCallTime).toHaveLength(2); // [标号/2, 标号/1] — template seeds only
+    expect(cloneLog[0]!.contentAtCallTime).toHaveLength(2); // [标号/2, 标号/1]
   });
 
   it('3 sections: each section clone is made before any rendering fills the master', async () => {
-    const { backend, store, cloneLog } = makeBackend();
+    const { backend, cloneLog } = makeBackend();
 
     await renderV2MarkdownToFigma(
       { markdown: MD_3_SECTIONS },
@@ -416,8 +150,8 @@ describe('renderV2MarkdownToFigma — multi-section clone ordering (bug fix 2026
 
     // Both clones should have been made when bubble frame had only the 2 template seeds.
     // If old bug present: cloneLog[1].contentAtCallTime would have 3+ items.
-    expect(cloneLog[0].contentAtCallTime).toHaveLength(2);
-    expect(cloneLog[1].contentAtCallTime).toHaveLength(2);
+    expect(cloneLog[0]!.contentAtCallTime).toHaveLength(2);
+    expect(cloneLog[1]!.contentAtCallTime).toHaveLength(2);
   });
 
   it('2 sections: section 1 has 2 clusters, section 2 has 1 cluster — bubble counts match', async () => {
@@ -430,31 +164,22 @@ describe('renderV2MarkdownToFigma — multi-section clone ordering (bug fix 2026
 
     expect(result.ok).toBe(true);
 
-    // Collect all 気泡 FRAME nodes from the rendered store.
-    // After rendering 2 sections, there should be 2 気泡 FRAMEs (one per section),
-    // with 2 and 1 bubbles respectively.
+    // After rendering 2 sections, there should be 2 气泡 FRAMEs (one per
+    // section), with 2 and 1 bubbles respectively.
     const allBubbleFrames = Object.values(store)
-      .filter((n) => n.name === '気泡' || n.name === '气泡')
-      .sort((a, b) => a.id.localeCompare(b.id)); // deterministic order (earlier id = earlier clone)
+      .filter((n) => n.name === '气泡')
+      .sort((a, b) => a.id.localeCompare(b.id));
 
-    // Should have exactly 2 bubble frames: one per section
     expect(allBubbleFrames.length).toBeGreaterThanOrEqual(2);
 
-    // Section 1 has 2 clusters → its 気泡 FRAME has 2 children
-    const sec1Bubbles = allBubbleFrames.find((f) =>
-      f.children.length === 2
-    );
-    expect(sec1Bubbles).toBeDefined();
-
-    // Section 2 has 1 cluster → its 気泡 FRAME has 1 child
-    const sec2Bubbles = allBubbleFrames.find((f) =>
-      f.children.length === 1
-    );
-    expect(sec2Bubbles).toBeDefined();
+    // Section 1 has 2 clusters → its 气泡 FRAME has 2 children
+    expect(allBubbleFrames.find((f) => f.children.length === 2)).toBeDefined();
+    // Section 2 has 1 cluster → its 气泡 FRAME has 1 child
+    expect(allBubbleFrames.find((f) => f.children.length === 1)).toBeDefined();
   });
 
   it('single section: behavior unchanged after refactor', async () => {
-    const { backend, store, cloneLog, masterSectionId } = makeBackend();
+    const { backend, cloneLog } = makeBackend();
 
     const MD_1_SECTION = `
 # 单章节文档
@@ -507,24 +232,14 @@ describe('renderV2MarkdownToFigma — multi-section clone ordering (bug fix 2026
 
     expect(result.ok, JSON.stringify(result.errors)).toBe(true);
 
-    // Collect all 气泡 FRAMEs after render
     const allBubbleFrames = Object.values(store).filter((n) => n.name === '气泡');
     expect(allBubbleFrames.length).toBeGreaterThanOrEqual(2);
 
     for (const bf of allBubbleFrames) {
-      // Every bubble node inside should be a '标号/...' node (no orphans)
       const bubbleChildren = bf.children.map((id) => store[id]).filter(Boolean);
-      // None should be the orphan '标号/1' seed that was NOT the primary seed
-      // The primary seed is '标号/2' (first child); '标号/1' should have been deleted.
-      const orphan = bubbleChildren.find((n) => {
-        // An orphan is a 标号/ node whose #Number text was never updated
-        // (still holds the original template value, e.g. '1' or '2')
-        // We detect it by checking it was deleted from the store.
-        return false; // placeholder — real check below
-      });
       // All remaining children should have names starting with '标号/'
       for (const child of bubbleChildren) {
-        expect(child.name).toMatch(/^标号\//);
+        expect(child!.name).toMatch(/^标号\//);
       }
     }
 
@@ -534,8 +249,6 @@ describe('renderV2MarkdownToFigma — multi-section clone ordering (bug fix 2026
     const frameSizes = allBubbleFrames.map((f) => f.children.length).sort();
     expect(frameSizes).toContain(1); // section 2: 1 cluster
     expect(frameSizes).toContain(2); // section 1: 2 clusters
-    // No frame should have more children than its cluster count + 1
-    // (if orphan is present, it adds 1 extra per section)
     expect(frameSizes.every((s) => s <= 2)).toBe(true);
   });
 });

@@ -56,36 +56,43 @@ TBD - created by archiving change v2-add-cluster-subgroup-headings. Update Purpo
 | 1 | 非 null | 复用现有说明块，在 bullets TEXT 之前的 `subTitle` TEXT 写入 title |
 | ≥ 2 | 任意 | 第 1 个 group 复用现有说明块，第 2..N 个 group 各通过 `cloneClusterBlock` 克隆 1 个新说明块；每个有 title 的 group 的说明块 `subTitle` TEXT 写入 title |
 
-新插入/修改的小标题 SHALL 使用模板内 `subTitle` TEXT 节点（`name === SECTION_CHILD_NAMES.clusterSubTitle`）写入；若该节点不存在则克隆 bulletSource TEXT 并定位在 bullets TEXT 之上 4px（FRAME-local）。
+新插入/修改的小标题 SHALL 使用模板内 `subTitle` TEXT 节点（`name === SECTION_CHILD_NAMES.clusterSubTitle`）写入；模板自带的多余 `subTitle` 实例 SHALL 被删除，只保留 1 个作为槽位；若该节点不存在则克隆 bulletSource TEXT 并定位在 bullets TEXT 之上 4px（FRAME-local）。
+
+`title === null` 的分组 SHALL 删除其说明块内的 `subTitle` 节点，而不是留下模板占位文案。
 
 角色标签 FRAME（`name starts with SECTION_CHILD_NAMES.roleTagsFramePrefix`）SHALL 只保留在第 1 个 group 的说明块中，并执行 keep-first 删除；第 2..N 个 group 的说明块 SHALL 整体删除角色标签 FRAME。
 
+同理，簇级身份标识——气泡编号 TEXT（`clusterNumberText`）与簇主标题 TEXT（`clusterTitle`）——SHALL 只保留在第 1 个 group 的说明块中，第 2..N 个 group 的说明块 SHALL 删除这两个节点。一个簇在主图上只有 1 个气泡，逐块重复编号会让读者误以为存在 N 个气泡。
+
 `配图：xxx` bullet 归属的 group 的说明块 SHALL 保留 imagePlaceholder；其他 group 的说明块 SHALL 删除 imagePlaceholder。
+
+所有 group 的说明块 SHALL 在章节的块预算阶段一次性分配并按文档顺序创建。右栏是 AUTO_LAYOUT 容器且后端只支持 append，延迟到 cluster 填充时再克隆会使分组块排到全章节所有说明块之后。
 
 #### Scenario: 单 group + null title 完全向后兼容
 
 - **WHEN** 簇 IR 为 `{ groups: [{ title: null, bullets: ['a', 'b'] }] }`
-- **THEN** 渲染路径 SHALL 不调用 `cloneClusterBlock`，不调用 `insertSubgroupTitleText`，产物与 v2 旧版一致
+- **THEN** 渲染路径 SHALL 不进入分组分支，产物与 v2 旧版一致，且模板自带的全部 `subTitle` 占位 SHALL 被删除
+- **AND** 整份不含 `####` 的文档，其 backend 调用序列 SHALL 与本能力实现之前逐项一致
 
 #### Scenario: 双 group 各自独立说明块
 
 - **WHEN** 簇 IR 为 `{ groups: [{ title: '基础信息', bullets: ['a'] }, { title: '升级反馈', bullets: ['b'] }] }`
-- **THEN** 引擎 SHALL 在 Figma 内产出 2 个说明块：第 1 块 `subTitle='基础信息'`，bullet `a`，保留角色标签；第 2 块 `subTitle='升级反馈'`，bullet `b`，角色标签 FRAME 被删除
+- **THEN** 引擎 SHALL 在 Figma 内产出 2 个说明块：第 1 块 `subTitle='基础信息'`，bullet `a`，保留角色标签、气泡编号与簇主标题；第 2 块 `subTitle='升级反馈'`，bullet `b`，角色标签 FRAME、气泡编号与簇主标题均被删除
 
 #### Scenario: 含配图的 group 保留占位，其余删除
 
 - **WHEN** group[0].bullets = ['a']，group[1].bullets = ['b', '配图：xxx']
-- **THEN** group[0] 的说明块 imagePlaceholder SHALL 被删除；group[1] 的说明块 SHALL 有 imagePlaceholder
+- **THEN** group[0] 的说明块 imagePlaceholder SHALL 被删除；group[1] 的说明块 SHALL 有 imagePlaceholder，且其 `配图占位文案` TEXT SHALL 写入该描述
 
 #### Scenario: 第 2..N 说明块角色标签被整体删除
 
 - **WHEN** 簇有 3 个 group
 - **THEN** 第 2 和第 3 个说明块 SHALL 各自不含角色标签 FRAME（整体删除，不只是 keep-first 删除其中几个 TEXT）
 
-#### Scenario: cloneClusterBlock 返回完整子节点集合
+#### Scenario: 分组块在右栏内保持文档顺序
 
-- **WHEN** 调用 `cloneClusterBlock(backend, sourceId, parentId)`
-- **THEN** 返回的 `ClusterBlockNodes` SHALL 包含 `blockId`、`subTitle`（若存在）、`bulletSource`、`allBulletTexts`、`roleFrame`（若存在）、`imagePlaceholders`
+- **WHEN** 章节内第 1 个簇有 2 个 group、第 2 个簇无分组
+- **THEN** 右栏容器的子节点顺序 SHALL 为 `[簇1-group1, 簇1-group2, 簇2]`
 
 ### Requirement: 角色 TEXT 按簇 keep-first 删除
 
