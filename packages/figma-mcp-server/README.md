@@ -1,58 +1,59 @@
 # figma-interaction-doc-engine
 
-Deterministic engine that turns interaction-doc DSL (YAML) into Figma documents
-via [`figma-console-mcp`](https://github.com/...). Replaces the rule-heavy
-SKILL.md workflow with a code-enforced pipeline.
-
-> **Status**: 0.1.0 — backend integration is manual, see "Current limits" below.
+Deterministic engine that turns **v2 interaction-doc Markdown** into Figma
+documents, exposed as an MCP stdio server. Also proxies every
+`figma-console-mcp` tool so the host only needs one Figma-related MCP server.
 
 ---
 
 ## What it does
 
-The engine takes a small YAML DSL describing a game-UI interaction document and
-produces a Figma layout via `figma_execute`. Crucially, the **layout rules**
-that used to live in SKILL.md now live in TypeScript:
+The engine takes the v2 Markdown produced by the
+[`game-interaction-sop` skill](../skill) and fills the master Figma template
+`1:14`. All layout rules that used to live in SKILL.md live in TypeScript
+here:
 
 - FRAME-local coordinate math (`local = abs - parent.absoluteBoundingBox`)
-- Z-order via `parent.insertChild(0, node)` — never `appendChild`
-- Section title cleanup (strip `01.`, `# `, etc.)
-- Screenshot count alignment with sections (placeholder + warning)
-- Template choice (design-driven vs blank)
-- Phase-level checkpoints with hash chain → idempotent re-entry
+- GROUP bbox-explosion guards
+- Role TEXT keep-first deletion per cluster
+- Image-placeholder two-way resolution (bullet marker × assetMap)
+- Bubble seed trimming and per-section numbering
+- Single-point probe before batch moves
 
-The LLM's job shrinks to: **Markdown → YAML translation**. The engine refuses
-malformed YAML before any Figma call goes out.
+The LLM's job is: **write conformant v2 Markdown, then call one tool**. No
+glue code, no hand-written `figma_execute` scripts.
+
+See [`docs/figma-mcp-pitfalls.md`](docs/figma-mcp-pitfalls.md) for the
+underlying pitfalls and how each is neutralised.
 
 ---
 
 ## Architecture
 
 ```
-CodeMaker (LLM)
+AI agent (skill Phase 4)
     │
-    │ tools/call generate_interaction_doc(yaml)
+    │ tools/call render_v2_markdown_to_figma({ markdown, assetMap, target })
     ▼
 ┌─────────────────────────────────────────────────────┐
 │ figma-interaction-doc-engine  (this package)        │
 │                                                     │
-│  validate (Zod) → plan (pure)                       │
-│   → executor.run(template, params)                  │
-│   → checkpoint.write(phase)                         │
+│  parseV2 (markdown → IR)                            │
+│   → renderV2MarkdownToFigma(IR, backend)            │
+│   → FigmaBackend (scanSubtree / batchClone / …)     │
 └─────────────────────────────────────────────────────┘
     │                                  ▲
     │ figma_execute(code)              │ resp
     ▼                                  │
 ┌─────────────────────────────────────────────────────┐
-│ figma-console-mcp (peer dependency)                 │
+│ figma-console-mcp  (spawned as a child by engine)   │
 └─────────────────────────────────────────────────────┘
     │
     ▼
 Figma Desktop (Bridge plugin)
 ```
 
-Each `figma_execute` call comes from a **template literal** in
-`src/templates/`. The executor refuses arbitrary JS — there is no `runRaw`.
+Markdown that fails hard validation never reaches Figma.
 
 ---
 
@@ -61,42 +62,32 @@ Each `figma_execute` call comes from a **template literal** in
 ```cmd
 npm install
 npm run build
-npm test                    # 93 tests, < 2s
-npm run test:coverage       # lines >= 90%, branches >= 80%
+npm test                    # 52 tests, < 3s
 node dist/server/index.js   # stdio MCP server
 ```
 
-Register the server in CodeMaker — see [`docs/INSTALL.md`](docs/INSTALL.md).
+Register the server in your MCP host — see [`docs/INSTALL.md`](docs/INSTALL.md)
+or the repo-root [`SETUP.md`](../../SETUP.md).
 
 ---
 
 ## MCP tools exposed
 
+Native:
+
 | tool | needs Figma? | purpose |
 |---|---|---|
-| `validate_dsl` | no | schema + semantic check, returns `{ ok, errors? }` |
-| `dry_run_layout` | no | full plan without Figma I/O, returns `{ plan, warnings }` |
-| `generate_interaction_doc` | yes | run all 7 phases end-to-end |
-| `replay_from_checkpoint` | yes | resume from a specific phase after failure |
+| `validate_v2_markdown` | no | hard-validate markdown, returns `{ ok, errors, warnings, ir }` |
+| `render_v2_markdown_to_figma` | yes | fill template `1:14` from markdown + assetMap |
 
----
+Plus every tool from the spawned `figma-console-mcp` child, forwarded
+verbatim (`figma_execute`, `figma_capture_screenshot`, `figma_get_selection`,
+…). Tool-name collisions between native and proxied tools abort startup.
 
-## Current limits
-
-The shipped stdio entrypoint is **backend-less**: `validate_dsl` and
-`dry_run_layout` work standalone, but `generate_interaction_doc` returns
-`EXECUTOR_BACKEND_UNAVAILABLE` until a `FigmaExecuteBackend` is wired in.
-
-Two paths to actual Figma generation today:
-
-1. **Manual two-step** (works now): LLM calls `dry_run_layout` to obtain the
-   deterministic plan, then translates each plan entry into individual
-   `figma-console.figma_execute(code)` calls. Engine still owns coord math,
-   z-order and validation; LLM only does mechanical translation.
-2. **Embedded backend** (planned): the engine spawns a stdio child of
-   `figma-console-mcp` and bridges its `figma_execute` into the executor.
-   This collapses the workflow to a single MCP call. See
-   `openspec/changes/build-figma-interaction-doc-engine/tasks.md` for status.
+`render_v2_markdown_to_figma` returns `V2_BACKEND_UNAVAILABLE` if the server
+was constructed without a `v2Backend` — in practice this means the
+figma-console child failed to start, or the Figma Desktop Bridge plugin is not
+running in the target file.
 
 ---
 
@@ -104,25 +95,28 @@ Two paths to actual Figma generation today:
 
 ```
 src/
-  dsl/         Zod schemas + validate() + 11 error codes
-  parser/      Markdown → IR (sections, design refs, annotation table, screenshots)
-  planner/     coords + zorder + screenshots + template + title + plan()
-  executor/    backend interface + Executor (template-only run)
-  templates/   atomic figma_execute templates (cloneAndPlace, fillText, …)
-  checkpoint/  phase-level store with hash chain & drift detection
-  server/      MCP tool registrations + 7-phase pipeline
-tests/         93 vitest cases, fixture-driven planner tests
-e2e/           Playwright (local-only, manual baseline)
-docs/INSTALL.md
+  v2/          parser (markdown → IR) + render + figma-client + template-map
+  server/      createServer (tool registry + proxy dispatch)
+               figmaConsoleBackend (FigmaBackend over the child MCP)
+               detectExternal (duplicate figma-console-mcp guard)
+               index.ts (stdio entrypoint, spawns the child)
+tests/         52 vitest cases
+docs/          INSTALL.md, figma-mcp-pitfalls.md
 ```
+
+> **History**: a first-generation YAML-DSL pipeline (`src/{dsl,parser,planner,executor,checkpoint,templates}`
+> plus the `validate_dsl` / `dry_run_layout` / `generate_interaction_doc` /
+> `replay_from_checkpoint` tools) was removed in the OpenSpec change
+> `remove-gen1-dsl-pipeline`. It never passed acceptance and was superseded by
+> the v2 Markdown pipeline. Its design docs and the checkpoint implementation
+> are archived under that change's `reference/`.
 
 ---
 
 ## Related
 
-- Spec: `openspec/changes/build-figma-interaction-doc-engine/`
-- Skill (LLM facing): `C:\Users\miaochengming\.codex\skills\game-interaction-doc\SKILL.md` (v5)
-- Legacy fallback: `legacy/SKILL.v4.md` in the same skill directory
+- Specs: [`openspec/specs/`](../../openspec/specs/)
+- Skill (LLM facing): [`packages/skill`](../skill)
 
 ---
 

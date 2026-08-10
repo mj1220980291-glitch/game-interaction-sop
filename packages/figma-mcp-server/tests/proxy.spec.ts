@@ -115,7 +115,7 @@ describe('proxy — tools/call dispatch', () => {
     const handler = getHandler(server, 'tools/call');
     const result = (await handler({
       method: 'tools/call',
-      params: { name: 'validate_dsl', arguments: { yaml: 'sections: []\n' } }
+      params: { name: 'validate_v2_markdown', arguments: { markdown: '# x\n' } }
     })) as CallToolResult;
 
     expect(calls).toEqual([]); // no forwarding happened
@@ -173,7 +173,7 @@ describe('proxy — name collision guard', () => {
       createServer({
         proxyTools: [
           {
-            name: 'validate_dsl', // collides with native
+            name: 'validate_v2_markdown', // collides with native
             description: 'colliding mock',
             inputSchema: { type: 'object' } as Tool['inputSchema']
           }
@@ -184,7 +184,7 @@ describe('proxy — name collision guard', () => {
     expect(stderrSpy).toHaveBeenCalled();
     const written = (stderrSpy.mock.calls[0]?.[0] as string) ?? '';
     expect(written).toContain('tool name collision');
-    expect(written).toContain('validate_dsl');
+    expect(written).toContain('validate_v2_markdown');
 
     exitSpy.mockRestore();
     stderrSpy.mockRestore();

@@ -4,13 +4,9 @@
  * Spec: openspec/changes/proxy-figma-console-tools-from-engine/specs/engine-mcp-server/spec.md
  *
  * Exposes a single MCP server that combines:
- *   - 6 native tools owned by figma-interaction-doc-engine itself:
- *       1. validate_dsl                 (no backend needed)
- *       2. dry_run_layout               (no backend needed)
- *       3. generate_interaction_doc     (needs FigmaExecuteBackend)
- *       4. replay_from_checkpoint       (needs FigmaExecuteBackend + CheckpointStore)
- *       5. validate_v2_markdown         (no backend needed)
- *       6. render_v2_markdown_to_figma  (needs V2FigmaBackend)
+ *   - 2 native tools owned by figma-interaction-doc-engine itself:
+ *       1. validate_v2_markdown         (no backend needed)
+ *       2. render_v2_markdown_to_figma  (needs V2FigmaBackend)
  *   - All tools dynamically forwarded from a child figma-console-mcp process
  *     (see `index.ts` for spawn wiring). The list is captured once at startup
  *     via `client.listTools()` and passed in as `proxyTools`.
@@ -31,11 +27,6 @@ import {
   type Tool
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { validate } from '../dsl/index.js';
-import { plan } from '../planner/index.js';
-import { CheckpointStore } from '../checkpoint/index.js';
-import { Executor, type FigmaExecuteBackend } from '../executor/index.js';
-import { runPipeline } from './pipeline.js';
 import {
   parseV2,
   renderV2MarkdownToFigma,
@@ -48,16 +39,12 @@ import {
 // =========================================================================
 
 export interface CreateServerOptions {
-  /** Legacy v0.1 backend used by `generate_interaction_doc` / `replay_from_checkpoint`. */
-  backend?: FigmaExecuteBackend;
   /**
    * v2 backend implementing the new high-level Figma operations
    * (clone, set-text, delete, reparent, etc.). Required for
    * `render_v2_markdown_to_figma`.
    */
   v2Backend?: V2FigmaBackend;
-  /** Override CheckpointStore root (default: process.cwd()). */
-  storeRoot?: string;
   /** Server name for MCP identification. Defaults to 'figma-interaction-doc-engine'. */
   name?: string;
   /** Server version. */
@@ -80,7 +67,6 @@ export interface CreateServerOptions {
 export const ServerErrorCodes = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   INVALID_INPUT: 'INVALID_INPUT',
-  EXECUTOR_BACKEND_UNAVAILABLE: 'EXECUTOR_BACKEND_UNAVAILABLE',
   V2_BACKEND_UNAVAILABLE: 'V2_BACKEND_UNAVAILABLE',
   TOOL_NOT_FOUND: 'TOOL_NOT_FOUND'
 } as const;
@@ -97,35 +83,6 @@ export type NativeToolHandler = (
 // =========================================================================
 // Native tool input schemas (raw JSON Schema, served verbatim to clients)
 // =========================================================================
-
-const YAML_INPUT_SCHEMA = {
-  type: 'object',
-  properties: {
-    yaml: { type: 'string', minLength: 1 }
-  },
-  required: ['yaml'],
-  additionalProperties: false
-} as const;
-
-const GENERATE_INPUT_SCHEMA = {
-  type: 'object',
-  properties: {
-    yaml: { type: 'string', minLength: 1 },
-    runId: { type: 'string' }
-  },
-  required: ['yaml'],
-  additionalProperties: false
-} as const;
-
-const REPLAY_INPUT_SCHEMA = {
-  type: 'object',
-  properties: {
-    runId: { type: 'string', minLength: 1 },
-    fromPhase: { type: 'integer', minimum: 1, maximum: 7 }
-  },
-  required: ['runId', 'fromPhase'],
-  additionalProperties: false
-} as const;
 
 const V2_VALIDATE_INPUT_SCHEMA = {
   type: 'object',
@@ -198,121 +155,6 @@ const V2_RENDER_INPUT_SCHEMA = {
  * tests can call handlers directly without spinning up a transport.
  */
 export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[] {
-  const store = new CheckpointStore({ rootDir: opts.storeRoot ?? process.cwd() });
-
-  const validateDsl: NativeToolDef = {
-    tool: {
-      name: 'validate_dsl',
-      description: '校验 DSL YAML，仅检查 schema 与语义约束，不调用 Figma',
-      inputSchema: YAML_INPUT_SCHEMA as unknown as Tool['inputSchema']
-    },
-    handler: async (args) => {
-      try {
-        const yaml = String(args?.yaml ?? '');
-        const r = validate(yaml);
-        return jsonResult(r);
-      } catch (e) {
-        return errorResult(ServerErrorCodes.INTERNAL_ERROR, (e as Error).message);
-      }
-    }
-  };
-
-  const dryRunLayout: NativeToolDef = {
-    tool: {
-      name: 'dry_run_layout',
-      description: '运行解析 + 校验 + 布局规划，输出 plan 但不调用 Figma',
-      inputSchema: YAML_INPUT_SCHEMA as unknown as Tool['inputSchema']
-    },
-    handler: async (args) => {
-      try {
-        const yaml = String(args?.yaml ?? '');
-        const v = validate(yaml);
-        if (!v.ok) return jsonResult({ ok: false, errors: v.errors });
-        const planOut = plan(v.ir);
-        return jsonResult({ ok: true, plan: planOut });
-      } catch (e) {
-        return errorResult(ServerErrorCodes.INTERNAL_ERROR, (e as Error).message);
-      }
-    }
-  };
-
-  const generateInteractionDoc: NativeToolDef = {
-    tool: {
-      name: 'generate_interaction_doc',
-      description: '完整执行 7 phase 生成流程；中途失败会返回 lastPhase 以便 replay',
-      inputSchema: GENERATE_INPUT_SCHEMA as unknown as Tool['inputSchema']
-    },
-    handler: async (args) => {
-      try {
-        if (!opts.backend) {
-          return errorResult(
-            ServerErrorCodes.EXECUTOR_BACKEND_UNAVAILABLE,
-            'figma-console-mcp backend 未配置；本工具仅在引擎初始化时传入 backend 后可用',
-            'validate_dsl 与 dry_run_layout 仍可使用'
-          );
-        }
-        const yaml = String(args?.yaml ?? '');
-        const runId =
-          typeof args?.runId === 'string' && args.runId.length > 0
-            ? args.runId
-            : generateRunId();
-        const executor = new Executor(opts.backend);
-        await executor.ping();
-        const result = await runPipeline({
-          runId,
-          yaml,
-          store,
-          executor
-        });
-        return jsonResult(result);
-      } catch (e) {
-        const err = e as Error & { code?: string };
-        return errorResult(err.code ?? ServerErrorCodes.INTERNAL_ERROR, err.message);
-      }
-    }
-  };
-
-  const replayFromCheckpoint: NativeToolDef = {
-    tool: {
-      name: 'replay_from_checkpoint',
-      description: '从指定 phase 重新执行，复用之前 phase 的 checkpoint',
-      inputSchema: REPLAY_INPUT_SCHEMA as unknown as Tool['inputSchema']
-    },
-    handler: async (args) => {
-      try {
-        if (!opts.backend) {
-          return errorResult(
-            ServerErrorCodes.EXECUTOR_BACKEND_UNAVAILABLE,
-            'figma-console-mcp backend 未配置'
-          );
-        }
-        const runId = String(args?.runId ?? '');
-        const fromPhase = Number(args?.fromPhase ?? 0);
-        if (fromPhase < 1 || fromPhase > 7) {
-          return errorResult(ServerErrorCodes.INVALID_INPUT, `fromPhase 必须 1..7，收到 ${fromPhase}`);
-        }
-        if (fromPhase > 1) store.validateChain(runId, fromPhase - 1);
-        const phase1 = store.readByPhase(runId, 1);
-        if (!phase1) {
-          return errorResult('CHECKPOINT_NOT_FOUND', `runId=${runId} 不存在 phase 1`);
-        }
-        const executor = new Executor(opts.backend);
-        await executor.ping();
-        const result = await runPipeline({
-          runId,
-          yaml: '',
-          store,
-          executor,
-          fromPhase
-        });
-        return jsonResult(result);
-      } catch (e) {
-        const err = e as Error & { code?: string };
-        return errorResult(err.code ?? ServerErrorCodes.INTERNAL_ERROR, err.message);
-      }
-    }
-  };
-
   const validateV2Markdown: NativeToolDef = {
     tool: {
       name: 'validate_v2_markdown',
@@ -364,14 +206,7 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
     }
   };
 
-  return [
-    validateDsl,
-    dryRunLayout,
-    generateInteractionDoc,
-    replayFromCheckpoint,
-    validateV2Markdown,
-    renderV2MarkdownTool
-  ];
+  return [validateV2Markdown, renderV2MarkdownTool];
 }
 
 // =========================================================================
@@ -476,8 +311,4 @@ function errorResult(code: string, message: string, hint?: string): CallToolResu
     ],
     isError: true
   };
-}
-
-function generateRunId(): string {
-  return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }

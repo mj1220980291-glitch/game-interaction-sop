@@ -10,9 +10,7 @@
   "main": "./dist/server/index.js",
   "exports": {
     ".": "./dist/index.js",
-    "./dsl": "./dist/dsl/index.js",
-    "./parser": "./dist/parser/index.js",
-    "./planner": "./dist/planner/index.js"
+    "./v2": "./dist/v2/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -20,21 +18,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
-    "lint:templates": "vitest run tests/lint-templates.spec.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
-    "js-yaml": "^4.1.0",
-    "zod": "^3.23.8"
+    "@modelcontextprotocol/sdk": "^1.0.4"
   },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.0",
     "@vitest/coverage-istanbul": "^2.1.9",
     "@vitest/coverage-v8": "^2.1.8",
-    "playwright": "^1.49.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

@@ -12,9 +12,7 @@ export default defineConfig({
       reportsDirectory: './coverage',
       all: true,
       include: [
-        'src/dsl/**/*.ts',
-        'src/parser/**/*.ts',
-        'src/planner/**/*.ts'
+        'src/v2/**/*.ts'
       ],
       exclude: [
         'src/**/index.ts',

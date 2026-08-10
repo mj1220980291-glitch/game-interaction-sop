@@ -100,7 +100,7 @@ async function main(): Promise<void> {
   // Stderr-only banner so JSON-RPC framing on stdout stays clean.
   process.stderr.write(
     '[figma-interaction-doc-engine] mcp stdio server ready — ' +
-      `native: validate_dsl, dry_run_layout, generate_interaction_doc, replay_from_checkpoint, validate_v2_markdown, render_v2_markdown_to_figma; ` +
+      `native: validate_v2_markdown, render_v2_markdown_to_figma; ` +
       `proxy: ${proxyTools.length}\n`
   );
 }
