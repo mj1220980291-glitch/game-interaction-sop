@@ -1,7 +1,7 @@
 {
   "name": "figma-interaction-doc-engine",
   "version": "0.1.0",
-  "description": "Deterministic engine that turns interaction-doc DSL (YAML) into Figma documents via figma-console-mcp.",
+  "description": "Deterministic engine that turns v2 interaction-doc Markdown into Figma documents via figma-console-mcp.",
   "type": "module",
   "private": true,
   "bin": {

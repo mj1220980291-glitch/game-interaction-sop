@@ -49,6 +49,7 @@ npm run build
 ### 2. 验证 stdio 握手
 
 ```cmd
+set FIGMA_BACKEND=figma-console
 node dist/server/index.js
 ```
 
@@ -68,7 +69,8 @@ stderr 会打印一行 banner：
 [figma-interaction-doc-engine] mcp stdio server ready — native: validate_v2_markdown, render_v2_markdown_to_figma; proxy: N
 ```
 
-`proxy: 0` 说明子进程没起来，检查 `FIGMA_ACCESS_TOKEN` 是否配置。
+`proxy: 0` 说明子进程没起来：先确认 `FIGMA_BACKEND=figma-console` 已设置，
+再检查 `FIGMA_ACCESS_TOKEN`。
 
 ### 3. 注册到 AI Agent
 
@@ -89,10 +91,11 @@ stderr 会打印一行 banner：
 按顺序排查：
 
 1. Figma 桌面端是否打开了目标文件
-2. Desktop Bridge 插件是否在该文件里**运行中**（插件窗口需保持打开）
-3. 环境变量 `FIGMA_ACCESS_TOKEN` 是否配置
-4. host 的 MCP 日志里 stderr banner 的 `proxy:` 数量是否为 0
-5. 是否存在第二个 `figma-console-mcp` 实例（见上文）
+2. 环境变量 `FIGMA_BACKEND` 是否为 `figma-console`（缺失时引擎根本不拉子进程）
+3. Desktop Bridge 插件是否在该文件里**运行中**（插件窗口需保持打开）
+4. 环境变量 `FIGMA_ACCESS_TOKEN` 是否配置
+5. host 的 MCP 日志里 stderr banner 的 `proxy:` 数量是否为 0
+6. 是否存在第二个 `figma-console-mcp` 实例（见上文）
 
 `validate_v2_markdown` 不受影响，任何时候都可用。
 

@@ -1,19 +1,26 @@
 #!/usr/bin/env node
 /**
  * install-mcp — unpack the bundled figma-console-mcp tarball into a
- * stable local directory and print the config snippet the user must
- * paste into their AI agent's MCP config file.
+ * stable local directory (this is where the Figma Desktop Bridge plugin
+ * manifest lives) and print the MCP config snippet the user must paste
+ * into their AI agent's config file.
+ *
+ * IMPORTANT: the snippet registers `figma-interaction-doc-engine`, NOT
+ * `figma-console`. The engine spawns its own figma-console-mcp child; a
+ * second standalone instance would fight it for the bridge WebSocket
+ * port. The unpacked tarball here is used only for the bridge plugin
+ * manifest that you import into Figma Desktop.
  *
  * Why not auto-edit the agent's config?
  *   Each agent uses a different config format (TOML for Codex, JSON for
- *   Claude/Cursor/Cline, and Cline's file is inside VS Code's extension
- *   storage). Surgically editing these without clobbering the user's
- *   other MCP servers is fragile. We print a clean, copy-pasteable
- *   snippet instead and let the user decide where it goes.
+ *   Claude/Cursor/Cline, a GUI form for CodeMaker). Surgically editing
+ *   these without clobbering the user's other MCP servers is fragile. We
+ *   print a clean, copy-pasteable snippet instead.
  *
  * Usage:
  *   node scripts/install-mcp.mjs                    # default: prints all agents
- *   node scripts/install-mcp.mjs --agent codex      # print only codex snippet
+ *   node scripts/install-mcp.mjs --agent codemaker  # print only codemaker snippet
+ *   node scripts/install-mcp.mjs --agent codex
  *   node scripts/install-mcp.mjs --agent claude
  *   node scripts/install-mcp.mjs --agent cursor
  *   node scripts/install-mcp.mjs --agent cline
@@ -135,8 +142,11 @@ if (!dryRun) {
 
 // --- Compute entry + bridge paths ---------------------------------------
 
-const entryAbs = join(installDir, mcp.entry);
 const bridgeAbs = join(installDir, mcp.bridgeDir);
+const engineEntryAbs = resolve(
+  REPO_ROOT,
+  'packages/figma-mcp-server/dist/server/index.js'
+);
 
 // --- Print agent config snippets ----------------------------------------
 
@@ -144,10 +154,10 @@ printBanner();
 
 const agents = agentFilter
   ? [agentFilter]
-  : ['codex', 'claude', 'cursor', 'cline'];
+  : ['codemaker', 'codex', 'claude', 'cursor', 'cline'];
 
 for (const agent of agents) {
-  printSnippet(agent, entryAbs);
+  printSnippet(agent, engineEntryAbs);
 }
 
 printBridgeInstructions(bridgeAbs);
@@ -158,9 +168,20 @@ function printBanner() {
   const line = '─'.repeat(72);
   console.log('');
   console.log(line);
-  console.log('  Paste the snippet for your agent into its MCP config.');
-  console.log('  After pasting, restart the agent so it picks up the new server.');
+  console.log('  Register ONE MCP server: figma-interaction-doc-engine.');
+  console.log('  Do NOT also register a standalone figma-console server —');
+  console.log('  the engine spawns its own child and the two would fight');
+  console.log('  over the Figma Desktop Bridge WebSocket port.');
+  console.log('  After pasting, restart the agent so it picks up the server.');
   console.log(line);
+
+  if (!existsSync(engineEntryAbs)) {
+    console.log('');
+    console.log(
+      `  ⚠ engine not built yet: ${engineEntryAbs}\n` +
+        '    run: npm run build --prefix packages/figma-mcp-server'
+    );
+  }
 }
 
 function printSnippet(agent, entry) {
@@ -168,62 +189,70 @@ function printSnippet(agent, entry) {
   console.log('');
   console.log(`━━━ ${agent} ━━━`);
   switch (agent) {
+    case 'codemaker': {
+      console.log('  Settings → MCP Servers → add a custom stdio service:');
+      console.log('');
+      console.log('    Name    : figma-interaction-doc-engine');
+      console.log('    Type    : stdio');
+      console.log('    Command : node');
+      console.log(`    Args    : ${entry}`);
+      console.log('    Env     : FIGMA_BACKEND=figma-console');
+      console.log('              FIGMA_ACCESS_TOKEN=<your figd_ token>');
+      console.log('    Timeout : 120');
+      break;
+    }
     case 'codex': {
       console.log('  Config file: ~/.codex/config.toml');
       console.log('  Append:');
       console.log('');
-      console.log('    [mcp_servers.figma-console]');
+      console.log('    [mcp_servers.figma-interaction-doc-engine]');
       console.log(`    command = "node"`);
       console.log(`    args    = [${e}]`);
+      console.log('    env     = { FIGMA_BACKEND = "figma-console", FIGMA_ACCESS_TOKEN = "<your figd_ token>" }');
       break;
     }
     case 'claude': {
       console.log('  Config file:');
       console.log('    macOS:   ~/Library/Application Support/Claude/claude_desktop_config.json');
       console.log('    Windows: %APPDATA%\\Claude\\claude_desktop_config.json');
-      console.log('  Merge into "mcpServers":');
-      console.log('');
-      console.log('    {');
-      console.log('      "mcpServers": {');
-      console.log('        "figma-console": {');
-      console.log('          "command": "node",');
-      console.log(`          "args": [${e}]`);
-      console.log('        }');
-      console.log('      }');
-      console.log('    }');
+      printJsonSnippet(e, 6);
       break;
     }
     case 'cursor': {
       console.log('  Config file: ~/.cursor/mcp.json');
-      console.log('  Merge into "mcpServers":');
-      console.log('');
-      console.log('    {');
-      console.log('      "mcpServers": {');
-      console.log('        "figma-console": {');
-      console.log('          "command": "node",');
-      console.log(`          "args": [${e}]`);
-      console.log('        }');
-      console.log('      }');
-      console.log('    }');
+      printJsonSnippet(e, 6);
       break;
     }
     case 'cline': {
       console.log('  Config file (VS Code): see Cline extension → MCP Servers → Edit.');
-      console.log('  Add server:');
-      console.log('');
-      console.log('    {');
-      console.log('      "figma-console": {');
-      console.log('        "command": "node",');
-      console.log(`        "args": [${e}],`);
-      console.log('        "disabled": false');
-      console.log('      }');
-      console.log('    }');
+      printJsonSnippet(e, 6, true);
       break;
     }
     default: {
       console.log(`  (no preset snippet for "${agent}"; use node ${entry})`);
     }
   }
+}
+
+function printJsonSnippet(entryJson, indent, withDisabled = false) {
+  const p = ' '.repeat(indent);
+  console.log('  Merge into "mcpServers":');
+  console.log('');
+  console.log(`${p}{`);
+  console.log(`${p}  "mcpServers": {`);
+  console.log(`${p}    "figma-interaction-doc-engine": {`);
+  console.log(`${p}      "command": "node",`);
+  console.log(`${p}      "args": [${entryJson}],`);
+  console.log(`${p}      "env": {`);
+  console.log(`${p}        "FIGMA_BACKEND": "figma-console",`);
+  console.log(`${p}        "FIGMA_ACCESS_TOKEN": "<your figd_ token>"`);
+  console.log(`${p}      }${withDisabled ? ',' : ''}`);
+  if (withDisabled) {
+    console.log(`${p}      "disabled": false`);
+  }
+  console.log(`${p}    }`);
+  console.log(`${p}  }`);
+  console.log(`${p}}`);
 }
 
 function printBridgeInstructions(bridgeDir) {

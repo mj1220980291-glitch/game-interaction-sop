@@ -7,7 +7,7 @@
 | 部分 | 说明 |
 |---|---|
 | `packages/figma-mcp-server/` | MCP 引擎服务（`figma-interaction-doc-engine`），负责解析 Markdown 并写入 Figma 模板 |
-| `packages/skill/` | AI Agent 使用的 SOP Skill（4 个阶段的 Markdown 指引） |
+| `packages/skill/` | AI Agent 使用的 SOP Skill（Phase 0–5 的 Markdown 指引） |
 | `vendor/` | 内置的 `figma-console-mcp` 运行时（MIT 许可，无需单独安装） |
 
 ---
@@ -62,9 +62,14 @@ node dist/server/index.js
 | Type | `stdio` |
 | Command | `node` |
 | Args（第一行） | `<仓库绝对路径>/packages/figma-mcp-server/dist/server/index.js` |
-| Env | `FIGMA_ACCESS_TOKEN=<你的 Token>` |
+| Env（第一行） | `FIGMA_BACKEND=figma-console` |
+| Env（第二行） | `FIGMA_ACCESS_TOKEN=<你的 Token>` |
 | AutoApprove | `true` |
 | Timeout | `120` |
+
+> `FIGMA_BACKEND=figma-console` 不能省。缺了它引擎不会拉起子进程，
+> `render_v2_markdown_to_figma` 会一直返回 `V2_BACKEND_UNAVAILABLE`，
+> 且看不到任何 `figma_*` 代理工具。
 
 #### Claude Desktop / Cursor / Cline（JSON 格式）
 
@@ -79,6 +84,7 @@ node dist/server/index.js
         "<仓库绝对路径>/packages/figma-mcp-server/dist/server/index.js"
       ],
       "env": {
+        "FIGMA_BACKEND": "figma-console",
         "FIGMA_ACCESS_TOKEN": "<你的 Token>"
       }
     }
@@ -216,9 +222,11 @@ watch 模式会：
 用 game-interaction-sop 处理这份策划文档：[策划文档路径或内容]
 ```
 
-Agent 会按 4 个阶段引导你：
+Agent 会按以下阶段引导你：
 
 ```
+Phase 0 — 翻库咨询       检索项目模式库（无库时静默跳过），结果嵌入 Phase 1
+     ↓
 Phase 1 — 需求挖掘       分析策划文档，澄清阻塞性问题
      ↓
 Phase 2 — v2 Markdown    生成并保存结构化交互文档
@@ -226,6 +234,8 @@ Phase 2 — v2 Markdown    生成并保存结构化交互文档
 Phase 3 — 索要设计稿     收集截图 / Figma 链接 / 或跳过
      ↓
 Phase 4 — 写入 Figma     调用引擎，渲染到模板 1:14
+     ↓
+Phase 5 — 模式库维护     把本次成果增量沉淀回 `.interaction-sop/`
 ```
 
 ---
@@ -248,9 +258,10 @@ cd packages/figma-mcp-server && npm install
 
 按以下顺序排查：
 1. `figma-interaction-doc-engine` MCP Server 是否显示 ✅ 已连接
-2. `FIGMA_ACCESS_TOKEN` 是否正确设置
-3. Figma Desktop Bridge 插件是否在目标文件里运行中（插件窗口需保持打开）
-4. 目标 Figma 文件的 node `1:14` 是否可访问（权限是否足够）
+2. 环境变量 `FIGMA_BACKEND=figma-console` 是否配置（缺了必然 `V2_BACKEND_UNAVAILABLE`）
+3. `FIGMA_ACCESS_TOKEN` 是否正确设置
+4. Figma Desktop Bridge 插件是否在目标文件里运行中（插件窗口需保持打开）
+5. 目标 Figma 文件的 node `1:14` 是否可访问（权限是否足够）
 
 ### Q4. 我想修改 skill 内容？
 
@@ -279,7 +290,7 @@ game-interaction-sop/
 │   │   ├── src/v2/         → parser + renderer 核心逻辑
 │   │   ├── bin/            → MCP Server 入口（编译后用 dist/server/index.js）
 │   │   └── tests/          → 单测
-│   └── skill/              → AI Agent SOP（SKILL.md + 4 phases + references）
+│   └── skill/              → AI Agent SOP（SKILL.md + phases 0–5 + references）
 ├── scripts/
 │   ├── install-skill.mjs   → 安装 skill 到 agent
 │   └── install-mcp.mjs     → 解包 figma-console-mcp（步骤 4 用）

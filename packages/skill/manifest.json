@@ -1,23 +1,28 @@
 {
   "name": "game-interaction-sop",
   "version": "0.2.0",
-  "description": "Game UI interaction-doc SOP — Phase 1 requirement confirmation → Phase 2 v2 Markdown → Phase 3 asset collection → Phase 4 Figma rendering.",
+  "description": "Game UI interaction-doc SOP — Phase 0 pattern recall → Phase 1 requirement confirmation → Phase 2 v2 Markdown → Phase 3 asset collection → Phase 4 Figma rendering → Phase 5 pattern-library maintenance.",
   "entry": "SKILL.md",
   "phases": [
+    "phases/phase0-recall.md",
     "phases/phase1-analysis.md",
     "phases/phase2-markdown.md",
     "phases/phase3-asset.md",
-    "phases/phase4-figma.md"
+    "phases/phase4-figma.md",
+    "phases/phase5-extract.md"
   ],
   "references": [
     "references/markdown-v2-spec.md",
+    "references/pattern-schema.md",
+    "references/index-schema.md",
+    "references/deviation-schema.md",
     "references/role-tags.md",
     "references/template-1-14.md"
   ],
   "agents": {
     "openai": "agents/openai.yaml"
   },
-  "engineVersion": "^0.2.0",
+  "engineVersion": "^0.1.0",
   "mcp": {
     "name": "figma-console",
     "package": "figma-console-mcp",
