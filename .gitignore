@@ -10,3 +10,4 @@ e2e/results/
 .DS_Store
 .vscode/
 .idea/
+.codemaker/

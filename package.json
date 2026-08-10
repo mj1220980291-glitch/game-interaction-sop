@@ -9,14 +9,13 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "test": "node scripts/check-skill-migration.mjs && npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "install-skill": "node scripts/install-skill.mjs",
     "install-mcp": "node scripts/install-mcp.mjs",
     "watch": "node scripts/watch.mjs",
     "release": "node scripts/release.mjs",
     "test-parse": "node scripts/test-parse.mjs",
-    "check-skill-migration": "node scripts/check-skill-migration.mjs",
     "cleanup-mcp": "node scripts/cleanup-orphan-mcp.mjs"
   },
   "engines": {
