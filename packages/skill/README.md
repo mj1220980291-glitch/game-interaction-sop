@@ -38,8 +38,6 @@ This copies the skill into the agent's skill directory as declared in
 ## Relationship to the engine
 
 The skill itself does not execute Figma writes. It orchestrates the
-conversation and, in Phase 4, drives the companion
-[`@game-interaction-sop/engine`](../engine) package via the
-figma-console MCP plugin.
-
-Both packages share the same major.minor version number.
+conversation and, in Phase 4, calls the `figma-interaction-doc-engine`
+MCP server's `validate_v2_markdown` / `render_v2_markdown_to_figma`
+tools. The engine owns all Figma I/O and pitfall protection.

@@ -34,48 +34,55 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
 
 ### 第二步：调用引擎
 
-本 SOP 提供两个 npm 包：
+引擎以 MCP Server `figma-interaction-doc-engine` 的形式提供，**直接调用它的 MCP 工具即可，不需要写任何胶水代码**。
 
-- `@game-interaction-sop/engine` — parser + renderer
-- `@game-interaction-sop/mcp-adapter` — 将 `FigmaBackend` 接口绑到你手上的 MCP `figma_execute` 工具
+Phase 4 只用得到两个工具：
 
-标准调用样板（AI 在 Phase 4 里应当按此生成代码并通过 MCP 执行）：
+| 工具 | 用途 | 是否碰 Figma |
+|---|---|---|
+| `validate_v2_markdown` | 强校验 Markdown，返回 `ok/errors/warnings/ir` | 否 |
+| `render_v2_markdown_to_figma` | 按 v2 Markdown 填充模板 1:14 | 是 |
 
-```ts
-import {
-  parseV2,
-  renderV2MarkdownToFigma
-} from '@game-interaction-sop/engine';
-import { createFigmaConsoleBackend } from '@game-interaction-sop/mcp-adapter';
+**先校验，后渲染。**
 
-// 1. exec 桥接：把引擎的 FigmaBackend 请求转成你当前能用的 MCP 调用。
-//    下面以 figma-console MCP 为例；如果你用的是 Cursor-Talk-to-Figma 等
-//    其他兼容插件，把 tool 名字换成对应的即可。
-const backend = createFigmaConsoleBackend({
-  exec: async (code) => {
-    const resp = await useMcpTool('figma-console', 'figma_execute', { code });
-    if (!resp.success) throw new Error(resp.error);
-    return resp.result;
-  }
-});
+#### 1. 校验
 
-// 2. 读 Markdown + 校验
-const parsed = parseV2(markdown);
-if (!parsed.ok) throw parsed.errors[0];
-
-// 3. 真正渲染
-await renderV2MarkdownToFigma({
-  markdown,
-  assetMap,    // Phase 3 整理出的 asset_map
-  backend,
-  target: {
-    fileKey: 'UYCJok3MXTWITMfeJSqEF6',  // 或用户的 Figma 文件 key
-    pageId: 'YYY'                        // 询问用户 / 默认新建
-  }
-});
+```json
+{
+  "markdown": "<Phase 2 保存的 Markdown 全文>"
+}
 ```
 
-**不要手写 `figma_execute` 脚本绕过 adapter。** 所有 pitfall 保护（GROUP 爆炸防护 / FRAME-local 坐标换算 / 单点 probe / 角色 TEXT 删除 / 配图占位双向判定）都在 engine 的 safety wrappers 里。绕过 adapter 等于把 pitfalls 的防护全卸掉。
+返回 `ok: false` 时不要继续渲染，直接走「结果 B」回到 Phase 2。
+
+#### 2. 渲染
+
+```json
+{
+  "markdown": "<同上>",
+  "assetMap": {
+    "01": { "type": "image", "src": "<图片路径或 base64>" },
+    "02": { "type": "figma_node", "fileKey": "<file key>", "nodeId": "<node id>" },
+    "03": { "type": "skip" }
+  },
+  "target": {
+    "fileKey": "UYCJok3MXTWITMfeJSqEF6",
+    "pageId": "<询问用户 / 缺省新建>"
+  }
+}
+```
+
+参数说明：
+
+- `markdown`（必填）— Markdown 全文，不是路径
+- `assetMap`（可选）— key 是 `## NN.` 的两位章节号字符串；三种 `type`：
+  - `image` — 需要 `src`
+  - `figma_node` — 需要 `fileKey` + `nodeId`
+  - `skip` — 留占位
+  - **缺省的章节按 `skip` 处理**，Phase 3 跳过的章节不写进去即可
+- `target`（可选）— `fileKey` / `pageId`
+
+**不要手写 `figma_execute` 脚本绕过这两个工具。** 所有 pitfall 保护（GROUP 爆炸防护 / FRAME-local 坐标换算 / 单点 probe / 角色 TEXT 删除 / 配图占位双向判定）都在引擎的 safety wrapper 里。绕过引擎等于把防护全卸掉。
 
 ### 第三步：处理引擎返回
 
@@ -94,7 +101,7 @@ await renderV2MarkdownToFigma({
 
 #### 结果 B：v2 强校验失败
 
-引擎拒绝写，返回失败的强校验项。回到 Phase 2 修正 Markdown，重新走 Phase 4。**不要让用户手改 Figma 来补救**。
+`validate_v2_markdown` 返回 `ok: false`，或 `render_v2_markdown_to_figma` 拒绝写入。回到 Phase 2 修正 Markdown，重新走 Phase 4。**不要让用户手改 Figma 来补救**。
 
 ```
 ⚠️ Markdown 未通过强校验：
@@ -108,6 +115,8 @@ await renderV2MarkdownToFigma({
 
 报告失败原因，告诉用户 Figma 文件状态（已部分写入 / 未写入），询问下一步：重试 / 撤销 / 人工介入。
 
+若返回 `V2_BACKEND_UNAVAILABLE`，说明 MCP Server 启动时没接上 Figma 后端——让用户检查 Figma Desktop Bridge 插件是否在目标文件里运行中，然后重启 MCP Server。
+
 ```
 ⚠️ Figma 写入失败：[错误]
 - Figma 状态：[未写入 / 已部分写入]
@@ -120,7 +129,7 @@ await renderV2MarkdownToFigma({
 
 如果用户提手动微调请求（"把 02 章第 3 个气泡往左挪一点"），按需要：
 
-- 小范围微调 → 直接调引擎的微调工具（如有）
+- 小范围微调 → 让用户在 Figma 里直接改（引擎不提供微调工具）
 - 大范围结构修改 → 改 Markdown 重跑 Phase 4
 
 ---
@@ -144,6 +153,7 @@ await renderV2MarkdownToFigma({
 ## 严禁
 
 - ❌ 在 skill 里写 Figma MCP 的具体调用细节（move_node 坐标系等）
-- ❌ 不通过引擎、直接调 Figma MCP 写文档
+- ❌ 不通过 `render_v2_markdown_to_figma`、直接调 `figma_execute` 写文档
+- ❌ 写 TypeScript 胶水代码 import `@game-interaction-sop/engine` —— 该包已废弃，引擎只通过 MCP 工具暴露
 - ❌ 引擎报错时，绕过引擎手动 patch Figma
 - ❌ Markdown 校验失败时，让用户手改 Figma 来补救
