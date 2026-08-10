@@ -12,15 +12,14 @@ Figma interaction document — end-to-end in a single conversation.
 
 ## What you get
 
-| Package | What it is | Install |
+| Package | What it is | How it's used |
 |---|---|---|
-| [`@game-interaction-sop/engine`](./packages/engine) | Deterministic TS engine: parser + renderer. Host-agnostic via `FigmaBackend` interface. | `npm install @game-interaction-sop/engine` |
-| [`@game-interaction-sop/mcp-adapter`](./packages/mcp-adapter) | `FigmaBackend` implementation that speaks to figma-console MCP through a caller-supplied `exec(code)` function. Includes `scanFigmaNodeForUnderstanding` helper for Stage 3. | `npm install @game-interaction-sop/mcp-adapter` |
-| [`packages/skill`](./packages/skill) | Markdown SOP bundle (6 stages + references) for AI agents. | `node scripts/install-skill.mjs --agent codex` |
+| [`packages/figma-mcp-server`](./packages/figma-mcp-server) | The engine, exposed as the `figma-interaction-doc-engine` MCP server. Parses v2 Markdown and writes into the Figma template. Also proxies all figma-console tools. | Register as an MCP server (see [SETUP.md](./SETUP.md)) |
+| [`packages/skill`](./packages/skill) | Markdown SOP bundle (Phase 0–5 + references) for AI agents. | `npm run install-skill -- --agent codemaker` |
 
-The skill guides the AI agent through 6 stages and combines engine +
-adapter at Stage 5. Agent supplies a thin `exec` bridge to its MCP
-`figma_execute` tool; adapter + engine handle the rest.
+The skill drives the conversation through the phases; at Phase 4 it calls
+the engine's `validate_v2_markdown` and `render_v2_markdown_to_figma`
+MCP tools. No glue code required from the agent.
 
 ---
 
@@ -39,7 +38,7 @@ prints the config snippet to paste into your agent's MCP config file.
 ## The Figma template
 
 The engine writes into a canonical master template whose key is
-hard-coded in `packages/engine/src/v2/template-map.ts`:
+hard-coded in `packages/figma-mcp-server/src/v2/template-map.ts`:
 
 ```
 TEMPLATE_FILE_KEY = 'UYCJok3MXTWITMfeJSqEF6'
@@ -97,12 +96,11 @@ Phase 4  写入 Figma   引擎渲染到模板 1:14（气泡 + 说明块 + 配图
 ```bash
 npm install                     # installs workspaces
 npm run build                   # tsc for all packages
-npm run test                    # smoke-check + vitest across packages
-npm run check-skill-migration   # smoke that the 4-Phase → 6-Stage migration is clean
+npm run test                    # vitest across packages
 
 # engine-only
-npm run build -w @game-interaction-sop/engine
-npm run test  -w @game-interaction-sop/engine
+npm run build --prefix packages/figma-mcp-server
+npm run test  --prefix packages/figma-mcp-server
 ```
 
 ---
@@ -113,13 +111,14 @@ MIT.
 
 ## Credits
 
-The v2 Markdown contract, the Figma template design rules, and the
-6-Stage SOP architecture were hardened through real-world runs. See:
-- [`packages/engine/docs/figma-mcp-pitfalls.md`](./packages/engine/docs/figma-mcp-pitfalls.md)
+The v2 Markdown contract and the Figma template design rules were
+hardened through real-world runs. See:
+- [`packages/figma-mcp-server/docs/figma-mcp-pitfalls.md`](./packages/figma-mcp-server/docs/)
   for the full list of MCP / template coord-system pitfalls and how the
   engine enforces safety
-- [`openspec/changes/restructure-sop-to-6-stages/`](./openspec/changes/restructure-sop-to-6-stages/)
-  for the rationale behind the v0.3 stage redesign
+- [`openspec/specs/`](./openspec/specs/) for the current capability specs,
+  and [`openspec/changes/archive/`](./openspec/changes/archive/) for the
+  rationale behind each shipped change
 
 ---
 

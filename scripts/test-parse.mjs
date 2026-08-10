@@ -8,7 +8,7 @@
  *   node scripts/test-parse.mjs                              # default: examples/玩家等级系统/*.md
  *   node scripts/test-parse.mjs path/to/your/doc.md
  *
- * Requires: `npm run build -w @game-interaction-sop/engine` first.
+ * Requires: `npm run build --prefix packages/figma-mcp-server` first.
  */
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -30,11 +30,11 @@ if (!existsSync(mdPath)) {
 
 const enginePath = resolve(
   REPO_ROOT,
-  'packages/engine/dist/v2/parser.js'
+  'packages/figma-mcp-server/dist/v2/parser.js'
 );
 if (!existsSync(enginePath)) {
   console.error(
-    `[test-parse] engine dist not built. Run:\n  npm run build -w @game-interaction-sop/engine`
+    `[test-parse] engine dist not built. Run:\n  npm run build --prefix packages/figma-mcp-server`
   );
   process.exit(1);
 }
@@ -69,15 +69,11 @@ for (const s of ir.sections) {
     `  [${s.index}] "${s.name}"  clusters=${s.clusters.length}  isGlobalSpec=${s.isGlobalSpec}`
   );
   for (const c of s.clusters) {
-    const allBullets = c.groups.flatMap(g => g.bullets);
-    const hasImg = allBullets.some((b) =>
+    const hasImg = c.bullets.some((b) =>
       /(^|\s|^[-·•*]+\s*)配图\s*[：:]/.test(b)
     );
-    const groupSummary = c.groups.length === 1 && c.groups[0].title === null
-      ? `bullets=${allBullets.length}`
-      : `groups=${c.groups.length}(${c.groups.map(g => g.title ?? 'default').join('/')})  bullets=${allBullets.length}`;
     console.log(
-      `     #${c.order}  "${c.title}"  roles=[${c.roles.join(',')}]  ${groupSummary}  hasImg=${hasImg}`
+      `     #${c.order}  "${c.title}"  roles=[${c.roles.join(',')}]  bullets=${c.bullets.length}  hasImg=${hasImg}`
     );
   }
 }
