@@ -4,8 +4,15 @@
  * The tree mirrors the real 1:14 template closely enough that renderInner
  * can walk it end to end, including the details that have caused bugs:
  *   - 气泡 FRAME ships TWO seeds, [标号/2, 标号/1], in that order
- *   - 说明块 ships TWO `#Title` sub-heading slots
- *   - 说明块 ships a 配图 GROUP with a 配图占位文案 TEXT inside
+ *   - 说明块 is a 标题 header followed by TWO repeating SLOT RUNs, each
+ *     being `#Title + Frame 4273xxx + 正文/规则×2 + 配图`
+ *   - the number badge lives at 标题 › 序号 › 交互说明标记 › Number, next to
+ *     a `Base` VECTOR that draws the blue circle. Anything that "removes the
+ *     badge" by deleting only the Number TEXT leaves an empty circle behind,
+ *     so the VECTOR has to be present here for tests to catch that.
+ *   - 说明块02 ships WITHOUT any 配图 (verbatim from the real template)
+ *
+ * Verified against the live template on 2026-08-11 via figma_execute.
  */
 
 import type {
@@ -16,6 +23,17 @@ import type {
 
 let _uid = 1;
 const uid = (prefix = 'n') => `${prefix}-${_uid++}`;
+
+/** The 7 role TEXTs every `Frame 4273xxx` ships with, in template order. */
+const ROLE_TEXTS = [
+  '@GUI',
+  '@程序',
+  '@拼接',
+  '@动效',
+  '@美术',
+  '@策划',
+  '@音频'
+] as const;
 
 export interface NodeStore {
   [id: string]: NodeInfo & {
@@ -44,13 +62,21 @@ export interface CloneLogEntry {
  *               │    ├─ 标号/2 (FRAME) └─ #Number (TEXT)
  *               │    └─ 标号/1 (FRAME) └─ #Number (TEXT)
  *               ├─ Text (FRAME)          ← right column, AUTO_LAYOUT
- *               │    └─ 说明块1 (FRAME)
- *               │         ├─ Number (TEXT)
- *               │         ├─ #Title_Main (TEXT)
- *               │         ├─ #Title (TEXT) ×2
- *               │         ├─ 正文/规则 (TEXT)
- *               │         ├─ Frame 427319720 (FRAME) └─ @GUI (TEXT)
- *               │         └─ 配图 (GROUP) └─ 配图占位文案 (TEXT)
+ *               │    ├─ 说明块01 (FRAME)
+ *               │    │    ├─ 标题 (GROUP)
+ *               │    │    │    ├─ 序号 (GROUP) └─ 交互说明标记 (FRAME)
+ *               │    │    │    │                     ├─ Base (VECTOR)
+ *               │    │    │    │                     └─ Number (TEXT)
+ *               │    │    │    └─ #Title_Main (TEXT)
+ *               │    │    ├─ #Title (TEXT) "小标题1"      ┐
+ *               │    │    ├─ Frame 427319720 (FRAME)      │ slot run 1
+ *               │    │    ├─ 正文/规则 (TEXT) ×2           │
+ *               │    │    ├─ 配图 (GROUP)                  ┘
+ *               │    │    ├─ #Title (TEXT) "小标题2"      ┐
+ *               │    │    ├─ Frame 427319721 (FRAME)      │ slot run 2
+ *               │    │    ├─ 正文/规则 (TEXT) ×2           │
+ *               │    │    └─ 配图 (GROUP)                  ┘
+ *               │    └─ 说明块02 (FRAME)   ← same shape, but NO 配图 at all
  *               └─ 主图占位 (RECTANGLE)
  */
 export function makeBackend() {
@@ -87,6 +113,10 @@ export function makeBackend() {
       name: n.name,
       type: n.type,
       parentId: n.parentId,
+      // `characters` is what decideRoleKeepDelete matches on. Omitting it here
+      // made every role tag look blank, so the renderer deleted all 7 — and no
+      // test noticed, because none of them asserted on role tag content.
+      characters: (n as NodeInfo).characters,
       childIds: n.children.length > 0 ? [...n.children] : undefined,
       absoluteBoundingBox: n.absoluteBoundingBox ?? { x: 0, y: 0, width: 100, height: 100 }
     };
@@ -133,19 +163,53 @@ export function makeBackend() {
   const rightColId = uid('frame');
   addNode(master1Id, rightColId, 'Text', 'FRAME');
 
-  const seedBlockId = uid('frame');
-  addNode(rightColId, seedBlockId, '说明块1', 'FRAME');
-  addNode(seedBlockId, uid('txt'), 'Number', 'TEXT', { characters: '1' });
-  addNode(seedBlockId, uid('txt'), '#Title_Main', 'TEXT', { characters: '' });
-  addNode(seedBlockId, uid('txt'), '#Title', 'TEXT', { characters: '小标题1' });
-  addNode(seedBlockId, uid('txt'), '#Title', 'TEXT', { characters: '小标题2' });
-  addNode(seedBlockId, uid('txt'), '正文/规则', 'TEXT', { characters: '' });
-  const roleFrameId = uid('frame');
-  addNode(seedBlockId, roleFrameId, 'Frame 427319720', 'FRAME');
-  addNode(roleFrameId, uid('txt'), '@GUI', 'TEXT', { characters: '@GUI' });
-  const imageGroupId = uid('group');
-  addNode(seedBlockId, imageGroupId, '配图', 'GROUP');
-  addNode(imageGroupId, uid('txt'), '配图占位文案', 'TEXT', { characters: '配图占位' });
+  /**
+   * Build one 说明块 exactly like the real template: a 标题 header, then
+   * `slotCount` repeating runs. `withImage` mirrors the real difference
+   * between 说明块01 (配图 in every run) and 说明块02 (none at all).
+   */
+  function addBlock(
+    name: string,
+    badgeNumber: string,
+    opts: { withImage: boolean; slotCount?: number }
+  ): string {
+    const blockId = uid('frame');
+    addNode(rightColId, blockId, name, 'FRAME');
+
+    const titleGroupId = uid('group');
+    addNode(blockId, titleGroupId, '标题', 'GROUP');
+    const numberGroupId = uid('group');
+    addNode(titleGroupId, numberGroupId, '序号', 'GROUP');
+    const badgeId = uid('frame');
+    addNode(numberGroupId, badgeId, '交互说明标记', 'FRAME');
+    addNode(badgeId, uid('vec'), 'Base', 'OTHER');
+    addNode(badgeId, uid('txt'), 'Number', 'TEXT', { characters: badgeNumber });
+    addNode(titleGroupId, uid('txt'), '#Title_Main', 'TEXT', { characters: '标题' });
+
+    const slots = opts.slotCount ?? 2;
+    for (let s = 1; s <= slots; s++) {
+      addNode(blockId, uid('txt'), '#Title', 'TEXT', { characters: `小标题${s}` });
+      const rf = uid('frame');
+      addNode(blockId, rf, `Frame 42731972${s - 1}`, 'FRAME');
+      for (const role of ROLE_TEXTS) {
+        addNode(rf, uid('txt'), '职能标签/完整', 'TEXT', { characters: role });
+      }
+      addNode(blockId, uid('txt'), '正文/规则', 'TEXT', { characters: '说明文本' });
+      addNode(blockId, uid('txt'), '正文/规则', 'TEXT', { characters: '说明文本' });
+      if (opts.withImage) {
+        const ig = uid('group');
+        addNode(blockId, ig, '配图', 'GROUP');
+        addNode(ig, uid('rect'), '配图占位', 'RECTANGLE');
+        addNode(ig, uid('txt'), '配图占位文案', 'TEXT', {
+          characters: '配图占位：待手动替换'
+        });
+      }
+    }
+    return blockId;
+  }
+
+  const seedBlockId = addBlock('说明块01', '1', { withImage: true });
+  addBlock('说明块02', '2', { withImage: false });
 
   addNode(master1Id, uid('rect'), '主图占位', 'RECTANGLE');
 

@@ -17,15 +17,22 @@
 
 ## 3. Render 层
 
-- [x] 3.1 **偏离原方案**：不实现 `cloneClusterBlock()`。分组块改为在 `renderSection` 的块预算阶段一次性 `batchCloneNodes`。原因：右栏是 AUTO_LAYOUT 且后端只支持 append，在 `fillCluster` 内部补克隆会让分组块排到全章节所有说明块之后，顺序错乱
-- [x] 3.2 `writeSubgroupTitle()`：优先写入模板 `#Title` TEXT；不存在时克隆 bulletSource TEXT 并定位在 bullets 上方 4px（FRAME-local）；`title === null` 时删除该槽位
-- [x] 3.3 `fillGroupBlocks()`：group[0] 复用现有说明块，group[1..N] 使用预算阶段已备好的块
-- [x] 3.4 角色标签 FRAME 只保留在 group[0] 并执行 keep-first 删除；group[1..N] 的说明块整体删除角色标签 FRAME
-- [x] 3.5 配图占位只保留在含 `配图：` bullet 的 group，其余 group 删除 imagePlaceholder；归属 group 的 `配图占位文案` 正常写入
-- [x] 3.6 删除「无条件删除所有 `#Title`」逻辑，改为：无 `####` 时全删（防占位泄漏），有 `####` 时 keep-first + 按分组填充
-- [x] 3.7 向后兼容快路径：`groups.length <= 1 && groups[0].title === null` 时走原扁平逻辑，调用序列不变
-- [x] 3.8 复用已缓存的 `allDescendants`；仅对新增的 group 块各做 1 次 `scanSubtree`，未新增 `getNodeInfo` 往返
-- [x] 3.9 **超出原方案**：group[1..N] 的说明块同时删除 `Number`（气泡编号）与 `#Title_Main`（簇主标题）。一个簇在主图上只有 1 个气泡，逐块重复编号会让读者误以为有 N 个气泡
+> **方案返工（2026-08-11）**：3.1–3.9 最初实现为「一个 group 一个说明块」，端到端前
+> 用 Bridge 读了真模板才发现，一个 `说明块` 本身就自带 2 段子分类槽位
+> （`#Title + Frame4273 + 正文×2 + 配图`），簇级编号与主标题在顶部只出现一次。
+> 旧方案还有个测试测不出的视觉缺陷：跟随块删掉 `Number` TEXT 后，画蓝色圆圈的
+> `Base` VECTOR 仍在，图上会留空心圆。根因是我照着 `template-map.ts` 的过时描述
+> 设计，没有先看真模板。下列条目为返工后的最终形态。
+
+- [x] 3.1 撤销跨簇块预算，`renderSection` 恢复到改动前形态（`wanted = clusters.length`）。`####` 全部收敛在单个说明块内处理，不再需要按 group 数预算块
+- [x] 3.2 `splitSlotRuns()`：以每个 `#Title` 为锚点切分说明块的直接子节点；首个 `#Title` 之前的节点是簇级表头，永不克隆、永不删除
+- [x] 3.3 `fillGroupSlots()`：按 `groups` 顺序克隆新槽位段追加到块尾，再整体删除模板原有槽位段。「先建后删」是绕开 AUTO_LAYOUT 只能 append 的唯一办法，同时让每段按需精确组装而非克隆后裁剪
+- [x] 3.4 角色标签 FRAME 只克隆给第 1 段；`@角色` 是 `###` 簇级声明，逐段重复只是噪音
+- [x] 3.5 `配图` 只克隆给声明了 `配图：xxx` 的组，并把描述写入其 `配图占位文案`；`配图` bullet 不占正文槽位
+- [x] 3.6 `title === null`（W5 隐式首组）不克隆 `#Title`，杜绝「小标题1」占位泄漏
+- [x] 3.7 簇级表头原样保留，不再删 `Number` / `#Title_Main` —— 一个簇只有一个气泡，表头本就该只有一份，也就不存在空心蓝圆
+- [x] 3.8 无 `####` 的快路径完全不变，调用序列由回归测试逐项锁死
+- [x] 3.9 非规范模板（块内一个 `#Title` 都没有）降级为扁平渲染，保证内容永不丢失
 
 ## 4. 测试
 
@@ -33,11 +40,13 @@
 - [x] 4.2 render：覆盖 spec `figma-template-1-14-rendering` 的全部 Scenario —— `tests/v2/render-subgroups.spec.ts`（8 例）
 - [x] 4.3 回归：不含 `####` 的文档，backend 调用序列与本 change 前逐项一致。基线由 `git stash` 回退 src 后实测录得，写死在 `BASELINE_CALL_SEQUENCE`
 - [x] 4.4 全量 8 文件 70 测试通过，`npx tsc -p packages/figma-mcp-server/tsconfig.json --noEmit` 零错误
-- [x] 4.5 mock backend 抽到 `tests/v2/helpers/mock-backend.ts`，并补齐模板真实存在的 `#Title` ×2 与 `配图` GROUP
+- [x] 4.5 mock backend 抽到 `tests/v2/helpers/mock-backend.ts`，并按真模板重建：`标题 › 序号 › 交互说明标记 › Base + Number`、双槽位段、`说明块02` 不带 `配图`
+- [x] 4.6 修 mock 自身失真：`nodeInfo()` 未返回 `characters`，导致 `decideRoleKeepDelete` 看到的角色标签全是空串、7 个全被删。角色保留逻辑此前从未被真正测过
 
 ## 5. 验证与收尾
 
-- [ ] 5.1 端到端：用含 `####` 的真实文档跑 Phase 4，Figma 内每个分组各自成块且小标题正确（需 Figma 桌面端 + Bridge 插件在线）
-- [ ] 5.2 端到端：用不含 `####` 的既有文档跑 Phase 4，产物与修改前一致
+- [x] 5.1 端到端：含 3 个 `####` 的文档渲染进真模板，产出单个说明块内 3 段槽位，编号/主标题各一份，角色标签只在首段，`配图` 只在声明它的那段
+- [x] 5.2 端到端：不含 `####` 的文档渲染结果正确，`#Title` 占位与多余槽位全部清除
 - [x] 5.3 已核对 `markdown-v2-spec.md:66-68` 的 G1/G2/G3 与 `:81` 的 W5，错误码、触发条件、宽度阈值均与实现一致，无需修订
 - [x] 5.4 删除 `reference/` 素材目录。engine 快照仍可从 commit `4406ee7` 的树中取回
+- [x] 5.5 按真模板重写 `template-map.ts` 的 `说明块` 结构注释与 `figma-template-1-14-rendering` spec —— 过时的注释正是本次返工的根源

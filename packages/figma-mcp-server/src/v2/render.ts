@@ -404,12 +404,10 @@ async function renderSection(
     c.name.startsWith(SECTION_CHILD_NAMES.clusterBlockPrefix)
   );
 
-  // A cluster with `####` sub-groups occupies one 说明块 PER GROUP. Budget
-  // them all here rather than cloning inside fillCluster: the right column
-  // is an AUTO_LAYOUT stack and the backend can only APPEND, so a late clone
-  // would land after every other cluster's block instead of next to its own.
-  const blocksPerCluster = section.clusters.map((c) => blockCountFor(c));
-  const wanted = blocksPerCluster.reduce((a, b) => a + b, 0);
+  // One 说明块 per cluster. `####` sub-groups do NOT get their own block —
+  // they are rendered as repeated slot runs INSIDE the cluster's block, so
+  // the block budget here is exactly the cluster count (see fillGroupSlots).
+  const wanted = section.clusters.length;
   const clusterNodes: NodeInfo[] = existingBlocks.slice(0, wanted);
   // Clone from first block for any missing slots.
   const source = existingBlocks[0];
@@ -463,16 +461,13 @@ async function renderSection(
   }
 
   const bubbleNodes: NodeInfo[] = [];
-  let blockCursor = 0;
   for (let i = 0; i < section.clusters.length; i++) {
     const c = section.clusters[i];
-    const count = blocksPerCluster[i] ?? 1;
-    const blocks = clusterNodes.slice(blockCursor, blockCursor + count);
-    blockCursor += count;
-    if (!c || blocks.length === 0) continue;
+    const cn = clusterNodes[i];
+    if (!c || !cn) continue;
     const bubble = await fillCluster(
       backend,
-      blocks,
+      cn,
       c,
       section.isGlobalSpec ? undefined : bubbleFrame,
       i + 1,
@@ -527,15 +522,6 @@ async function renderSection(
   }
 }
 
-/**
- * How many 说明块 a cluster needs: one per `####` sub-group, minimum 1.
- * A cluster with no `####` has exactly one implicit group → 1 block, which
- * keeps the no-subgroup render path byte-identical to the pre-groups engine.
- */
-function blockCountFor(cluster: SemanticCluster): number {
-  return Math.max(1, cluster.groups.length);
-}
-
 /** True when the cluster carries no `####` at all — the fast path. */
 function isSingleDefaultGroup(cluster: SemanticCluster): boolean {
   return cluster.groups.length <= 1 && (cluster.groups[0]?.title ?? null) === null;
@@ -543,7 +529,7 @@ function isSingleDefaultGroup(cluster: SemanticCluster): boolean {
 
 async function fillCluster(
   backend: FigmaBackend,
-  blockNodes: NodeInfo[],
+  clusterNode: NodeInfo,
   cluster: SemanticCluster,
   bubbleFrame: NodeInfo | undefined,
   bubbleNumber: number,
@@ -551,7 +537,6 @@ async function fillCluster(
   sectionIndex: string,
   clusterIndex: number
 ): Promise<NodeInfo | undefined> {
-  const clusterNode = blockNodes[0]!;
   // Re-index names inside this cluster block.
   // PR-1 (backend-scan-subtree-batch): use single-RTT scanSubtree instead of
   // the old multi-RTT BFS. Falls back to scanAllDescendants when truncated.
@@ -588,29 +573,29 @@ async function fillCluster(
   }
 
   // #Title — the sub-group heading slot. The template ships 2 instances
-  // ("小标题1 / 小标题2").
+  // ("小标题1 / 小标题2"), one per slot run.
   //   - no `####` in the markdown → nothing to write, so ALL instances are
   //     deleted; otherwise the literal placeholder text leaks into the doc.
-  //   - with `####`               → keep the first as the heading slot for
-  //     this block, drop the rest.
-  const subTitles = allDescendants.filter(
-    (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle
-  );
+  //   - with `####`               → fillGroupSlots owns them; leave alone.
   if (singleDefault) {
+    const subTitles = allDescendants.filter(
+      (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle
+    );
     if (subTitles.length > 0) {
       await backend.deleteNodes(subTitles.map((n) => n.id));
     }
-  } else if (subTitles.length > 1) {
-    await backend.deleteNodes(subTitles.slice(1).map((n) => n.id));
   }
 
-  // Role tags (Bug 9): template may carry multiple "Frame 4273..." role frames.
-  // Keep the first, delete the rest.
+  // Role tags (Bug 9): template carries one "Frame 4273..." role frame per
+  // slot run. The flat path collapses them to a single frame; the grouped
+  // path keeps slot 1's frame and lets fillGroupSlots drop the followers'
+  // (the @roles line is cluster-level, so repeating it per sub-group would
+  // just be noise).
   const roleFrames = allDescendants.filter(
     (n) =>
       n.type === 'FRAME' && n.name.startsWith(SECTION_CHILD_NAMES.roleTagsFramePrefix)
   );
-  if (roleFrames.length > 1) {
+  if (singleDefault && roleFrames.length > 1) {
     await backend.deleteNodes(roleFrames.slice(1).map((n) => n.id));
   }
   const primaryRoleFrame = roleFrames[0];
@@ -635,7 +620,7 @@ async function fillCluster(
       clusterIndex
     });
   } else {
-    await fillGroupBlocks(backend, blockNodes, cluster, allDescendants, {
+    await fillGroupSlots(backend, clusterNode, cluster, {
       seedImageGroupId,
       sectionIndex,
       clusterIndex
@@ -812,122 +797,199 @@ async function fillBlockContent(
 /**
  * Render a cluster that uses `####` sub-groups.
  *
- * `blockNodes` was budgeted and cloned by `renderSection` in document order,
- * so block i belongs to group i and the AUTO_LAYOUT stack already reads
- * correctly. Block 0 is the cluster's original block — its number badge,
- * main title and role tags were already handled by `fillCluster`. Blocks
- * 1..N are clones of that same block, so they carry duplicates of all three;
- * every one of them is stripped, because the badge, the title and the role
- * list identify the CLUSTER, not the group. Repeating them once per group
- * would imply three bubbles on the image when there is only one.
+ * The 1:14 说明块 is not one flat body — it is a header plus a repeating
+ * SLOT RUN, and the template ships two of them:
+ *
+ *   标题(GROUP)                                   ← cluster identity, once
+ *   #Title  Frame4273  正文/规则×2  配图           ← slot run 1
+ *   #Title  Frame4273  正文/规则×2  配图           ← slot run 2
+ *
+ * So a `####` sub-group is a slot run inside ONE block, not a block of its
+ * own. The header is left untouched: one cluster owns exactly one numbered
+ * bubble on the main image, so its badge and title must appear exactly once.
+ *
+ * Composition strategy — every slot is rebuilt by cloning the template's
+ * first run, then the original runs are deleted:
+ *
+ *   [orig1, orig2] → [orig1, orig2, new1..newN] → delete orig → [new1..newN]
+ *
+ * Cloning append-only is the whole reason for this order. The block is an
+ * AUTO_LAYOUT stack, so a node cloned into it always lands at the bottom;
+ * building the runs in document order and deleting the prototypes afterwards
+ * is what makes the final stacking order come out right. It also lets each
+ * run be composed to exact size (N bullet TEXTs, 配图 only where a `配图：`
+ * bullet asked for it) instead of cloned-then-trimmed.
+ *
+ * The role-tags frame is cloned for the first group only: `@roles` is
+ * declared once per `###`, so repeating the same tag row above every
+ * sub-group would be pure noise.
  */
-async function fillGroupBlocks(
+async function fillGroupSlots(
   backend: FigmaBackend,
-  blockNodes: NodeInfo[],
+  clusterNode: NodeInfo,
   cluster: SemanticCluster,
-  primaryDescendants: NodeInfo[],
   ctx: {
     seedImageGroupId: string | undefined;
     sectionIndex: string;
     clusterIndex: number;
   }
 ): Promise<void> {
-  for (let i = 0; i < cluster.groups.length; i++) {
-    const group = cluster.groups[i];
-    const block = blockNodes[i];
-    if (!group || !block) continue;
+  const blockInfo = await backend.getNodeInfo(clusterNode.id);
+  const children = blockInfo.childIds
+    ? await backend.getNodesInfo(blockInfo.childIds)
+    : [];
 
-    let descendants: NodeInfo[];
-    if (i === 0) {
-      descendants = primaryDescendants;
-    } else {
-      const { nodes, truncated } = await backend.scanSubtree(block.id);
-      descendants = truncated ? await scanAllDescendants(backend, block.id) : nodes;
-
-      // Strip cluster-level identity from the follower blocks.
-      const stripIds: string[] = [];
-      for (const n of descendants) {
-        if (n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterNumberText) {
-          stripIds.push(n.id);
-        } else if (n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterTitle) {
-          stripIds.push(n.id);
-        } else if (
-          n.type === 'FRAME' &&
-          n.name.startsWith(SECTION_CHILD_NAMES.roleTagsFramePrefix)
-        ) {
-          stripIds.push(n.id);
-        }
-      }
-      // Follower blocks inherit both template #Title instances; keep one.
-      const followerSubTitles = descendants.filter(
-        (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle
-      );
-      stripIds.push(...followerSubTitles.slice(1).map((n) => n.id));
-      if (stripIds.length > 0) {
-        await backend.deleteNodes(stripIds);
-        const dropped = new Set(stripIds);
-        descendants = descendants.filter((n) => !dropped.has(n.id));
-      }
-    }
-
-    await writeSubgroupTitle(backend, descendants, group.title);
-
+  const runs = splitSlotRuns(children);
+  const prototype = runs[0];
+  if (!prototype) {
+    // Non-canonical block with no `#Title` at all — nothing to slot on.
+    // Fall back to rendering the cluster flat so content is never lost.
+    const { nodes } = await backend.scanSubtree(clusterNode.id);
     await fillBlockContent(backend, {
-      blockId: block.id,
-      allDescendants: descendants,
-      bullets: group.bullets,
+      blockId: clusterNode.id,
+      allDescendants: nodes,
+      bullets: cluster.bullets,
       seedImageGroupId: ctx.seedImageGroupId,
       sectionIndex: ctx.sectionIndex,
       clusterIndex: ctx.clusterIndex
     });
+    return;
+  }
+
+  const protoTitle = prototype.find(
+    (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle
+  );
+  const protoRoleFrame = prototype.find(
+    (n) =>
+      n.type === 'FRAME' && n.name.startsWith(SECTION_CHILD_NAMES.roleTagsFramePrefix)
+  );
+  const protoBullet = prototype.find(
+    (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText
+  );
+  const protoImage =
+    prototype.find(
+      (n) =>
+        n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder
+    ) ??
+    (ctx.seedImageGroupId ? ({ id: ctx.seedImageGroupId } as NodeInfo) : undefined);
+
+  const textUpdates: Array<{ nodeId: string; characters: string }> = [];
+  const imageHintTargets: Array<{ groupId: string; desc: string }> = [];
+
+  for (let i = 0; i < cluster.groups.length; i++) {
+    const group = cluster.groups[i];
+    if (!group) continue;
+
+    if (group.title !== null && protoTitle) {
+      const titleNode = await tracedClone(
+        backend,
+        { sourceId: protoTitle.id, parentId: clusterNode.id },
+        { callSite: 'fillGroupSlots.title', sectionIndex: ctx.sectionIndex, clusterIndex: ctx.clusterIndex }
+      );
+      textUpdates.push({ nodeId: titleNode.id, characters: group.title });
+    }
+
+    if (i === 0 && protoRoleFrame) {
+      await tracedClone(
+        backend,
+        { sourceId: protoRoleFrame.id, parentId: clusterNode.id },
+        { callSite: 'fillGroupSlots.roleFrame', sectionIndex: ctx.sectionIndex, clusterIndex: ctx.clusterIndex }
+      );
+    }
+
+    const visibleBullets = group.bullets.filter((b) => !isImageBullet(b));
+    if (visibleBullets.length > 0 && protoBullet) {
+      const cloned = await backend.batchCloneNodes({
+        sourceId: protoBullet.id,
+        parentId: clusterNode.id,
+        count: visibleBullets.length
+      });
+      for (let j = 0; j < visibleBullets.length; j++) {
+        const node = cloned[j];
+        if (node) {
+          textUpdates.push({
+            nodeId: node.id,
+            characters: normalizeBulletText(visibleBullets[j] ?? '')
+          });
+        }
+      }
+    }
+
+    const imageBullet = group.bullets.find(isImageBullet);
+    if (imageBullet && protoImage) {
+      const imageNode = await tracedClone(
+        backend,
+        { sourceId: protoImage.id, parentId: clusterNode.id },
+        { callSite: 'fillGroupSlots.image', sectionIndex: ctx.sectionIndex, clusterIndex: ctx.clusterIndex }
+      );
+      const desc = stripImageBulletPrefix(imageBullet);
+      if (desc) imageHintTargets.push({ groupId: imageNode.id, desc });
+    }
+  }
+
+  // Prototypes have served their purpose; drop every original run so only
+  // the freshly composed ones remain. The 标题 header is not part of any
+  // run and therefore survives.
+  const originalIds = runs.flat().map((n) => n.id);
+  if (originalIds.length > 0) {
+    await backend.deleteNodes(originalIds);
+  }
+
+  if (textUpdates.length > 0) {
+    await backend.setMultipleTextContents(textUpdates);
+  }
+
+  for (const target of imageHintTargets) {
+    const { nodes: groupChildren } = await backend.scanSubtree(target.groupId);
+    const hint = groupChildren.find(
+      (n) =>
+        n.type === 'TEXT' &&
+        n.name === SECTION_CHILD_NAMES.optionalImagePlaceholderHint
+    );
+    if (hint) {
+      await backend.setTextContent(hint.id, `配图占位：${target.desc}`);
+    }
   }
 }
 
 /**
- * Write a group's heading into the block's `#Title` TEXT.
+ * Split a 说明块's direct children into slot runs.
  *
- * `title === null` only happens for the implicit leading group of a cluster
- * that mixes free bullets with `####` (parser W3). That group has no heading
- * to show, so the slot is deleted rather than left holding the template's
- * literal "小标题1" placeholder.
- *
- * Fallback when the block has no `#Title` at all (non-canonical template):
- * clone the first bullet TEXT and park it 4px above the bullet list. Coords
- * are FRAME-local, so they are derived from the bullet source's own box.
+ * A run starts at each `#Title` TEXT and extends to the node before the next
+ * one. Anything before the first `#Title` is the cluster header (标题 GROUP)
+ * and is deliberately excluded — callers must never clone or delete it.
  */
-async function writeSubgroupTitle(
-  backend: FigmaBackend,
-  descendants: NodeInfo[],
-  title: string | null
-): Promise<void> {
-  const subTitle = descendants.find(
-    (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle
-  );
-
-  if (title === null) {
-    if (subTitle) await backend.deleteNodes([subTitle.id]);
-    return;
+function splitSlotRuns(children: NodeInfo[]): NodeInfo[][] {
+  const runs: NodeInfo[][] = [];
+  let current: NodeInfo[] | undefined;
+  for (const child of children) {
+    const isTitle =
+      child.type === 'TEXT' && child.name === SECTION_CHILD_NAMES.clusterSubTitle;
+    if (isTitle) {
+      current = [child];
+      runs.push(current);
+    } else if (current) {
+      current.push(child);
+    }
   }
+  return runs;
+}
 
-  if (subTitle) {
-    await backend.setTextContent(subTitle.id, title);
-    return;
-  }
+/** `- **文本**` → `文本`. The template TEXT does not interpret markdown. */
+function normalizeBulletText(raw: string): string {
+  return raw
+    .replace(/^\s*[-·•*]+\s*/, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .trim();
+}
 
-  const bulletSource = descendants.find(
-    (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText
-  );
-  if (!bulletSource?.parentId) return;
-  const clone = await backend.cloneNode({
-    sourceId: bulletSource.id,
-    parentId: bulletSource.parentId
-  });
-  await backend.setTextContent(clone.id, title);
-  const srcBox = bulletSource.absoluteBoundingBox;
-  const cloneBox = clone.absoluteBoundingBox;
-  if (srcBox && cloneBox) {
-    await backend.moveNode(clone.id, srcBox.x, srcBox.y - cloneBox.height - 4);
-  }
+/** `- 配图：低血量示意` → `低血量示意`. */
+function stripImageBulletPrefix(raw: string): string {
+  return raw
+    .replace(/^\s*[-·•*]+\s*/, '')
+    .replace(/^配图\s*[：:]\s*/u, '')
+    .trim();
 }
 
 /**

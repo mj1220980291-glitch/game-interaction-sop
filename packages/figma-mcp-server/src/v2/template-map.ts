@@ -81,24 +81,42 @@ export const SECTION_TEMPLATE = {
  *   - 标号/N FRAME                     — numbered bubble, child of 气泡
  *     └── #Number TEXT                 — the bubble number text ("1", "2", ...)
  *   - Text FRAME                       — right column container (AUTO_LAYOUT)
- *     └── 说明块NN                     — cluster block, repeats per ###
- *          ├── Number TEXT             — blue circle number (1-based idx)
- *          ├── #Title_Main TEXT        — cluster title (plain, no "N." prefix)
- *          ├── #Title TEXT             — generic "说明" sub-label (appears twice
- *          │                             in template; renderer trims to 1)
- *          ├── Frame 4273xxxxxx        — role tags FRAME (AUTO_LAYOUT horiz,
- *          │                             contains 7 TEXT children @GUI..@音频)
- *          ├── 正文/规则 TEXT           — bullet line; 1 TEXT = 1 bullet, renderer
- *          │                             clones/trims to match bullet count
- *          └── 配图 GROUP               — optional image placeholder (0, 1 or
- *                                        several in source template per block;
- *                                        renderer applies two-way reconciliation)
+ *        └── 说明块NN                  — cluster block, repeats per ###
+ *
+ * A 说明块 is NOT a flat body. It is a cluster header followed by a
+ * REPEATING SLOT RUN, and the template ships two runs:
+ *
+ *   说明块01
+ *     标题 GROUP                       — cluster header, exactly one
+ *       └── 序号 GROUP
+ *            └── 交互说明标记 FRAME
+ *                 ├── Base VECTOR      — the blue circle graphic
+ *                 └── Number TEXT      — "1"
+ *       └── #Title_Main TEXT           — cluster title
+ *     #Title TEXT "小标题1"            ┐
+ *     Frame 427319720 FRAME            │ slot run 1  (one `####` sub-group)
+ *       └── 职能标签/完整 TEXT ×7      │
+ *     正文/规则 TEXT ×2                │
+ *     配图 GROUP                       ┘
+ *     #Title TEXT "小标题2"            ┐
+ *     Frame 427319721 FRAME            │ slot run 2
+ *     正文/规则 TEXT ×2                │
+ *     配图 GROUP                       ┘
+ *
+ * A slot run spans from a `#Title` to the node before the next `#Title`.
+ * Everything before the first `#Title` is the header and must never be
+ * cloned or deleted. `Number` and `Base` are siblings: deleting only the
+ * TEXT leaves an empty blue circle on the canvas.
+ *
+ * 说明块02 has the same shape but ships WITHOUT any 配图.
  *
  * Fresh IDs are assigned per clone; renderer scans by name.
  *
- * Discrepancy note (2026-05-13): the original v0.1 names in this file
- * (`界面名称`, `小标题块`, `小标题`, `说明文本`, `配图占位`, `角色标签`) did
- * NOT match the actual 1:14 template. Values below reflect the real template.
+ * Provenance (2026-08-11): this block was rewritten after reading the live
+ * template through the Desktop Bridge. The previous version described the
+ * block as a flat list with "#Title appears twice, renderer trims to 1",
+ * which is what led an earlier attempt to render each `####` as a separate
+ * 说明块 instead of using the native slot runs.
  */
 export const SECTION_CHILD_NAMES = {
   /** TEXT — the `## NN. [界面名称]` interface name label. */
@@ -117,11 +135,11 @@ export const SECTION_CHILD_NAMES = {
   rightColumnContainer: 'Text',
   /** FRAME name prefix for cluster blocks, e.g. "说明块01". */
   clusterBlockPrefix: '说明块',
-  /** TEXT — blue circle number inside a 说明块 (1-based idx). */
+  /** TEXT — blue circle number inside a 说明块 (1-based idx). Sibling of the `Base` VECTOR that draws the circle. */
   clusterNumberText: 'Number',
   /** TEXT — the cluster main title (plain, no "N." prefix). */
   clusterTitle: '#Title_Main',
-  /** TEXT — generic "说明" sub-label. Template carries 2 instances; renderer trims. */
+  /** TEXT — sub-group heading; also the anchor that starts a slot run. Template carries 2. */
   clusterSubTitle: '#Title',
   /** FRAME name prefix for role-tags frame, e.g. "Frame 427319720". */
   roleTagsFramePrefix: 'Frame 4273',

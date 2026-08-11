@@ -1,8 +1,9 @@
 /**
- * `####` 簇内子分类小标题 — render 侧。
+ * `####` 簇内子分类小标题 — render 侧（槽位方案）。
  *
- * 覆盖 spec `figma-template-1-14-rendering` →「簇内子分类小标题渲染」的
- * 全部 Scenario，外加不含 `####` 文档的调用序列回归。
+ * 一个 `####` 子分类渲染成 说明块 内的一段「槽位」：
+ *   #Title + Frame 4273xxx + 正文/规则×N + 配图
+ * 簇级身份（标题 GROUP：蓝色圆圈编号 + #Title_Main）整块只出现一次。
  *
  * Change: openspec/changes/port-subgroup-headings-to-mcp-server
  */
@@ -21,7 +22,7 @@ const HEAD = `# 子分组渲染
 跟进UI：测试
 需求组：测试
 易协作链接：#待补充
-最后更新时间：2026.05.28
+最后更新时间：2026.08.11
 
 ## 设计总览
 
@@ -38,36 +39,33 @@ function doc(body: string): string {
   return `${HEAD}\n${body}`.trim();
 }
 
-/**
- * 渲染产物里的所有 说明块，按创建顺序（= AUTO_LAYOUT 视觉顺序）。
- * 必须以 rootInstanceId 为根：模板原件在 store 里还在，直接全局扫会多数出来。
- */
+/** 渲染产物里的所有 说明块，按右栏顺序。 */
 function blocks(store: NodeStore, rootId: string) {
-  const out: NodeStore[string][] = [];
-  const queue = [rootId];
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    const n = store[id];
-    if (!n) continue;
-    if (n.name.startsWith('说明块')) out.push(n);
-    for (const c of n.children) queue.push(c);
-  }
-  return out;
+  const rightCol = collectByName(store, rootId, 'Text')[0];
+  if (!rightCol) throw new Error('rendered doc has no right column');
+  return rightCol.children
+    .map((id) => store[id]!)
+    .filter((n) => n.name.startsWith('说明块'));
 }
 
-/** 渲染产物里唯一的右栏容器。 */
-function rightColumnOf(store: NodeStore, rootId: string): NodeStore[string] {
-  const hit = collectByName(store, rootId, 'Text')[0];
-  if (!hit) throw new Error('rendered doc has no right column');
-  return hit;
+/**
+ * 说明块的直接子节点摘要，形如 `#Title="基础信息"`, `正文/规则="a"`。
+ * 槽位方案关心的正是**直接子节点的顺序**，所以断言按这个粒度做。
+ */
+function layoutOf(store: NodeStore, blockId: string): string[] {
+  return (store[blockId]?.children ?? []).map((id) => {
+    const n = store[id]!;
+    const label = n.name.startsWith('Frame 4273') ? '角色框' : n.name;
+    return n.type === 'TEXT' ? `${label}="${n.characters ?? ''}"` : label;
+  });
 }
 
-/** 某个说明块内某个名字的所有 TEXT 的 characters。 */
+/** 某个说明块内某个名字的所有节点的 characters。 */
 function textsIn(store: NodeStore, blockId: string, name: string): string[] {
   return collectByName(store, blockId, name).map((n) => n.characters ?? '');
 }
 
-/** 记录每个 backend 方法的调用序列，用于逐字节回归比对。 */
+/** 记录每个 backend 方法的调用序列，用于逐项回归比对。 */
 function traced(backend: FigmaBackend): { backend: FigmaBackend; log: string[] } {
   const log: string[] = [];
   const wrapped = new Proxy(backend, {
@@ -83,34 +81,8 @@ function traced(backend: FigmaBackend): { backend: FigmaBackend; log: string[] }
   return { backend: wrapped as FigmaBackend, log };
 }
 
-describe('renderV2MarkdownToFigma — #### sub-groups', () => {
-  it('single null-title group: no #Title survives, one block, unchanged shape', async () => {
-    const { backend, store } = makeBackend();
-
-    const result = await renderV2MarkdownToFigma(
-      {
-        markdown: doc(`## 01. 战斗界面
-
-### 经验条
-@GUI
-
-- a
-- b
-`)
-      },
-      backend
-    );
-
-    expect(result.ok, JSON.stringify(result.errors)).toBe(true);
-
-    const bs = blocks(store, result.rootInstanceId!);
-    expect(bs).toHaveLength(1);
-    // 模板自带 2 个 #Title 占位，无 #### 时必须全删，否则"小标题1"泄漏
-    expect(collectByName(store, bs[0]!.id, '#Title')).toHaveLength(0);
-    expect(textsIn(store, bs[0]!.id, '正文/规则')).toEqual(['a', 'b']);
-  });
-
-  it('two groups get two blocks with their own headings and bullets', async () => {
+describe('renderV2MarkdownToFigma — #### sub-groups render as slot runs', () => {
+  it('two groups become two slot runs inside ONE block, in document order', async () => {
     const { backend, store } = makeBackend();
 
     const result = await renderV2MarkdownToFigma(
@@ -121,10 +93,11 @@ describe('renderV2MarkdownToFigma — #### sub-groups', () => {
 @GUI
 
 #### 基础信息
-- a
+- a1
+- a2
 
 #### 升级反馈
-- b
+- b1
 `)
       },
       backend
@@ -133,16 +106,20 @@ describe('renderV2MarkdownToFigma — #### sub-groups', () => {
     expect(result.ok, JSON.stringify(result.errors)).toBe(true);
 
     const bs = blocks(store, result.rootInstanceId!);
-    expect(bs).toHaveLength(2);
+    expect(bs).toHaveLength(1);
 
-    expect(textsIn(store, bs[0]!.id, '#Title')).toEqual(['基础信息']);
-    expect(textsIn(store, bs[0]!.id, '正文/规则')).toEqual(['a']);
-
-    expect(textsIn(store, bs[1]!.id, '#Title')).toEqual(['升级反馈']);
-    expect(textsIn(store, bs[1]!.id, '正文/规则')).toEqual(['b']);
+    expect(layoutOf(store, bs[0]!.id)).toEqual([
+      '标题',
+      '#Title="基础信息"',
+      '角色框',
+      '正文/规则="a1"',
+      '正文/规则="a2"',
+      '#Title="升级反馈"',
+      '正文/规则="b1"'
+    ]);
   });
 
-  it('role tags live only on the first block', async () => {
+  it('the cluster header survives untouched — badge and main title appear once', async () => {
     const { backend, store } = makeBackend();
 
     const result = await renderV2MarkdownToFigma(
@@ -165,21 +142,16 @@ describe('renderV2MarkdownToFigma — #### sub-groups', () => {
       backend
     );
 
-    const bs = blocks(store, result.rootInstanceId!);
-    expect(bs).toHaveLength(3);
-
-    const roleFrames = (blockId: string) =>
-      Object.values(store).filter(
-        (n) => n.name.startsWith('Frame 4273') && isUnder(store, n.id, blockId)
-      );
-
-    expect(roleFrames(bs[0]!.id).length).toBe(1);
-    // 第 2..N 块整体删除角色标签 FRAME，而不只是删掉其中几个 TEXT
-    expect(roleFrames(bs[1]!.id).length).toBe(0);
-    expect(roleFrames(bs[2]!.id).length).toBe(0);
+    const block = blocks(store, result.rootInstanceId!)[0]!;
+    expect(textsIn(store, block.id, 'Number')).toEqual(['1']);
+    expect(textsIn(store, block.id, '#Title_Main')).toEqual(['经验条']);
+    // 蓝色圆圈是 Base VECTOR，和 Number 同属 交互说明标记。
+    // 「删 Number 保留 Base」会在图上留一个空心圆，这里锁死它必须成对存在。
+    expect(collectByName(store, block.id, 'Base')).toHaveLength(1);
+    expect(collectByName(store, block.id, '交互说明标记')).toHaveLength(1);
   });
 
-  it('cluster-level identity (number badge + main title) is not repeated', async () => {
+  it('role tags render once, above the first sub-group only', async () => {
     const { backend, store } = makeBackend();
 
     const result = await renderV2MarkdownToFigma(
@@ -187,7 +159,7 @@ describe('renderV2MarkdownToFigma — #### sub-groups', () => {
         markdown: doc(`## 01. 战斗界面
 
 ### 经验条
-@GUI
+@GUI @程序
 
 #### A
 - a
@@ -199,15 +171,20 @@ describe('renderV2MarkdownToFigma — #### sub-groups', () => {
       backend
     );
 
-    const bs = blocks(store, result.rootInstanceId!);
-    expect(textsIn(store, bs[0]!.id, 'Number')).toEqual(['1']);
-    expect(textsIn(store, bs[0]!.id, '#Title_Main')).toEqual(['经验条']);
-    // 一个簇只有一个气泡，重复画编号会让读者以为有 3 个气泡
-    expect(textsIn(store, bs[1]!.id, 'Number')).toEqual([]);
-    expect(textsIn(store, bs[1]!.id, '#Title_Main')).toEqual([]);
+    const block = blocks(store, result.rootInstanceId!)[0]!;
+    const roleFrames = block.children
+      .map((id) => store[id]!)
+      .filter((n) => n.name.startsWith('Frame 4273'));
+
+    expect(roleFrames).toHaveLength(1);
+    // @roles 是簇级声明，每个子分类重复一遍只是噪音
+    expect(textsIn(store, roleFrames[0]!.id, '职能标签/完整').sort()).toEqual([
+      '@GUI',
+      '@程序'
+    ]);
   });
 
-  it('配图占位 stays only on the group that declared 配图', async () => {
+  it('配图 lands only in the run whose group declared it', async () => {
     const { backend, store } = makeBackend();
 
     const result = await renderV2MarkdownToFigma(
@@ -228,18 +205,24 @@ describe('renderV2MarkdownToFigma — #### sub-groups', () => {
       backend
     );
 
-    const bs = blocks(store, result.rootInstanceId!);
-    expect(bs).toHaveLength(2);
-    expect(collectByName(store, bs[0]!.id, '配图')).toHaveLength(0);
-    expect(collectByName(store, bs[1]!.id, '配图')).toHaveLength(1);
-    expect(textsIn(store, bs[1]!.id, '配图占位文案')).toEqual([
+    expect(result.ok, JSON.stringify(result.errors)).toBe(true);
+
+    const block = blocks(store, result.rootInstanceId!)[0]!;
+    expect(layoutOf(store, block.id)).toEqual([
+      '标题',
+      '#Title="A"',
+      '角色框',
+      '正文/规则="a"',
+      '#Title="B"',
+      '正文/规则="b"',
+      '配图'
+    ]);
+    expect(textsIn(store, block.id, '配图占位文案')).toEqual([
       '配图占位：升级特效示意'
     ]);
-    // 配图 bullet 不占正文槽位
-    expect(textsIn(store, bs[1]!.id, '正文/规则')).toEqual(['b']);
   });
 
-  it('mixed free bullets + ####: the leading block has no heading', async () => {
+  it('mixed free bullets + ####: the leading run carries no heading', async () => {
     const { backend, store } = makeBackend();
 
     const result = await renderV2MarkdownToFigma(
@@ -260,15 +243,51 @@ describe('renderV2MarkdownToFigma — #### sub-groups', () => {
 
     expect(result.ok, JSON.stringify(result.errors)).toBe(true);
 
-    const bs = blocks(store, result.rootInstanceId!);
-    expect(bs).toHaveLength(2);
-    // 隐式分组没有标题，模板占位必须删掉而不是留下"小标题1"
-    expect(collectByName(store, bs[0]!.id, '#Title')).toHaveLength(0);
-    expect(textsIn(store, bs[0]!.id, '正文/规则')).toEqual(['游离']);
-    expect(textsIn(store, bs[1]!.id, '#Title')).toEqual(['基础信息']);
+    const block = blocks(store, result.rootInstanceId!)[0]!;
+    // 隐式分组没有标题，绝不能留下模板的 "小标题1" 占位
+    expect(layoutOf(store, block.id)).toEqual([
+      '标题',
+      '角色框',
+      '正文/规则="游离"',
+      '#Title="基础信息"',
+      '正文/规则="a"'
+    ]);
+    expect(textsIn(store, block.id, '#Title')).toEqual(['基础信息']);
   });
 
-  it('group blocks of different clusters keep document order in the column', async () => {
+  it('more groups than the template ships slots for (2) still render in order', async () => {
+    const { backend, store } = makeBackend();
+
+    const result = await renderV2MarkdownToFigma(
+      {
+        markdown: doc(`## 01. 战斗界面
+
+### 经验条
+@GUI
+
+#### A
+- a
+
+#### B
+- b
+
+#### C
+- c
+
+#### D
+- d
+`)
+      },
+      backend
+    );
+
+    const block = blocks(store, result.rootInstanceId!)[0]!;
+    expect(
+      layoutOf(store, block.id).filter((l) => l.startsWith('#Title='))
+    ).toEqual(['#Title="A"', '#Title="B"', '#Title="C"', '#Title="D"']);
+  });
+
+  it('a grouped cluster and a flat cluster coexist in one section', async () => {
     const { backend, store } = makeBackend();
 
     const result = await renderV2MarkdownToFigma(
@@ -293,16 +312,18 @@ describe('renderV2MarkdownToFigma — #### sub-groups', () => {
       backend
     );
 
-    const rightCol = rightColumnOf(store, result.rootInstanceId!);
-    const order = rightCol.children.map((id) => {
-      const b = store[id]!;
-      const sub = textsIn(store, b.id, '#Title');
-      const main = textsIn(store, b.id, '#Title_Main');
-      return `${main[0] ?? '-'}/${sub[0] ?? '-'}`;
-    });
+    expect(result.ok, JSON.stringify(result.errors)).toBe(true);
 
-    // 说明块是 AUTO_LAYOUT 子节点，只能 append —— 顺序必须在预算阶段就排好
-    expect(order).toEqual(['经验条/A', '-/B', '血条/-']);
+    const bs = blocks(store, result.rootInstanceId!);
+    expect(bs).toHaveLength(2);
+
+    expect(textsIn(store, bs[0]!.id, '#Title_Main')).toEqual(['经验条']);
+    expect(textsIn(store, bs[0]!.id, '#Title')).toEqual(['A', 'B']);
+
+    expect(textsIn(store, bs[1]!.id, '#Title_Main')).toEqual(['血条']);
+    // 无 #### 的簇必须一个 #Title 都不剩
+    expect(textsIn(store, bs[1]!.id, '#Title')).toEqual([]);
+    expect(textsIn(store, bs[1]!.id, 'Number')).toEqual(['2']);
   });
 
   it('regression: a document without #### produces the exact same call sequence', async () => {
@@ -318,39 +339,31 @@ describe('renderV2MarkdownToFigma — #### sub-groups', () => {
 @GUI
 
 - h1
-- 配图：血条示意
 `);
 
     const a = makeBackend();
     const ta = traced(a.backend);
-    await renderV2MarkdownToFigma({ markdown: md }, ta.backend);
+    const result = await renderV2MarkdownToFigma({ markdown: md }, ta.backend);
+
+    expect(result.ok, JSON.stringify(result.errors)).toBe(true);
 
     if (process.env.PRINT_CALL_SEQUENCE) {
       process.stdout.write(`\nCALL_SEQUENCE=${JSON.stringify(ta.log)}\n`);
     }
 
-    // 基线：本 change 之前的调用序列。若分组实现污染了快路径，这里会立刻炸。
     expect(ta.log).toEqual(BASELINE_CALL_SEQUENCE);
   });
 });
-
-/** 判断 nodeId 是否位于 ancestorId 的子树内。 */
-function isUnder(store: NodeStore, nodeId: string, ancestorId: string): boolean {
-  let cur = store[nodeId]?.parentId;
-  while (cur) {
-    if (cur === ancestorId) return true;
-    cur = store[cur]?.parentId;
-  }
-  return false;
-}
 
 /**
  * 无 `####` 文档的 backend 调用序列基线。
  *
  * 采集方式：`git stash push -- packages/figma-mcp-server/src` 回到本 change
- * 实现之前的引擎，再用同一个 mock 跑同一份 markdown 录下来的真实序列
- * （`PRINT_CALL_SEQUENCE=1` 会打印）。它锁死的是「快路径没被分组逻辑改动」，
- * 任何顺序/次数变化都必须是有意为之。
+ * 实现之前的引擎，用**当前这份 mock**（已按真模板重建）跑同一份 markdown
+ * 录下来的真实序列（`PRINT_CALL_SEQUENCE=1` 打印）。
+ *
+ * 它锁死的是「`####` 的实现完全没有碰无分组快路径」。任何顺序或次数变化都
+ * 必须是有意为之，并且要重新用同样的方式采集基线，而不是照抄跑出来的结果。
  */
 const BASELINE_CALL_SEQUENCE: string[] = [
   'commitUndoCheckpoint',
@@ -368,7 +381,6 @@ const BASELINE_CALL_SEQUENCE: string[] = [
   'setTextContent',
   'getNodeInfo',
   'getNodesInfo',
-  'batchCloneNodes',
   'scanSubtree',
   'getNodeInfo',
   'deleteNodes',
@@ -376,11 +388,12 @@ const BASELINE_CALL_SEQUENCE: string[] = [
   'scanSubtree',
   'setTextContent',
   'setTextContent',
+  'deleteNodes',
   'deleteNodes',
   'getNodeInfo',
   'getNodesInfo',
   'deleteNodes',
-  'batchCloneNodes',
+  'deleteNodes',
   'setMultipleTextContents',
   'deleteNodes',
   'getNodeInfo',
@@ -393,12 +406,12 @@ const BASELINE_CALL_SEQUENCE: string[] = [
   'setTextContent',
   'setTextContent',
   'deleteNodes',
+  'deleteNodes',
   'getNodeInfo',
   'getNodesInfo',
   'deleteNodes',
+  'deleteNodes',
   'setMultipleTextContents',
-  'scanSubtree',
-  'setTextContent',
   'getNodeInfo',
   'getNodesInfo',
   'cloneNode',
