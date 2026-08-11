@@ -7,10 +7,37 @@ TBD - created by archiving change v2-add-cluster-subgroup-headings. Update Purpo
 
 引擎 SHALL 把 v2 IR 写入 `TEMPLATE_FILE_KEY = 'UYCJok3MXTWITMfeJSqEF6'` 文件中 `TEMPLATE_NODE_ID = '1:14'` 的 COMPONENT 实例（或其副本）。
 
+`target.fileKey` SHALL 真正决定写入哪个文件：给定时，引擎 SHALL 把 backend 的每一次
+调用都路由到该文件（`FigmaBackend.withFileKey`），不切换、也不写入用户当前活动文件。
+
+`TEMPLATE_NODE_ID` 是裸的 `'1:14'`，在任意文件里都能解析到某个节点，因此指错文件不会
+自然报错。引擎 SHALL 在动画布之前做两道校验，任一不过即以错误码返回且**不产生任何画布
+写入**（含 undo checkpoint）：
+
+| 情形 | 错误码 |
+|---|---|
+| backend 不具备按 fileKey 寻址的能力 | `V2_TARGET_FILE_UNSUPPORTED` |
+| 目标文件读不到 `1:14`（多为插件未在该文件运行） | `V2_TARGET_FILE_UNREACHABLE` |
+| 目标文件的 `1:14` 不是容器型节点或无子节点 | `V2_TEMPLATE_NODE_MISMATCH` |
+
+引擎 SHALL NOT 在 `fileKey` 无法满足时退回活动文件。未传 `fileKey` 时 SHALL 沿用活动
+文件，且 SHALL NOT 因此产生任何额外 backend 调用。
+
 #### Scenario: 写入指定模板
 
 - **WHEN** 调用方传入 `target: { fileKey, pageId }`
 - **THEN** 引擎 SHALL 在该 file 的该 page 下基于 1:14 模板克隆出文档结构
+
+#### Scenario: 活动文件不是目标文件
+
+- **WHEN** 设计师正在编辑文件 A，调用方传入 `target.fileKey` = 文件 B
+- **THEN** 产物 SHALL 全部落在文件 B；文件 A SHALL 无任何节点增减
+
+#### Scenario: 目标文件的 1:14 不是模板
+
+- **WHEN** `target.fileKey` 指向一个 `1:14` 为 TEXT 图层的生产文件
+- **THEN** 引擎 SHALL 返回 `V2_TEMPLATE_NODE_MISMATCH` 且不发生任何克隆
+
 
 ### Requirement: 文件头与设计总览一次性注入
 

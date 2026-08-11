@@ -81,6 +81,9 @@ Phase 4 只用得到两个工具：
   - `skip` — 留占位
   - **缺省的章节按 `skip` 处理**，Phase 3 跳过的章节不写进去即可
 - `target`（可选）— `fileKey` / `pageId`
+  - `fileKey` 决定写进哪个文件。**不传就写进 Figma Desktop 当前活动的那个文件**，所以只要用户可能同时开着别的文件，就该显式传 `UYCJok3MXTWITMfeJSqEF6`
+  - 目标文件必须也开着 Desktop Bridge 插件；否则引擎返回 `V2_TARGET_FILE_UNREACHABLE`
+  - 目标文件里的 `1:14` 不是模板时，引擎返回 `V2_TEMPLATE_NODE_MISMATCH` 并且一个节点都不写
 
 **不要手写 `figma_execute` 脚本绕过这两个工具。** 所有 pitfall 保护（GROUP 爆炸防护 / FRAME-local 坐标换算 / 单点 probe / 角色 TEXT 删除 / 配图占位双向判定）都在引擎的 safety wrapper 里。绕过引擎等于把防护全卸掉。
 

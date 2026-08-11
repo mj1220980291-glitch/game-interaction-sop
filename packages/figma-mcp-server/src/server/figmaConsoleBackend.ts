@@ -16,11 +16,12 @@ import type { FigmaBackend, NodeInfo, FigmaNodeType } from '../v2/figma-client.j
 async function exec(
   client: Client,
   code: string,
-  timeout = 15000
+  timeout = 15000,
+  fileKey?: string
 ): Promise<unknown> {
   const res = await client.callTool({
     name: 'figma_execute',
-    arguments: { code, timeout }
+    arguments: fileKey ? { code, timeout, fileKey } : { code, timeout }
   });
   // figma-console MCP wraps content as: [{ type: 'text', text: JSON }]
   const content = (res as { content?: Array<{ type: string; text?: string }> }).content;
@@ -90,13 +91,30 @@ function mapNode(raw: Record<string, unknown>): NodeInfo {
 
 // ---- public factory -----------------------------------------------------
 
-export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
+/**
+ * Build a backend bound to a specific Figma file.
+ *
+ * `fileKey` is optional. Omitted, every `figma_execute` lands in whatever file
+ * is currently active in Figma Desktop — which is exactly how `target.fileKey`
+ * used to be silently ignored. Passed, the Bridge routes each call to that
+ * connected file instead, without switching the user's active file.
+ * (Local Mode only; Cloud Mode rejects `fileKey` outright.)
+ */
+export function buildFigmaConsoleBackend(client: Client, fileKey?: string): FigmaBackend {
+  // Single choke point: every op below goes through `run`, so binding the file
+  // here is all it takes to target a file end to end.
+  const run = (code: string, timeout?: number) => exec(client, code, timeout, fileKey);
+
   return {
+
+    withFileKey(nextFileKey) {
+      return buildFigmaConsoleBackend(client, nextFileKey);
+    },
 
     // --- Read ops --------------------------------------------------------
 
     async getNodeInfo(nodeId) {
-      const r = await exec(client, `
+      const r = await run(`
         ${SERIALIZE_NODE_FN}
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         return serNode(n);
@@ -106,7 +124,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
     },
 
     async getNodesInfo(nodeIds) {
-      const r = await exec(client, `
+      const r = await run(`
         ${SERIALIZE_NODE_FN}
         const ids = ${JSON.stringify(nodeIds)};
         const results = [];
@@ -121,7 +139,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
     },
 
     async scanSubtree(rootId, maxNodes = 500) {
-      const r = await exec(client, `
+      const r = await run(`
         ${SERIALIZE_NODE_FN}
         const root = await figma.getNodeByIdAsync(${JSON.stringify(rootId)});
         if (!root) return { nodes: [], truncated: false };
@@ -153,7 +171,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
       // Short-circuit: no work needed, avoid round-trip.
       if (count <= 0) return [];
 
-      const r = await exec(client, `
+      const r = await run(`
         ${SERIALIZE_NODE_FN}
         const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
         if (!src) {
@@ -177,7 +195,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
     },
 
     async cloneNode({ sourceId, parentId, x, y, name }) {
-      const r = await exec(client, `
+      const r = await run(`
         ${SERIALIZE_NODE_FN}
         const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
         if (!src) {
@@ -199,7 +217,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
     },
 
     async moveNode(nodeId, x, y) {
-      await exec(client, `
+      await run(`
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         if (!n) throw new Error('moveNode: node not found: ' + ${JSON.stringify(nodeId)});
         n.x = ${x};
@@ -209,7 +227,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
     },
 
     async setTextContent(nodeId, characters) {
-      await exec(client, `
+      await run(`
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         if (!n || n.type !== 'TEXT') throw new Error('setTextContent: TEXT node not found: ' + ${JSON.stringify(nodeId)});
         const len = n.characters.length || 1;
@@ -221,7 +239,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
     },
 
     async setMultipleTextContents(updates) {
-      await exec(client, `
+      await run(`
         const updates = ${JSON.stringify(updates)};
         for (const { nodeId, characters } of updates) {
           const n = await figma.getNodeByIdAsync(nodeId);
@@ -236,7 +254,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
     },
 
     async deleteNodes(nodeIds) {
-      await exec(client, `
+      await run(`
         const ids = ${JSON.stringify(nodeIds)};
         for (const id of ids) {
           const n = await figma.getNodeByIdAsync(id);
@@ -247,7 +265,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
     },
 
     async reparentNode({ nodeId, newParentId, preserveAbsolutePosition }) {
-      await exec(client, `
+      await run(`
         const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         const parent = await figma.getNodeByIdAsync(${JSON.stringify(newParentId)});
         if (!node || !parent) throw new Error('reparentNode: node or parent not found');
@@ -265,7 +283,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
 
     async setImageFill({ nodeId, src }) {
       // src is a URL or base64 — create image from URL via fetch
-      await exec(client, `
+      await run(`
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         if (!n) throw new Error('setImageFill: node not found');
         const resp = await fetch(${JSON.stringify(src)});
@@ -277,7 +295,7 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
     },
 
     async rasterizeNodeToImageFill({ sourceNodeId, targetNodeId, scale = 1 }) {
-      await exec(client, `
+      await run(`
         const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceNodeId)});
         const tgt = await figma.getNodeByIdAsync(${JSON.stringify(targetNodeId)});
         if (!src || !tgt) throw new Error('rasterizeNodeToImageFill: node not found');
@@ -289,17 +307,17 @@ export function buildFigmaConsoleBackend(client: Client): FigmaBackend {
     },
 
     async commitUndoCheckpoint(_label) {
-      await exec(client, `figma.commitUndo(); return null;`);
+      await run(`figma.commitUndo(); return null;`);
     },
 
     async triggerUndo(times) {
       for (let i = 0; i < times; i++) {
-        await exec(client, `figma.triggerUndo(); return null;`);
+        await run(`figma.triggerUndo(); return null;`);
       }
     },
 
     async scanByTypes(rootId, types) {
-      const r = await exec(client, `
+      const r = await run(`
         ${SERIALIZE_NODE_FN}
         const types = ${JSON.stringify(types)};
         const root = await figma.getNodeByIdAsync(${JSON.stringify(rootId)});

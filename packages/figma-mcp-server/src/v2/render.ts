@@ -120,7 +120,15 @@ export interface RenderInput {
   /** sectionIndex (e.g. "01") → asset spec. Missing entries default to "skip". */
   assetMap?: Record<string, AssetSpec>;
   target?: {
-    /** Defaults to TEMPLATE_FILE_KEY. */
+    /**
+     * File to render into. Omitted, the render lands in whatever file is
+     * currently active in Figma Desktop.
+     *
+     * Passed, every backend call is routed to that connected file instead —
+     * see `FigmaBackend.withFileKey`. This is the safe way to render while
+     * the designer is working in a different file: the active file is not
+     * switched and not written to.
+     */
     fileKey?: string;
     /** Page to host the cloned template instance. If omitted, backend chooses. */
     pageId?: string;
@@ -156,14 +164,27 @@ export async function renderV2MarkdownToFigma(
     };
   }
 
+  // Phase A2 — Bind the target file, before anything touches the canvas.
+  let targetBackend: FigmaBackend;
+  try {
+    targetBackend = await bindTargetFile(input, backend);
+  } catch (e) {
+    const err = e as Error & { code?: string };
+    return {
+      ok: false,
+      errors: [{ code: err.code ?? 'V2_TARGET_FILE_ERROR', message: err.message }],
+      warnings: parsed.warnings
+    };
+  }
+
   // Phase B — Render. Wrap in undo checkpoint + try/catch for one-shot rollback.
-  await backend.commitUndoCheckpoint('v2-render-start');
+  await targetBackend.commitUndoCheckpoint('v2-render-start');
   let rootInstanceId: string | undefined;
   try {
     rootInstanceId = await renderInner(
       parsed.ir,
       input,
-      backend,
+      targetBackend,
       (id) => { rootInstanceId = id; }   // set as soon as root is created
     );
   } catch (e) {
@@ -173,7 +194,7 @@ export async function renderV2MarkdownToFigma(
     // entry and leaves the rest of the partial render on canvas.
     if (rootInstanceId) {
       try {
-        await backend.deleteNodes([rootInstanceId]);
+        await targetBackend.deleteNodes([rootInstanceId]);
       } catch {
         /* root may already be partially cleaned up — ignore */
       }
@@ -197,6 +218,83 @@ export async function renderV2MarkdownToFigma(
     warnings: parsed.warnings,
     summary: summarize(parsed.ir, input.assetMap)
   };
+}
+
+// --- Target file binding -------------------------------------------------
+
+/** Node types that a usable 1:14 template could plausibly be. */
+const TEMPLATE_CONTAINER_TYPES: ReadonlyArray<NodeInfo['type']> = [
+  'FRAME',
+  'COMPONENT',
+  'INSTANCE',
+  'GROUP'
+];
+
+/**
+ * Resolve which file the render writes into.
+ *
+ * `target.fileKey` used to be accepted by the tool schema, typed in
+ * `RenderInput`, documented in the SOP — and then dropped on the floor. Every
+ * render went to whatever file happened to be active in Figma Desktop. Since
+ * `TEMPLATE_NODE_ID` is a bare `'1:14'`, pointing at the wrong file does not
+ * fail loudly: that id resolves to some unrelated node (in one production file
+ * it is a TEXT layer with two names on it) and the renderer starts cloning it.
+ *
+ * So when a fileKey is given we bind the backend to it and immediately probe
+ * `1:14` in that file. A backend that cannot address files by key is a hard
+ * error, never a silent fallback to the active file.
+ *
+ * No fileKey → unchanged behaviour, and crucially no extra backend calls.
+ */
+async function bindTargetFile(
+  input: RenderInput,
+  backend: FigmaBackend
+): Promise<FigmaBackend> {
+  const fileKey = input.target?.fileKey;
+  if (!fileKey) return backend;
+
+  if (!backend.withFileKey) {
+    throw Object.assign(
+      new Error(
+        `target.fileKey=${fileKey} was requested but this backend cannot address ` +
+          `files by key, so the render would silently land in whichever file is ` +
+          `active. Drop target.fileKey to render into the active file.`
+      ),
+      { code: 'V2_TARGET_FILE_UNSUPPORTED' }
+    );
+  }
+
+  const bound = backend.withFileKey(fileKey);
+
+  let templateNode: NodeInfo;
+  try {
+    templateNode = await bound.getNodeInfo(TEMPLATE_NODE_ID);
+  } catch (e) {
+    throw Object.assign(
+      new Error(
+        `cannot read template node ${TEMPLATE_NODE_ID} in file ${fileKey}: ` +
+          `${(e as Error).message}. Is the Desktop Bridge plugin running in that file?`
+      ),
+      { code: 'V2_TARGET_FILE_UNREACHABLE' }
+    );
+  }
+
+  if (
+    !TEMPLATE_CONTAINER_TYPES.includes(templateNode.type) ||
+    !templateNode.childIds ||
+    templateNode.childIds.length === 0
+  ) {
+    throw Object.assign(
+      new Error(
+        `node ${TEMPLATE_NODE_ID} in file ${fileKey} is a ${templateNode.type} ` +
+          `named "${templateNode.name}" with no children — that is not the 1:14 ` +
+          `template. Expected file: ${TEMPLATE_FILE_KEY}.`
+      ),
+      { code: 'V2_TEMPLATE_NODE_MISMATCH' }
+    );
+  }
+
+  return bound;
 }
 
 // --- Inner renderer ------------------------------------------------------
@@ -1274,7 +1372,6 @@ const SECTION_TEMPLATE_NAMES = {
 } as const;
 
 // Mark unused imports as intentional.
-void TEMPLATE_FILE_KEY;
 void ROLE_TEXT_ORDER;
 void SECTION_TEMPLATE;
 void HEADER_SLOTS;

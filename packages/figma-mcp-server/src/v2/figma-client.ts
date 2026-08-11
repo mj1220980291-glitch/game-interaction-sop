@@ -79,6 +79,18 @@ export interface ScanSubtreeResult {
  * preserve the safety rules.
  */
 export interface FigmaBackend {
+  /**
+   * Return a view of this backend whose every operation targets `fileKey`
+   * instead of whatever file is active in Figma Desktop.
+   *
+   * Optional because not every backend can address files independently (the
+   * test mock can't, and figma-console's Cloud Mode rejects `fileKey`). The
+   * renderer treats a missing implementation as a hard error rather than
+   * silently falling back to the active file — writing a document into the
+   * wrong file is exactly the failure this exists to prevent.
+   */
+  withFileKey?(fileKey: string): FigmaBackend;
+
   /** Read a single node's structural metadata. */
   getNodeInfo(nodeId: string): Promise<NodeInfo>;
 
