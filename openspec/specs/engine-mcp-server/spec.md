@@ -91,20 +91,58 @@ If the engine's stdio MCP client to the child `figma-console-mcp` enters a close
 - **THEN** the engine MUST complete `client.connect()` and `client.listTools()` BEFORE binding its own stdio server transport
 - **AND** any host `tools/list` or `tools/call` request received after binding MUST see the proxied tool list already populated
 
+### Requirement: 启动时回收被孤儿占用的 Bridge 端口
+
+引擎 SHALL 在 spawn 自己的 `figma-console-mcp` 子进程**之前**，扫描
+`<tmpdir>/figma-console-mcp-{port}.json` 广告文件，对其中仍存活的进程判定是否孤儿，
+并终止孤儿及其子树、删除对应广告文件。
+
+孤儿的判据 SHALL 是「直接父进程已不在进程表中」（POSIX 上另含 ppid 为 0/1）。父进程
+仍存活的实例 SHALL 被保留——那是用户另行配置的第二个 figma-console MCP，杀掉它会破坏
+别人的服务。
+
+不在死亡时清理，是因为死亡时无法清理：Windows 上无窗口的控制台进程没有优雅终止通道
+（实测 `taskkill` 不带 `/F` 被直接拒绝），MCP host 只能强杀引擎，而强杀不执行任何
+`exit` / 信号钩子。子链 `npx → cmd.exe → local.js` 随 stdin 逐级 EOF 而死，唯独
+`local.js` 不响应 EOF，于是活着、继续占用 9223、继续刷新广告文件；下一个引擎只能退到
+9224，而 Figma 插件仍连在旧端口上——用户看到的现象是「重启后 Bridge 坏了」。
+
+启动时回收不需要垂死进程的任何配合，因而同样能自愈崩溃、断电与 `kill -9`。
+整个过程 SHALL 为 best-effort：广告文件不可读、进程表拿不到、kill 失败，均 SHALL
+降级为「保持原样」并继续启动。
+
+#### Scenario: 上一个引擎留下的孤儿占着首选端口
+
+- **WHEN** 广告文件记录 pid=P 占用 9223，且 P 存活但其父进程已退出
+- **THEN** 引擎 SHALL 终止 P 及其子树、删除该广告文件，并在 stderr 记录 `reclaimed Bridge port 9223 from orphaned figma-console-mcp pid=P`
+- **AND** 随后 spawn 的子进程 SHALL 绑定到首选端口 9223
+
+#### Scenario: 用户另配的实例不被误杀
+
+- **WHEN** 广告文件记录的 pid 其父进程仍然存活
+- **THEN** 引擎 SHALL NOT 终止它，只记录 `left figma-console-mcp pid=… running: has a live parent`
+
 ### Requirement: Detect and warn about extra figma-console-mcp instances
 
-On startup, the engine SHALL inspect `/tmp/figma-console-mcp-{port}.json` advertisement files. If any advertised PID is not the engine's own child, the engine MUST emit a stderr WARNING listing those instances (port, PID, startedAt) so the user can clean them up. This warning MUST NOT block startup.
+引擎 SHALL 在启动时检查 `<tmpdir>/figma-console-mcp-{port}.json` 广告文件，对任何
+早于本引擎启动的实例发出 stderr WARNING（含 port / pid / startedAt 与清理命令）。
+该警告 SHALL NOT 阻塞启动。
 
-#### Scenario: Only the engine's own child is advertised
+判定「是不是我们自己的子进程」SHALL NOT 使用 PID 比对：SDK spawn 的是 `cmd.exe`，
+而写广告文件、绑定端口的是它下面两层的 `local.js`，两个 PID 永远不相等，用 PID 比对
+会把引擎自己的子进程在每一次启动时都误报为外部实例。改用启动时刻比较——我们的子进程
+必然晚于引擎启动。
 
-- **WHEN** all advertised port files reference the engine-spawned child PID
-- **THEN** the engine starts silently with no warning
+#### Scenario: 只有引擎自己的子进程在广告
 
-#### Scenario: External figma-console-mcp instance detected
+- **WHEN** 所有广告文件的 `startedAt` 都晚于引擎启动时刻
+- **THEN** 引擎静默启动，不发警告
 
-- **WHEN** a port file references a PID that is not the engine's child
-- **THEN** the engine writes `[figma-interaction-doc-engine] WARNING: external figma-console-mcp detected (port=X, pid=Y, started=Z); plugin connection may not reach the engine. Remove the standalone figma-console MCP server from your CodeMaker configuration.` to stderr
-- **AND** continues startup so the user can still validate non-Figma tools
+#### Scenario: 检测到早于引擎的实例
+
+- **WHEN** 某广告文件的 `startedAt` 早于引擎启动时刻
+- **THEN** 引擎 SHALL 输出含 port / pid / startedAt / 广告文件路径与 `taskkill /F /T /PID <pid>` 的 WARNING
+- **AND** 继续启动
 
 ### Requirement: Backward compatibility removed for dual-MCP configuration
 

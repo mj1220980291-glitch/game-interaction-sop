@@ -99,6 +99,29 @@ stderr 会打印一行 banner：
 
 `validate_v2_markdown` 不受影响，任何时候都可用。
 
+### 重启引擎后 Bridge「坏了」
+
+症状：重启 MCP 后 `figma_get_status` 显示未连接，或 `portFallbackUsed: true`
+落在 9224 及以后，而插件仍显示已连接。
+
+成因：引擎被强杀时（Windows 上无窗口控制台进程只能强杀，退出钩子一律不执行），
+子链 `npx → cmd.exe → local.js` 里只有 `local.js` 不响应 stdin EOF，于是它活下来
+继续占着 9223。新引擎的子进程只好退到 9224，而插件还连在那个僵尸上。
+
+引擎**从 2026-08-11 起会在启动时自动回收**：它扫描 `%TEMP%\figma-console-mcp-*.json`，
+把「父进程已消失」的实例连同子树杀掉，stderr 会记 `reclaimed Bridge port 9223 from
+orphaned figma-console-mcp pid=…`。父进程还活着的实例（例如你另外配置的一份
+`figma-console` MCP）不会被动，只会收到 WARNING。
+
+若仍需手动处理：
+
+```bat
+netstat -ano | findstr ":922"
+taskkill /F /T /PID <占用 9223 的 pid>
+```
+
+然后重跑一次 Desktop Bridge 插件。
+
 ### Markdown 校验不通过
 
 `validate_v2_markdown` 的输出含 `errors[]`，每项带 `code` + `message` +

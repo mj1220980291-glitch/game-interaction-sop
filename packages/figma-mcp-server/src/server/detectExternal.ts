@@ -42,15 +42,26 @@ const FILE_SUFFIX = '.json';
 
 /**
  * Scan tmpdir for figma-console-mcp port advertisement files. Anything that
- * is not from `ourChildPid` is reported on stderr as a WARNING.
+ * is not from the child this engine just spawned is reported on stderr.
  *
- * @param ourChildPid PID of the child figma-console-mcp this engine just
- *                    spawned. May be undefined when the platform / sdk does
- *                    not expose the PID; in that case we still report all
- *                    detected instances (the user can decide which is which).
+ * Identifying "ours" by PID does not work: the SDK spawns `cmd.exe`, and the
+ * process that binds the port and writes the advertisement is `local.js`, two
+ * levels below. The two PIDs never match, so a naive `ad.pid === ourChildPid`
+ * check flags the engine's own child as external on every single startup.
+ *
+ * The advertisement's `startedAt` is a reliable discriminator instead: our
+ * child is necessarily younger than the engine, so anything advertising a
+ * start time from before this process booted belongs to someone else — either
+ * a second figma-console MCP server the user configured, or an orphan left
+ * behind by a previous engine that is still squatting the port.
+ *
+ * @param ourChildPid PID of the process the SDK spawned. Only used as a
+ *                    secondary exclusion; usually matches nothing.
+ * @param engineStartedAtMs Epoch ms when this engine process booted.
  */
 export function warnOnExternalFigmaConsoleInstances(
-  ourChildPid: number | undefined
+  ourChildPid: number | undefined,
+  engineStartedAtMs: number = Date.now() - process.uptime() * 1000
 ): void {
   const dir = tmpdir();
   let entries: string[];
@@ -80,8 +91,12 @@ export function warnOnExternalFigmaConsoleInstances(
   }
 
   const externals = advertisements.filter(({ ad }) => {
+    if (ad.pid == null) return false;
     if (ourChildPid != null && ad.pid === ourChildPid) return false;
-    return ad.pid != null;
+    // Younger than the engine ⇒ it is the child we just spawned.
+    const startedAt = ad.startedAt ? Date.parse(ad.startedAt) : NaN;
+    if (!Number.isNaN(startedAt) && startedAt >= engineStartedAtMs) return false;
+    return true;
   });
 
   if (externals.length === 0) return;
@@ -91,10 +106,13 @@ export function warnOnExternalFigmaConsoleInstances(
     const pid = ad.pid ?? '?';
     const started = ad.startedAt ?? '?';
     process.stderr.write(
-      `[figma-interaction-doc-engine] WARNING: external figma-console-mcp detected ` +
-        `(port=${port}, pid=${pid}, started=${started}, advert=${file}); ` +
-        `Figma Desktop Bridge plugin may connect to it instead of the engine's child. ` +
-        `Remove the standalone figma-console MCP server from your CodeMaker configuration.\n`
+      `[figma-interaction-doc-engine] WARNING: a figma-console-mcp that predates ` +
+        `this engine is still running (port=${port}, pid=${pid}, started=${started}, ` +
+        `advert=${file}). The Figma Desktop Bridge plugin may be connected to it ` +
+        `instead of our child, which looks like "the Bridge stopped working". ` +
+        `It is either a second figma-console MCP server in your CodeMaker config, ` +
+        `or an orphan from a previous engine — in the latter case ` +
+        `\`taskkill /F /T /PID ${pid}\` clears it.\n`
     );
   }
 }

@@ -5,14 +5,16 @@
  * Spec: openspec/changes/proxy-figma-console-tools-from-engine/specs/engine-mcp-server/spec.md
  *
  * Wiring (when FIGMA_BACKEND=figma-console):
- *   1. Spawn `npx -y figma-console-mcp@latest` as a stdio MCP child.
- *   2. Connect to the child as an MCP client.
- *   3. Call `listTools()` to capture every tool the child exposes — these
+ *   1. Reclaim Bridge ports held by orphans from a previous engine, so our
+ *      child can bind the preferred port (see reclaimPorts.ts).
+ *   2. Spawn `npx -y figma-console-mcp@latest` as a stdio MCP child.
+ *   3. Connect to the child as an MCP client.
+ *   4. Call `listTools()` to capture every tool the child exposes — these
  *      become "proxy tools" served verbatim to upstream callers via this
  *      engine's MCP server.
- *   4. Build the v2Backend on top of `client.callTool({ name: 'figma_execute' })`.
- *   5. createServer with v2Backend + proxyClient + proxyTools.
- *   6. Bind the engine's stdio server transport so CodeMaker can talk to it.
+ *   5. Build the v2Backend on top of `client.callTool({ name: 'figma_execute' })`.
+ *   6. createServer with v2Backend + proxyClient + proxyTools.
+ *   7. Bind the engine's stdio server transport so CodeMaker can talk to it.
  *
  * The order matters: by the time CodeMaker sees `tools/list`, the proxy tool
  * list and forwarding wires are already in place.
@@ -22,13 +24,14 @@
  * engine on the next tool call, which in turn will spawn a fresh child.
  */
 
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createServer } from './createServer.js';
 import { buildFigmaConsoleBackend } from './figmaConsoleBackend.js';
 import { warnOnExternalFigmaConsoleInstances } from './detectExternal.js';
+import { installChildCleanup } from './childLifecycle.js';
+import { reclaimOrphanedBridgePorts } from './reclaimPorts.js';
 
 async function main(): Promise<void> {
   let v2Backend = undefined;
@@ -37,6 +40,30 @@ async function main(): Promise<void> {
 
   if (process.env.FIGMA_BACKEND === 'figma-console') {
     const token = process.env.FIGMA_ACCESS_TOKEN ?? '';
+
+    // Before spawning: take back any Bridge port still held by an orphan from
+    // a previous engine. Without this our child falls back to 9224 while the
+    // Figma plugin stays connected to the dead engine's leftover on 9223.
+    try {
+      const reclaimed = reclaimOrphanedBridgePorts();
+      for (const { pid, port } of reclaimed.killed) {
+        process.stderr.write(
+          `[figma-interaction-doc-engine] reclaimed Bridge port ${port ?? '?'} ` +
+            `from orphaned figma-console-mcp pid=${pid}\n`
+        );
+      }
+      for (const { pid, port, reason } of reclaimed.skipped) {
+        process.stderr.write(
+          `[figma-interaction-doc-engine] left figma-console-mcp pid=${pid} ` +
+            `(port ${port ?? '?'}) running: ${reason}\n`
+        );
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[figma-interaction-doc-engine] port reclaim failed: ${(err as Error).message}\n`
+      );
+    }
+
     const client = new Client({ name: 'figma-interaction-doc-engine', version: '0.1.0' });
     const childTransport = new StdioClientTransport({
       command: 'npx',
@@ -64,6 +91,20 @@ async function main(): Promise<void> {
     };
 
     await client.connect(childTransport);
+
+    // The transport only owns the outer `cmd.exe`; the process that actually
+    // binds the Bridge port is two levels below it and outlives every kill the
+    // SDK performs. Register a tree-kill so restarting the engine does not
+    // leave an orphan squatting port 9223. See childLifecycle.ts.
+    const childPid = childTransport.pid ?? undefined;
+    if (childPid != null) {
+      installChildCleanup(childPid);
+    } else {
+      process.stderr.write(
+        '[figma-interaction-doc-engine] WARNING: child PID unavailable; ' +
+          'cannot guarantee cleanup of the figma-console-mcp subtree on exit\n'
+      );
+    }
 
     // Capture the child's tool list once, at startup. The list is stable for
     // the lifetime of the child process; we serve it verbatim to upstream.
