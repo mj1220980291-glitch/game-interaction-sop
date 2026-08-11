@@ -142,6 +142,26 @@ TBD - created by archiving change v2-add-cluster-subgroup-headings. Update Purpo
 - **WHEN** 簇含 `- 配图：xxx，待补充`、assetMap 该簇键缺失
 - **THEN** 占位 SHALL 保留为可见的"待补充"占位，不抛错；引擎结果里 `result.missingAssets` SHALL 包含该簇 ID
 
+### Requirement: 章节级配图种子存活至章节渲染结束
+
+模板里唯一的 `配图` GROUP 长在 `说明块01` 内，而 `说明块02` 完全没有配图。因此当某个
+簇的说明块自身不含 `配图`、却声明了 `配图：xxx` 时，引擎 SHALL 从章节级"种子"克隆一份。
+
+该种子 SHALL 存活到本章节所有簇填充完毕为止。任何在 cluster 循环内执行的删除
+（不需要配图时清理本块的 `配图`、槽位路径删除模板原有槽位段）SHALL 把种子从删除
+批次中剔除，并在循环结束后统一删除；引擎 SHALL NOT 在循环期间删除种子。
+
+#### Scenario: 前簇不要配图、后簇要配图
+
+- **WHEN** 章节内簇 1 无 `配图：`、簇 2 有 `配图：xxx`
+- **THEN** 渲染 SHALL 成功；簇 2 的说明块内 SHALL 有 1 个 `配图` GROUP 且占位文案为 `配图占位：xxx`
+- **AND** 簇 1 的说明块内 SHALL 不残留任何 `配图`
+
+#### Scenario: 无任何簇需要配图
+
+- **WHEN** 章节内所有簇都没有 `配图：`
+- **THEN** 该章节渲染结束后 SHALL 不存在任何 `配图` GROUP，种子亦被删除
+
 ### Requirement: 单点 Probe 优先于批量
 
 涉及 ≥ 3 个气泡 `move_node` 的批量操作前，引擎 SHALL 对该批的第一个气泡执行 `probeMoveOrThrow`，验证落点 `absoluteBoundingBox` 与期望偏差 ≤ 2px，否则中止整批并触发一次 undo。

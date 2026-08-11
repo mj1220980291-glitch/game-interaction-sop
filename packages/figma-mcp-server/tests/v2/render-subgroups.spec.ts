@@ -351,7 +351,7 @@ describe('renderV2MarkdownToFigma — #### sub-groups render as slot runs', () =
       process.stdout.write(`\nCALL_SEQUENCE=${JSON.stringify(ta.log)}\n`);
     }
 
-    expect(ta.log).toEqual(BASELINE_CALL_SEQUENCE);
+    expect(ta.log).toEqual(EXPECTED_CALL_SEQUENCE);
   });
 });
 
@@ -422,4 +422,21 @@ const BASELINE_CALL_SEQUENCE: string[] = [
   'moveNode',
   'getNodeInfo',
   'moveNode'
+];
+
+/**
+ * 基线 + 本轮唯一一处**有意**偏移。
+ *
+ * Bug C 的修复把「删掉本簇多余的 `配图`」拆成了两步：循环内删除时跳过章节种子，
+ * 循环结束后 `ImageSeed.flush` 再补一次 `deleteNodes`。所以快路径比基线多且只多
+ * 这一次调用，位置固定在 cluster 循环之后、气泡 probe/move 之前——也就是基线
+ * 末尾那 4 项（`getNodeInfo, moveNode, getNodeInfo, moveNode`）之前。
+ *
+ * 这里刻意不去改 BASELINE_CALL_SEQUENCE 本体：它记录的是「实现 `####` 之前」的
+ * 真实序列，是唯一的地面真相；每一处偏离都应当像这样单独写出来并说明理由。
+ */
+const EXPECTED_CALL_SEQUENCE: string[] = [
+  ...BASELINE_CALL_SEQUENCE.slice(0, -4),
+  'deleteNodes', // ImageSeed.flush
+  ...BASELINE_CALL_SEQUENCE.slice(-4)
 ];

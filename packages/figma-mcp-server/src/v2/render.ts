@@ -440,7 +440,7 @@ async function renderSection(
   // 3) Fill each cluster. Sibling-scan once for a seed 配图 GROUP (used if
   //    a cluster needs an image but its block has none — Bug 3).
   const bubbleFrame = named[SECTION_CHILD_NAMES.bubbleOverlayFrame];
-  const seedImageGroupId = await findSeedImageGroup(backend, sectionNode.id);
+  const imageSeed = makeImageSeed(await findSeedImageGroup(backend, sectionNode.id));
 
   // Bug fix (2026-05-28): The 1:14 template ships with 2 seed bubbles inside
   // 气泡 FRAME: [标号/2 (id 1:114), 标号/1 (id 1:118)].  fillCluster uses
@@ -471,12 +471,15 @@ async function renderSection(
       c,
       section.isGlobalSpec ? undefined : bubbleFrame,
       i + 1,
-      seedImageGroupId,
+      imageSeed,
       section.index,
       i
     );
     if (bubble) bubbleNodes.push(bubble);
   }
+
+  // Every cluster has had its shot at cloning the seed 配图; it can go now.
+  await imageSeed.flush(backend);
 
   // 4) Place main image / asset. OR, for global-spec sections, strip the
   //    main-image + bubble apparatus entirely (Bug 14).
@@ -527,13 +530,55 @@ function isSingleDefaultGroup(cluster: SemanticCluster): boolean {
   return cluster.groups.length <= 1 && (cluster.groups[0]?.title ?? null) === null;
 }
 
+/**
+ * A section-scoped clone source for the 配图 GROUP, with a stay of execution.
+ *
+ * The template's only 配图 lives inside 说明块01, i.e. inside the block that
+ * cluster 0 renders into. 说明块02 ships without one, so any later cluster that
+ * declares `配图：` has to clone this seed. That put the seed on a collision
+ * course with its own block: when cluster 0 needs no image, the reconciliation
+ * step deleted every 配图 in the block — the seed included — and the next
+ * cluster's clone hit `cloneNode: source not found`, failing the whole render.
+ *
+ * So deletions are routed through `filterDeletes`: the seed is skipped and
+ * merely marked doomed, then `flush` removes it once every cluster in the
+ * section has been filled. The seed lingers on canvas for the duration of the
+ * cluster loop only; the final state is identical to deleting it in place.
+ */
+interface ImageSeed {
+  /** 配图 GROUP to clone from, or undefined when the section has none. */
+  readonly id: string | undefined;
+  /** Drop the seed from a delete batch, remembering that it should still die. */
+  filterDeletes(ids: string[]): string[];
+  /** Delete the seed if some cluster asked for it. Call after the cluster loop. */
+  flush(backend: FigmaBackend): Promise<void>;
+}
+
+function makeImageSeed(id: string | undefined): ImageSeed {
+  let doomed = false;
+  return {
+    id,
+    filterDeletes(ids) {
+      if (id === undefined) return ids;
+      const kept = ids.filter((x) => x !== id);
+      if (kept.length !== ids.length) doomed = true;
+      return kept;
+    },
+    async flush(backend) {
+      if (doomed && id !== undefined) {
+        await backend.deleteNodes([id]);
+      }
+    }
+  };
+}
+
 async function fillCluster(
   backend: FigmaBackend,
   clusterNode: NodeInfo,
   cluster: SemanticCluster,
   bubbleFrame: NodeInfo | undefined,
   bubbleNumber: number,
-  seedImageGroupId: string | undefined,
+  imageSeed: ImageSeed,
   sectionIndex: string,
   clusterIndex: number
 ): Promise<NodeInfo | undefined> {
@@ -615,13 +660,13 @@ async function fillCluster(
       blockId: clusterNode.id,
       allDescendants,
       bullets: cluster.bullets,
-      seedImageGroupId,
+      imageSeed,
       sectionIndex,
       clusterIndex
     });
   } else {
     await fillGroupSlots(backend, clusterNode, cluster, {
-      seedImageGroupId,
+      imageSeed,
       sectionIndex,
       clusterIndex
     });
@@ -672,7 +717,7 @@ interface FillBlockContentParams {
   allDescendants: NodeInfo[];
   /** The bullets belonging to this block (one group's worth, or the whole cluster). */
   bullets: string[];
-  seedImageGroupId: string | undefined;
+  imageSeed: ImageSeed;
   sectionIndex: string;
   clusterIndex: number;
 }
@@ -689,7 +734,7 @@ async function fillBlockContent(
   backend: FigmaBackend,
   p: FillBlockContentParams
 ): Promise<void> {
-  const { blockId, allDescendants, bullets, seedImageGroupId, sectionIndex, clusterIndex } = p;
+  const { blockId, allDescendants, bullets, imageSeed, sectionIndex, clusterIndex } = p;
 
   // Bullets: 1 TEXT ("正文/规则") = 1 bullet. Clone or trim to match count.
   // 配图：xxx bullets are used only to trigger the 配图占位 GROUP — they are
@@ -753,17 +798,21 @@ async function fillBlockContent(
   );
   // Track the live 配图 GROUP node ID after reconciliation.
   let liveImageGroupId: string | undefined;
-  if (needsImage && existingImageGroups.length === 0 && seedImageGroupId) {
+  if (needsImage && existingImageGroups.length === 0 && imageSeed.id) {
     const cloned = await tracedClone(
       backend,
-      { sourceId: seedImageGroupId, parentId: blockId },
+      { sourceId: imageSeed.id, parentId: blockId },
       { callSite: 'fillCluster.seedImage', sectionIndex, clusterIndex }
     );
     liveImageGroupId = cloned.id;
   } else if (!needsImage && existingImageGroups.length > 0) {
-    await backend.deleteNodes(existingImageGroups.map((n) => n.id));
+    const doomed = imageSeed.filterDeletes(existingImageGroups.map((n) => n.id));
+    if (doomed.length > 0) await backend.deleteNodes(doomed);
   } else if (needsImage && existingImageGroups.length > 1) {
-    await backend.deleteNodes(existingImageGroups.slice(1).map((n) => n.id));
+    const doomed = imageSeed.filterDeletes(
+      existingImageGroups.slice(1).map((n) => n.id)
+    );
+    if (doomed.length > 0) await backend.deleteNodes(doomed);
     liveImageGroupId = existingImageGroups[0]?.id;
   } else if (needsImage && existingImageGroups.length === 1) {
     liveImageGroupId = existingImageGroups[0]?.id;
@@ -829,7 +878,7 @@ async function fillGroupSlots(
   clusterNode: NodeInfo,
   cluster: SemanticCluster,
   ctx: {
-    seedImageGroupId: string | undefined;
+    imageSeed: ImageSeed;
     sectionIndex: string;
     clusterIndex: number;
   }
@@ -849,7 +898,7 @@ async function fillGroupSlots(
       blockId: clusterNode.id,
       allDescendants: nodes,
       bullets: cluster.bullets,
-      seedImageGroupId: ctx.seedImageGroupId,
+      imageSeed: ctx.imageSeed,
       sectionIndex: ctx.sectionIndex,
       clusterIndex: ctx.clusterIndex
     });
@@ -871,7 +920,7 @@ async function fillGroupSlots(
       (n) =>
         n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder
     ) ??
-    (ctx.seedImageGroupId ? ({ id: ctx.seedImageGroupId } as NodeInfo) : undefined);
+    (ctx.imageSeed.id ? ({ id: ctx.imageSeed.id } as NodeInfo) : undefined);
 
   const textUpdates: Array<{ nodeId: string; characters: string }> = [];
   const imageHintTargets: Array<{ groupId: string; desc: string }> = [];
@@ -929,8 +978,9 @@ async function fillGroupSlots(
 
   // Prototypes have served their purpose; drop every original run so only
   // the freshly composed ones remain. The 标题 header is not part of any
-  // run and therefore survives.
-  const originalIds = runs.flat().map((n) => n.id);
+  // run and therefore survives — and so does the section's seed 配图 if it
+  // happens to live in one of these runs (see ImageSeed).
+  const originalIds = ctx.imageSeed.filterDeletes(runs.flat().map((n) => n.id));
   if (originalIds.length > 0) {
     await backend.deleteNodes(originalIds);
   }
