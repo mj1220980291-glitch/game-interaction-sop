@@ -75,8 +75,9 @@ TBD - created by archiving change v2-add-cluster-subgroup-headings. Update Purpo
 
 ### Requirement: 簇内子分类小标题渲染
 
-一个 `说明块` 不是扁平正文，而是「簇级表头 + 可重复槽位段」。模板 `1:14` 自带
-2 段（2026-08-11 实测确认）：
+一个 `说明块` SHALL 被视为「簇级表头 + 可重复槽位段」而非扁平正文。
+
+模板 `1:14` 自带 2 段（2026-08-11 实测确认）：
 
 ```
 说明块01
@@ -171,12 +172,14 @@ TBD - created by archiving change v2-add-cluster-subgroup-headings. Update Purpo
 
 ### Requirement: 章节级配图种子存活至章节渲染结束
 
+章节级 `配图` 种子 SHALL 存活到本章节所有簇填充完毕为止。
+
 模板里唯一的 `配图` GROUP 长在 `说明块01` 内，而 `说明块02` 完全没有配图。因此当某个
 簇的说明块自身不含 `配图`、却声明了 `配图：xxx` 时，引擎 SHALL 从章节级"种子"克隆一份。
 
-该种子 SHALL 存活到本章节所有簇填充完毕为止。任何在 cluster 循环内执行的删除
-（不需要配图时清理本块的 `配图`、槽位路径删除模板原有槽位段）SHALL 把种子从删除
-批次中剔除，并在循环结束后统一删除；引擎 SHALL NOT 在循环期间删除种子。
+任何在 cluster 循环内执行的删除（不需要配图时清理本块的 `配图`、槽位路径删除模板
+原有槽位段）SHALL 把种子从删除批次中剔除，并在循环结束后统一删除；引擎 SHALL NOT
+在循环期间删除种子。
 
 #### Scenario: 前簇不要配图、后簇要配图
 
