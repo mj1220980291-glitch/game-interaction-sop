@@ -56,4 +56,8 @@
 - [x] 7.2 全量测试 52 passed / 6 files，全部属于三代路径（原 142 中 88 个一代测试已移除）
 - [x] 7.3 `node dist/server/index.js` 正常启动
 - [x] 7.4 实测 stdio `tools/list` 恰好返回 `validate_v2_markdown` + `render_v2_markdown_to_figma`
-- [ ] 7.5 端到端：用既有文档跑一遍 Phase 4，产物与本 change 前一致（需 Figma Desktop 在线，待人工验证）
+- [x] 7.5 端到端：用既有文档跑一遍 Phase 4，产物与本 change 前一致
+  - 2026-08-11 实测：`tests/v2/fixtures/buzhong.md` → `render_v2_markdown_to_figma`（`target.fileKey=UYCJok3MXTWITMfeJSqEF6`）
+  - 返回 `ok:true`，`sectionCount:2 / clusterCount:3 / bubbleCount:3 / imagesPlaced:0 / placeholdersUsed:2`，零 errors 零 warnings
+  - 截图核对：章节标题、序号气泡、`@角色` 配色、说明块正文分段、配图与主图占位均正常
+  - 验证后已删除产物，`模板` 页恢复为仅含 `模板(1:14)`
