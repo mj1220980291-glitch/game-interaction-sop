@@ -156,7 +156,11 @@ export const SOFT_WARNING_CODES = {
   W2_DEAD_CATEGORY_CLUSTER_NAME: 'V2_W2_DEAD_CATEGORY_CLUSTER_NAME',
   /** W5 — `####` 之前存在游离 bullet，分组与不分组混用 */
   W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS:
-    'V2_W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS'
+    'V2_W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS',
+  /** render — assetMap 的键匹配不到任何章节 / 配图 */
+  W_ASSET_KEY_UNMATCHED: 'V2_W_ASSET_KEY_UNMATCHED',
+  /** render — 单张配图填充失败（源节点不存在、导出失败等），占位保留文案 */
+  W_FIGURE_FILL_FAILED: 'V2_W_FIGURE_FILL_FAILED'
 } as const;
 
 export type SoftWarningCode =

@@ -16,6 +16,7 @@
  */
 
 import type {
+  CropRect,
   FigmaBackend,
   NodeInfo,
   ScanSubtreeResult
@@ -23,6 +24,9 @@ import type {
 
 let _uid = 1;
 const uid = (prefix = 'n') => `${prefix}-${_uid++}`;
+
+/** Width of a 说明块 in the real 1:14 template (= max 配图 width). */
+export const BLOCK_WIDTH = 1231;
 
 /** The 7 role TEXTs every `Frame 4273xxx` ships with, in template order. */
 const ROLE_TEXTS = [
@@ -174,7 +178,9 @@ export function makeBackend() {
     opts: { withImage: boolean; slotCount?: number }
   ): string {
     const blockId = uid('frame');
-    addNode(rightColId, blockId, name, 'FRAME');
+    addNode(rightColId, blockId, name, 'FRAME', {
+      absoluteBoundingBox: { x: 0, y: 0, width: BLOCK_WIDTH, height: 800 }
+    });
 
     const titleGroupId = uid('group');
     addNode(blockId, titleGroupId, '标题', 'GROUP');
@@ -220,12 +226,32 @@ export function makeBackend() {
     if (!src) throw new Error(`mock clone: src ${srcId} not found`);
     const newId = uid('clone');
     addNode(newParentId, newId, newName ?? src.name, src.type, {
-      characters: (src as NodeInfo).characters
+      characters: (src as NodeInfo).characters,
+      ...(src.absoluteBoundingBox ? { absoluteBoundingBox: { ...src.absoluteBoundingBox } } : {})
     });
     for (const childId of src.children) {
       deepClone(childId, newId);
     }
     return newId;
+  }
+
+  /** Every fillFigurePlaceholder call, in order. */
+  const figureFills: Array<{
+    sourceNodeId: string;
+    groupId: string;
+    crop?: CropRect;
+    maxWidth: number;
+    result: { width: number; height: number };
+  }> = [];
+
+  /**
+   * Source nodes that fillFigurePlaceholder can export. Tests register them
+   * with addSource; an unregistered id throws, like the real plugin.
+   */
+  function addSource(id: string, width: number, height: number): void {
+    addNode(undefined, id, `源-${id}`, 'FRAME', {
+      absoluteBoundingBox: { x: 0, y: 0, width, height }
+    });
   }
 
   const backend: FigmaBackend = {
@@ -306,6 +332,26 @@ export function makeBackend() {
       }
     },
     async reparentNode() {},
+    async fillFigurePlaceholder({ sourceNodeId, groupId, rectId, hintId, crop, maxWidth }) {
+      const src = store[sourceNodeId];
+      if (!src?.absoluteBoundingBox) {
+        throw new Error(`fillFigurePlaceholder: source node not found: ${sourceNodeId}`);
+      }
+      const rect = store[rectId];
+      if (!store[groupId] || !rect) {
+        throw new Error(`fillFigurePlaceholder: placeholder not found: group=${groupId} rect=${rectId}`);
+      }
+      const srcW = crop?.width ?? src.absoluteBoundingBox.width;
+      const srcH = crop?.height ?? src.absoluteBoundingBox.height;
+      const width = Math.min(srcW, maxWidth);
+      const height = Math.round((srcH * width) / srcW);
+      rect.absoluteBoundingBox = { x: 0, y: 0, width, height };
+      (rect as NodeInfo & { fill?: string }).fill = `IMAGE:${sourceNodeId}`;
+      if (hintId) await backend.deleteNodes([hintId]);
+      const result = { width, height };
+      figureFills.push({ sourceNodeId, groupId, crop, maxWidth, result });
+      return result;
+    },
     async commitUndoCheckpoint() {},
     async triggerUndo() {},
     async scanByTypes(rootId, types) {
@@ -318,6 +364,8 @@ export function makeBackend() {
     backend,
     store,
     cloneLog,
+    figureFills,
+    addSource,
     masterSectionId: master1Id,
     bubbleFrameId,
     seedBlockId,

@@ -147,6 +147,8 @@ export const SECTION_CHILD_NAMES = {
   clusterBulletText: '正文/规则',
   /** GROUP — optional main-image placeholder inside a cluster block. */
   optionalImagePlaceholder: '配图',
+  /** RECTANGLE inside the 配图 GROUP — receives the IMAGE fill and is resized to the image. */
+  optionalImageRect: '配图占位',
   /** TEXT inside the 配图 GROUP — shows the image description hint for human reference. */
   optionalImagePlaceholderHint: '配图占位文案'
 } as const;

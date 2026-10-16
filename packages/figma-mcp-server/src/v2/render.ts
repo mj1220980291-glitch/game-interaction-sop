@@ -24,7 +24,10 @@
  *             - set 小标题 text
  *             - decide roleKeep/roleDelete, batch delete
  *             - set 说明文本 to bullets joined
- *             - clone or hide 配图占位 if 配图 bullet present
+ *             - 正文/规则 + 配图占位 in bullet order: each `配图：` bullet
+ *               becomes one 配图 GROUP right after the rule it follows
+ *               (several per block allowed); image-free blocks keep the
+ *               original in-place path
  *             - prepare bubble: clone 标号/N, set its number, schedule
  *               position from default grid (or asset-supplied coords)
  *        e. Place main image: if assetMap[index] is image → setImageFill
@@ -54,9 +57,11 @@ import {
   FigmaSafetyError,
   placeBubbleInFrame,
   probeMoveOrThrow,
+  type CropRect,
   type FigmaBackend,
   type NodeInfo
 } from './figma-client.js';
+import { SOFT_WARNING_CODES } from './ir.js';
 import type { DocIR, HardError, SoftWarning, SemanticCluster } from './ir.js';
 
 // --- Traced clone helper -------------------------------------------------
@@ -111,13 +116,28 @@ export type AssetSpec =
    * 主图占位. This avoids reparenting (which would trigger pitfall #1 since
    * 主图占位's parent `rec组` is a GROUP).
    */
-  | { type: 'figma_node'; fileKey: string; nodeId: string }
+  | {
+      type: 'figma_node';
+      fileKey: string;
+      nodeId: string;
+      /** Region of the source node (its local coords). Omitted → whole node. */
+      crop?: CropRect;
+      /** Export scale. Default 1. */
+      scale?: number;
+    }
   /** Leave 主图占位 untouched; user will hand-drop an image later. */
   | { type: 'skip' };
 
 export interface RenderInput {
   markdown: string;
-  /** sectionIndex (e.g. "01") → asset spec. Missing entries default to "skip". */
+  /**
+   * Asset sources. Two key shapes:
+   *   - `"NN"`      → main image of section NN. Missing → "skip".
+   *   - `"NN/C/K"`  → K-th `配图：` (1-based) of cluster C (1-based) in
+   *                   section NN. K counts every `配图：` in the cluster in
+   *                   document order, continuing across `####` groups.
+   *                   Only `figma_node` / `skip` are honoured.
+   */
   assetMap?: Record<string, AssetSpec>;
   target?: {
     /**
@@ -147,6 +167,8 @@ export interface RenderResult {
     bubbleCount: number;
     imagesPlaced: number;
     placeholdersUsed: number;
+    /** `配图` placeholders filled from `"NN/C/K"` assets. */
+    figuresPlaced: number;
   };
 }
 
@@ -178,6 +200,8 @@ export async function renderV2MarkdownToFigma(
   }
 
   // Phase B — Render. Wrap in undo checkpoint + try/catch for one-shot rollback.
+  const figures = makeFigureState(input.assetMap);
+  const keyWarnings = findUnmatchedAssetKeys(parsed.ir, input.assetMap);
   await targetBackend.commitUndoCheckpoint('v2-render-start');
   let rootInstanceId: string | undefined;
   try {
@@ -185,6 +209,7 @@ export async function renderV2MarkdownToFigma(
       parsed.ir,
       input,
       targetBackend,
+      figures,
       (id) => { rootInstanceId = id; }   // set as soon as root is created
     );
   } catch (e) {
@@ -215,8 +240,11 @@ export async function renderV2MarkdownToFigma(
     ok: true,
     rootInstanceId,
     errors: [],
-    warnings: parsed.warnings,
-    summary: summarize(parsed.ir, input.assetMap)
+    warnings: [...parsed.warnings, ...keyWarnings, ...figures.warnings],
+    summary: {
+      ...summarize(parsed.ir, input.assetMap),
+      figuresPlaced: figures.placed
+    }
   };
 }
 
@@ -303,6 +331,7 @@ async function renderInner(
   ir: DocIR,
   input: RenderInput,
   backend: FigmaBackend,
+  figures: FigureState,
   onRootCreated?: (id: string) => void
 ): Promise<string> {
   // 1. Clone master template into target page.
@@ -413,7 +442,7 @@ async function renderInner(
     const sectionNode = sectionNodes[i];
     if (!section || !sectionNode) continue;
 
-    await renderSection(backend, sectionNode, section, input.assetMap?.[section.index]);
+    await renderSection(backend, sectionNode, section, input.assetMap?.[section.index], figures);
 
     if (input.assetMap?.[section.index]?.type === 'image') imagesPlaced++;
     else placeholdersUsed++;
@@ -434,7 +463,9 @@ async function renderInner(
 // Bug 2 [FIXED]: 写 #Title_Main 时不要加 "N." 前缀。
 //               修复：stripIndexPrefix(cluster.title) 后再写入。
 //
-// Bug 3 [FIXED]: 配图占位处理必须双向——需要+没有时从兄弟块克隆补上；不需要+有时删除；多余时保留首个。
+// Bug 3 [FIXED]: 配图占位处理必须双向——需要+没有时从兄弟块克隆补上；不需要+有时删除。
+//               2026-10-16 (engine-inline-multi-figure)：每条 `配图：` 各一个 GROUP，
+//               按 bullet 顺序原位穿插，一块可多张；旧版"保留首个、只写首条描述"已移除。
 //
 // Bug 4 [FIXED]: 配图 bullet 匹配容忍前缀 "- "/"· "/"• " 和 "：/:"。
 //               实现：/(^|\s|^[-·•*]\s*)配图\s*[：:]/
@@ -469,7 +500,8 @@ async function renderSection(
   backend: FigmaBackend,
   sectionNode: NodeInfo,
   section: DocIR['sections'][number],
-  asset: AssetSpec | undefined
+  asset: AssetSpec | undefined,
+  figures: FigureState
 ): Promise<void> {
   // Re-index this section's named children.
   const named = await indexCloneByName(backend, sectionNode.id, [
@@ -571,7 +603,8 @@ async function renderSection(
       i + 1,
       imageSeed,
       section.index,
-      i
+      i,
+      figures
     );
     if (bubble) bubbleNodes.push(bubble);
   }
@@ -670,6 +703,78 @@ function makeImageSeed(id: string | undefined): ImageSeed {
   };
 }
 
+// --- Figure assets (`"NN/C/K"` keys) -------------------------------------
+
+type FigmaNodeAsset = Extract<AssetSpec, { type: 'figma_node' }>;
+
+/** Column width of the 1:14 说明块, used if the block's bbox is unavailable. */
+const FIGURE_MAX_WIDTH_FALLBACK = 1231;
+
+const SECTION_KEY_RE = /^\d{2}$/;
+const FIGURE_KEY_RE = /^(\d{2})\/(\d+)\/(\d+)$/;
+
+/** Render-wide bookkeeping for figure assets. */
+interface FigureState {
+  /** Asset for figure K of cluster `prefix` ("NN/C"), if the caller gave one. */
+  lookup(prefix: string, ordinal: number): AssetSpec | undefined;
+  warn(key: string, message: string): void;
+  placed: number;
+  readonly warnings: SoftWarning[];
+}
+
+function makeFigureState(assetMap: Record<string, AssetSpec> | undefined): FigureState {
+  const warnings: SoftWarning[] = [];
+  return {
+    lookup: (prefix, ordinal) => assetMap?.[`${prefix}/${ordinal}`],
+    warn(key, message) {
+      warnings.push({ code: SOFT_WARNING_CODES.W_FIGURE_FILL_FAILED, message, context: key });
+    },
+    placed: 0,
+    warnings
+  };
+}
+
+/** `("01", 0)` → `"01/1"` — section index + 1-based cluster number. */
+function figureKeyPrefix(sectionIndex: string, clusterIndex: number): string {
+  return `${sectionIndex}/${clusterIndex + 1}`;
+}
+
+/**
+ * Every assetMap key must point at something in the document: `"NN"` at an
+ * existing section, `"NN/C/K"` at the K-th `配图：` of cluster C in section NN.
+ * Anything else is reported, never fatal — a typo should not cost the render.
+ */
+function findUnmatchedAssetKeys(
+  ir: DocIR,
+  assetMap: Record<string, AssetSpec> | undefined
+): SoftWarning[] {
+  if (!assetMap) return [];
+  const out: SoftWarning[] = [];
+  for (const key of Object.keys(assetMap)) {
+    let matched = false;
+    if (SECTION_KEY_RE.test(key)) {
+      matched = ir.sections.some((s) => s.index === key);
+    } else {
+      const m = FIGURE_KEY_RE.exec(key);
+      if (m) {
+        const section = ir.sections.find((s) => s.index === m[1]);
+        const cluster = section?.clusters[Number(m[2]) - 1];
+        const k = Number(m[3]);
+        const figureCount = cluster ? cluster.bullets.filter(isImageBullet).length : 0;
+        matched = k >= 1 && k <= figureCount;
+      }
+    }
+    if (!matched) {
+      out.push({
+        code: SOFT_WARNING_CODES.W_ASSET_KEY_UNMATCHED,
+        message: `assetMap["${key}"] does not match any section ("NN") or 配图 ("NN/C/K") in the document`,
+        context: key
+      });
+    }
+  }
+  return out;
+}
+
 async function fillCluster(
   backend: FigmaBackend,
   clusterNode: NodeInfo,
@@ -678,7 +783,8 @@ async function fillCluster(
   bubbleNumber: number,
   imageSeed: ImageSeed,
   sectionIndex: string,
-  clusterIndex: number
+  clusterIndex: number,
+  figures: FigureState
 ): Promise<NodeInfo | undefined> {
   // Re-index names inside this cluster block.
   // PR-1 (backend-scan-subtree-batch): use single-RTT scanSubtree instead of
@@ -760,13 +866,15 @@ async function fillCluster(
       bullets: cluster.bullets,
       imageSeed,
       sectionIndex,
-      clusterIndex
+      clusterIndex,
+      figures
     });
   } else {
     await fillGroupSlots(backend, clusterNode, cluster, {
       imageSeed,
       sectionIndex,
-      clusterIndex
+      clusterIndex,
+      figures
     });
   }
 
@@ -818,30 +926,35 @@ interface FillBlockContentParams {
   imageSeed: ImageSeed;
   sectionIndex: string;
   clusterIndex: number;
+  figures: FigureState;
 }
 
 /**
- * Write one 说明块's bullet list and reconcile its 配图占位.
+ * Write one flat (no-`####`) 说明块's bullet list and reconcile its 配图占位.
  *
- * Shared by the no-`####` fast path (called once with the whole cluster's
- * bullets) and the `####` path (called once per group). The call sequence is
- * unchanged from the pre-groups engine, which is what keeps documents
- * without `####` rendering byte-identically.
+ * Blocks with no `配图：` keep the original in-place path, call for call, so
+ * image-free documents render exactly as before. Blocks with any `配图：` go
+ * through fillBlockContentInline, which places each image after the rule it
+ * illustrates.
  */
 async function fillBlockContent(
   backend: FigmaBackend,
   p: FillBlockContentParams
 ): Promise<void> {
-  const { blockId, allDescendants, bullets, imageSeed, sectionIndex, clusterIndex } = p;
+  const { allDescendants, bullets, imageSeed } = p;
 
-  // Bullets: 1 TEXT ("正文/规则") = 1 bullet. Clone or trim to match count.
-  // 配图：xxx bullets are used only to trigger the 配图占位 GROUP — they are
-  // NOT written into 正文/规则 TEXT nodes and do not consume a bullet slot.
-  const visibleBullets = bullets.filter((b) => !isImageBullet(b));
   const bulletTexts = allDescendants.filter(
     (n) =>
       n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText
   );
+
+  if (bullets.some(isImageBullet)) {
+    await fillBlockContentInline(backend, p, bulletTexts);
+    return;
+  }
+
+  // Bullets: 1 TEXT ("正文/规则") = 1 bullet. Clone or trim to match count.
+  const visibleBullets = bullets;
   const bulletNodes: NodeInfo[] = bulletTexts.slice(0, visibleBullets.length);
   const bulletSource = bulletTexts[0];
   // PR-2 (backend-batch-clone-nodes): replace serial while-loop with single
@@ -889,52 +1002,231 @@ async function fillBlockContent(
     await backend.setMultipleTextContents(bulletUpdates);
   }
 
-  // (Bug 3+4) Two-way image placeholder reconciliation.
-  const needsImage = bullets.some(isImageBullet);
+  // No 配图 wanted here: drop the template's (the section seed survives
+  // until ImageSeed.flush).
   const existingImageGroups = allDescendants.filter(
     (n) => n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder
   );
-  // Track the live 配图 GROUP node ID after reconciliation.
-  let liveImageGroupId: string | undefined;
-  if (needsImage && existingImageGroups.length === 0 && imageSeed.id) {
-    const cloned = await tracedClone(
-      backend,
-      { sourceId: imageSeed.id, parentId: blockId },
-      { callSite: 'fillCluster.seedImage', sectionIndex, clusterIndex }
-    );
-    liveImageGroupId = cloned.id;
-  } else if (!needsImage && existingImageGroups.length > 0) {
+  if (existingImageGroups.length > 0) {
     const doomed = imageSeed.filterDeletes(existingImageGroups.map((n) => n.id));
     if (doomed.length > 0) await backend.deleteNodes(doomed);
-  } else if (needsImage && existingImageGroups.length > 1) {
-    const doomed = imageSeed.filterDeletes(
-      existingImageGroups.slice(1).map((n) => n.id)
+  }
+}
+
+/**
+ * Flat-path rendering for a block that declares at least one `配图：`.
+ *
+ * `配图` must sit right after the rule it illustrates, and a block may carry
+ * several. Reusing the template's in-place TEXTs (the image-free path) cannot
+ * honour that: the template interleaves `正文 正文 配图 … 正文 正文 配图`, so the
+ * kept nodes land wherever the template happened to put them. Instead this
+ * uses the same build-then-delete strategy as fillGroupSlots: append every
+ * 正文/配图 in bullet order, then delete the template's originals.
+ */
+async function fillBlockContentInline(
+  backend: FigmaBackend,
+  p: FillBlockContentParams,
+  bulletTexts: NodeInfo[]
+): Promise<void> {
+  const { blockId, allDescendants, bullets, imageSeed, sectionIndex, clusterIndex, figures } = p;
+
+  const directImageGroups = allDescendants.filter(
+    (n) =>
+      n.type === 'GROUP' &&
+      n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder &&
+      n.parentId === blockId
+  );
+  const directBulletTexts = bulletTexts.filter((n) => n.parentId === blockId);
+
+  const appended = await appendBulletsInOrder(backend, {
+    parentId: blockId,
+    bullets,
+    protoBulletId: directBulletTexts[0]?.id,
+    protoImageId: directImageGroups[0]?.id ?? imageSeed.id,
+    ordinal: { next: 1 },
+    trace: { callSite: 'fillCluster.inlineImage', sectionIndex, clusterIndex }
+  });
+
+  const originals = imageSeed.filterDeletes([
+    ...directBulletTexts.map((n) => n.id),
+    ...directImageGroups.map((n) => n.id)
+  ]);
+  if (originals.length > 0) await backend.deleteNodes(originals);
+
+  await finishBlockFigures(backend, {
+    blockId,
+    textUpdates: appended.textUpdates,
+    images: appended.images,
+    figures,
+    keyPrefix: figureKeyPrefix(sectionIndex, clusterIndex)
+  });
+}
+
+interface AppendedImage {
+  groupId: string;
+  desc: string;
+  /** 1-based position among the cluster's `配图：` bullets (spans `####`). */
+  ordinal: number;
+}
+
+interface AppendedBullets {
+  textUpdates: Array<{ nodeId: string; characters: string }>;
+  images: AppendedImage[];
+}
+
+/**
+ * Append 正文/规则 TEXTs and 配图 GROUPs to `parentId` in bullet order.
+ *
+ * Consecutive rule bullets share one batchCloneNodes call; each `配图：`
+ * costs one cloneNode. For a run with no image, or a single image at the
+ * end, that is exactly the call pattern fillGroupSlots used before.
+ * Text and hint content are returned, not written — callers batch them.
+ *
+ * `ordinal` is shared across calls for one cluster so that K in the
+ * `"NN/C/K"` asset key keeps counting through `####` groups.
+ */
+async function appendBulletsInOrder(
+  backend: FigmaBackend,
+  p: {
+    parentId: string;
+    bullets: string[];
+    protoBulletId: string | undefined;
+    protoImageId: string | undefined;
+    ordinal: { next: number };
+    trace: RenderTrace;
+  }
+): Promise<AppendedBullets> {
+  const out: AppendedBullets = { textUpdates: [], images: [] };
+  let pending: string[] = [];
+
+  const flushRules = async () => {
+    if (pending.length === 0 || !p.protoBulletId) {
+      pending = [];
+      return;
+    }
+    const cloned = await backend.batchCloneNodes({
+      sourceId: p.protoBulletId,
+      parentId: p.parentId,
+      count: pending.length
+    });
+    for (let j = 0; j < pending.length; j++) {
+      const node = cloned[j];
+      if (node) {
+        out.textUpdates.push({
+          nodeId: node.id,
+          characters: normalizeBulletText(pending[j] ?? '')
+        });
+      }
+    }
+    pending = [];
+  };
+
+  for (const bullet of p.bullets) {
+    if (!isImageBullet(bullet)) {
+      pending.push(bullet);
+      continue;
+    }
+    const ordinal = p.ordinal.next++;
+    await flushRules();
+    if (!p.protoImageId) continue;
+    const imageNode = await tracedClone(
+      backend,
+      { sourceId: p.protoImageId, parentId: p.parentId },
+      p.trace
     );
-    if (doomed.length > 0) await backend.deleteNodes(doomed);
-    liveImageGroupId = existingImageGroups[0]?.id;
-  } else if (needsImage && existingImageGroups.length === 1) {
-    liveImageGroupId = existingImageGroups[0]?.id;
+    out.images.push({ groupId: imageNode.id, desc: stripImageBulletPrefix(bullet), ordinal });
+  }
+  await flushRules();
+
+  return out;
+}
+
+/**
+ * Last step of composing a 说明块: write body texts + 配图 hints in one
+ * batch, then fill every 配图 that has an `"NN/C/K"` asset.
+ *
+ * One scan of the block resolves each new 配图 GROUP's RECTANGLE and hint
+ * TEXT. Figures with an asset skip the hint text (the fill deletes it).
+ * A failed fill never aborts the render: it records W_FIGURE_FILL_FAILED
+ * and writes the hint text back so the placeholder still says what goes there.
+ *
+ * With no figure assets in play the call pattern is exactly the old one:
+ * at most one scanSubtree plus one setMultipleTextContents.
+ */
+async function finishBlockFigures(
+  backend: FigmaBackend,
+  p: {
+    blockId: string;
+    textUpdates: Array<{ nodeId: string; characters: string }>;
+    images: AppendedImage[];
+    figures: FigureState;
+    keyPrefix: string;
+  }
+): Promise<void> {
+  const updates = [...p.textUpdates];
+  const toFill: Array<{ img: AppendedImage; key: string; asset: FigmaNodeAsset }> = [];
+  const parts = new Map<string, { rectId?: string; hintId?: string }>();
+  let blockWidth: number | undefined;
+
+  const needScan = p.images.some((img) => img.desc || p.figures.lookup(p.keyPrefix, img.ordinal));
+  if (needScan) {
+    const { nodes: scanned, truncated } = await backend.scanSubtree(p.blockId);
+    const all = truncated ? await scanAllDescendants(backend, p.blockId) : scanned;
+    for (const n of all) {
+      if (n.id === p.blockId) blockWidth = n.absoluteBoundingBox?.width;
+      if (!n.parentId) continue;
+      const entry = parts.get(n.parentId) ?? {};
+      if (n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholderHint) {
+        entry.hintId ??= n.id;
+      } else if (n.type === 'RECTANGLE' && n.name === SECTION_CHILD_NAMES.optionalImageRect) {
+        entry.rectId ??= n.id;
+      }
+      parts.set(n.parentId, entry);
+    }
   }
 
-  // If this block has a 配图：xxx bullet, write the description into the
-  // 配图占位文案 TEXT node so the designer knows what image to replace.
-  if (needsImage && liveImageGroupId) {
-    const imageBullet = bullets.find(isImageBullet);
-    if (imageBullet) {
-      const desc = imageBullet
-        .replace(/^\s*[-·•*]+\s*/, '')      // strip bullet marker
-        .replace(/^配图\s*[：:]\s*/u, '')   // strip "配图：" prefix
-        .trim();
-      if (desc) {
-        // Scan inside the 配图 GROUP for the hint TEXT node.
-        const { nodes: groupChildren } = await backend.scanSubtree(liveImageGroupId);
-        const hintText = groupChildren.find(
-          (n) =>
-            n.type === 'TEXT' &&
-            n.name === SECTION_CHILD_NAMES.optionalImagePlaceholderHint
-        );
-        if (hintText) {
-          await backend.setTextContent(hintText.id, `配图占位：${desc}`);
+  for (const img of p.images) {
+    const key = `${p.keyPrefix}/${img.ordinal}`;
+    const asset = p.figures.lookup(p.keyPrefix, img.ordinal);
+    if (asset?.type === 'figma_node') {
+      toFill.push({ img, key, asset });
+      continue;
+    }
+    if (asset && asset.type !== 'skip') {
+      p.figures.warn(key, `assetMap["${key}"] type "${asset.type}" is not supported for 配图; only figma_node / skip`);
+    }
+    const hintId = parts.get(img.groupId)?.hintId;
+    if (hintId && img.desc) updates.push({ nodeId: hintId, characters: `配图占位：${img.desc}` });
+  }
+
+  if (updates.length > 0) await backend.setMultipleTextContents(updates);
+
+  for (const { img, key, asset } of toFill) {
+    const { rectId, hintId } = parts.get(img.groupId) ?? {};
+    try {
+      if (!backend.fillFigurePlaceholder) {
+        throw new Error('backend lacks fillFigurePlaceholder');
+      }
+      if (!rectId) {
+        throw new Error(`配图 GROUP ${img.groupId} has no "${SECTION_CHILD_NAMES.optionalImageRect}" RECTANGLE`);
+      }
+      await backend.fillFigurePlaceholder({
+        sourceNodeId: asset.nodeId,
+        groupId: img.groupId,
+        rectId,
+        hintId,
+        crop: asset.crop,
+        scale: asset.scale,
+        maxWidth: blockWidth ?? FIGURE_MAX_WIDTH_FALLBACK
+      });
+      p.figures.placed++;
+    } catch (e) {
+      p.figures.warn(key, `assetMap["${key}"] nodeId=${asset.nodeId}: ${(e as Error).message}`);
+      if (hintId && img.desc) {
+        try {
+          await backend.setTextContent(hintId, `配图占位：${img.desc}`);
+        } catch {
+          /* hint may be gone with a half-applied fill — nothing else to do */
         }
       }
     }
@@ -979,6 +1271,7 @@ async function fillGroupSlots(
     imageSeed: ImageSeed;
     sectionIndex: string;
     clusterIndex: number;
+    figures: FigureState;
   }
 ): Promise<void> {
   const blockInfo = await backend.getNodeInfo(clusterNode.id);
@@ -998,7 +1291,8 @@ async function fillGroupSlots(
       bullets: cluster.bullets,
       imageSeed: ctx.imageSeed,
       sectionIndex: ctx.sectionIndex,
-      clusterIndex: ctx.clusterIndex
+      clusterIndex: ctx.clusterIndex,
+      figures: ctx.figures
     });
     return;
   }
@@ -1021,7 +1315,8 @@ async function fillGroupSlots(
     (ctx.imageSeed.id ? ({ id: ctx.imageSeed.id } as NodeInfo) : undefined);
 
   const textUpdates: Array<{ nodeId: string; characters: string }> = [];
-  const imageHintTargets: Array<{ groupId: string; desc: string }> = [];
+  const images: AppendedImage[] = [];
+  const ordinal = { next: 1 };
 
   for (let i = 0; i < cluster.groups.length; i++) {
     const group = cluster.groups[i];
@@ -1044,34 +1339,16 @@ async function fillGroupSlots(
       );
     }
 
-    const visibleBullets = group.bullets.filter((b) => !isImageBullet(b));
-    if (visibleBullets.length > 0 && protoBullet) {
-      const cloned = await backend.batchCloneNodes({
-        sourceId: protoBullet.id,
-        parentId: clusterNode.id,
-        count: visibleBullets.length
-      });
-      for (let j = 0; j < visibleBullets.length; j++) {
-        const node = cloned[j];
-        if (node) {
-          textUpdates.push({
-            nodeId: node.id,
-            characters: normalizeBulletText(visibleBullets[j] ?? '')
-          });
-        }
-      }
-    }
-
-    const imageBullet = group.bullets.find(isImageBullet);
-    if (imageBullet && protoImage) {
-      const imageNode = await tracedClone(
-        backend,
-        { sourceId: protoImage.id, parentId: clusterNode.id },
-        { callSite: 'fillGroupSlots.image', sectionIndex: ctx.sectionIndex, clusterIndex: ctx.clusterIndex }
-      );
-      const desc = stripImageBulletPrefix(imageBullet);
-      if (desc) imageHintTargets.push({ groupId: imageNode.id, desc });
-    }
+    const appended = await appendBulletsInOrder(backend, {
+      parentId: clusterNode.id,
+      bullets: group.bullets,
+      protoBulletId: protoBullet?.id,
+      protoImageId: protoImage?.id,
+      ordinal,
+      trace: { callSite: 'fillGroupSlots.image', sectionIndex: ctx.sectionIndex, clusterIndex: ctx.clusterIndex }
+    });
+    textUpdates.push(...appended.textUpdates);
+    images.push(...appended.images);
   }
 
   // Prototypes have served their purpose; drop every original run so only
@@ -1083,21 +1360,13 @@ async function fillGroupSlots(
     await backend.deleteNodes(originalIds);
   }
 
-  if (textUpdates.length > 0) {
-    await backend.setMultipleTextContents(textUpdates);
-  }
-
-  for (const target of imageHintTargets) {
-    const { nodes: groupChildren } = await backend.scanSubtree(target.groupId);
-    const hint = groupChildren.find(
-      (n) =>
-        n.type === 'TEXT' &&
-        n.name === SECTION_CHILD_NAMES.optionalImagePlaceholderHint
-    );
-    if (hint) {
-      await backend.setTextContent(hint.id, `配图占位：${target.desc}`);
-    }
-  }
+  await finishBlockFigures(backend, {
+    blockId: clusterNode.id,
+    textUpdates,
+    images,
+    figures: ctx.figures,
+    keyPrefix: figureKeyPrefix(ctx.sectionIndex, ctx.clusterIndex)
+  });
 }
 
 /**
@@ -1236,7 +1505,8 @@ async function applyAsset(
         await backend.rasterizeNodeToImageFill({
           sourceNodeId: asset.nodeId,
           targetNodeId: mainPlaceholder.id,
-          scale: 1 // Bug 7: default SCALE=1
+          scale: asset.scale ?? 1, // Bug 7: default SCALE=1
+          crop: asset.crop
         });
       } else {
         // Fallback for older backends without rasterize — still avoid the
@@ -1335,7 +1605,10 @@ function bubbleOffset(index0: number): { x: number; y: number } {
   };
 }
 
-function summarize(ir: DocIR, assetMap?: Record<string, AssetSpec>): RenderResult['summary'] {
+function summarize(
+  ir: DocIR,
+  assetMap?: Record<string, AssetSpec>
+): Omit<NonNullable<RenderResult['summary']>, 'figuresPlaced'> {
   let clusters = 0;
   let bubbles = 0;
   for (const s of ir.sections) {

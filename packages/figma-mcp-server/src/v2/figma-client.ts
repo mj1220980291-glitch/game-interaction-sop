@@ -62,6 +62,14 @@ export interface NodeInfo {
  * Result of a single-RTT subtree scan.
  * @see FigmaBackend.scanSubtree
  */
+/** A region of a node, in that node's local coordinates (top-left origin). */
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface ScanSubtreeResult {
   /** Flat array of all nodes in the subtree (BFS order, root included). */
   nodes: NodeInfo[];
@@ -188,7 +196,34 @@ export interface FigmaBackend {
     targetNodeId: string;
     /** Export scale. Default 1 (stays under Figma MCP 5s timeout). */
     scale?: number;
+    /** Optional region of the source, relative to its top-left. */
+    crop?: CropRect;
   }): Promise<void>;
+
+  /**
+   * Fill one 配图 GROUP with a PNG of `sourceNodeId` (optionally cropped),
+   * size the placeholder to the image's aspect ratio, and drop the hint
+   * text — all in a single plugin execution.
+   *
+   * Cropping goes through a temporary clipping FRAME + `exportAsync`, NOT
+   * `imageTransform`: inside the plugin sandbox `imageTransform` reads back
+   * correctly but is ignored at render time, so the whole source gets
+   * squashed into the box.
+   *
+   * Size rule: `w = min(sourceW, maxWidth)`, `h = round(sourceH * w / sourceW)`.
+   */
+  fillFigurePlaceholder?(p: {
+    sourceNodeId: string;
+    /** The 配图 GROUP holding the placeholder; switched to FIXED sizing. */
+    groupId: string;
+    /** The RECTANGLE that receives the IMAGE fill and the new size. */
+    rectId: string;
+    /** The hint TEXT to delete once the image is in, if any. */
+    hintId?: string;
+    crop?: CropRect;
+    scale?: number;
+    maxWidth: number;
+  }): Promise<{ width: number; height: number }>;
 
   /** Wrap a risky batch in an undo entry. */
   commitUndoCheckpoint(label: string): Promise<void>;

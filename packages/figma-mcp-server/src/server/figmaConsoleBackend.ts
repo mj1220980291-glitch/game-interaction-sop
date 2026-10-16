@@ -65,6 +65,40 @@ async function serNode(n) {
 }
 `;
 
+// ---- region export (runs inside Figma plugin) ---------------------------
+//
+// Crops through a temporary clipping FRAME + exportAsync. `imageTransform`
+// is deliberately avoided: in the plugin sandbox it reads back correctly but
+// is ignored at render time. The temp FRAME is removed in `finally` so a
+// failed export never leaves debris on the page. Returned width/height are
+// the region's logical size (independent of export scale).
+const EXPORT_REGION_FN = `
+async function exportRegion(src, crop, scale) {
+  const constraint = { type: 'SCALE', value: scale };
+  if (!crop) {
+    const bytes = await src.exportAsync({ format: 'PNG', constraint });
+    return { bytes, width: src.width, height: src.height };
+  }
+  const frame = figma.createFrame();
+  try {
+    frame.name = '__crop_tmp__';
+    frame.fills = [];
+    frame.clipsContent = true;
+    frame.x = -100000;
+    frame.y = -100000;
+    frame.resize(crop.width, crop.height);
+    const clone = src.clone();
+    frame.appendChild(clone);
+    clone.x = -crop.x;
+    clone.y = -crop.y;
+    const bytes = await frame.exportAsync({ format: 'PNG', constraint });
+    return { bytes, width: crop.width, height: crop.height };
+  } finally {
+    frame.remove();
+  }
+}
+`;
+
 // ---- type coercions -----------------------------------------------------
 
 function toNodeType(t: string): FigmaNodeType {
@@ -239,16 +273,24 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     },
 
     async setMultipleTextContents(updates) {
+      // Load each distinct font once, then write. Figma throttles repeated
+      // loadFontAsync calls (~1s each after the first handful, even for an
+      // already-loaded font), so loading per node pushed a 47-text batch past
+      // the plugin's 30s execute cap; deduped, the same batch takes ~13ms.
       await run(`
         const updates = ${JSON.stringify(updates)};
+        const targets = [];
+        const fonts = new Map();
         for (const { nodeId, characters } of updates) {
           const n = await figma.getNodeByIdAsync(nodeId);
           if (!n || n.type !== 'TEXT') continue;
-          const len = n.characters.length || 1;
-          const fonts = n.getRangeAllFontNames(0, len);
-          for (const f of fonts) await figma.loadFontAsync(f);
-          n.characters = characters;
+          targets.push([n, characters]);
+          for (const f of n.getRangeAllFontNames(0, n.characters.length || 1)) {
+            fonts.set(f.family + '\\u0000' + f.style, f);
+          }
         }
+        for (const f of fonts.values()) await figma.loadFontAsync(f);
+        for (const [n, characters] of targets) n.characters = characters;
         return null;
       `, 30000);
     },
@@ -294,16 +336,45 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 30000);
     },
 
-    async rasterizeNodeToImageFill({ sourceNodeId, targetNodeId, scale = 1 }) {
+    async rasterizeNodeToImageFill({ sourceNodeId, targetNodeId, scale = 1, crop }) {
       await run(`
+        ${EXPORT_REGION_FN}
         const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceNodeId)});
         const tgt = await figma.getNodeByIdAsync(${JSON.stringify(targetNodeId)});
-        if (!src || !tgt) throw new Error('rasterizeNodeToImageFill: node not found');
-        const bytes = await src.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: ${scale} } });
+        if (!src) throw new Error('rasterizeNodeToImageFill: source node not found: ' + ${JSON.stringify(sourceNodeId)});
+        if (!tgt) throw new Error('rasterizeNodeToImageFill: target node not found: ' + ${JSON.stringify(targetNodeId)});
+        const { bytes } = await exportRegion(src, ${JSON.stringify(crop ?? null)}, ${scale});
         const image = figma.createImage(bytes);
         tgt.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
         return null;
       `, 30000);
+    },
+
+    async fillFigurePlaceholder({ sourceNodeId, groupId, rectId, hintId, crop, scale = 1, maxWidth }) {
+      const r = await run(`
+        ${EXPORT_REGION_FN}
+        const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceNodeId)});
+        if (!src) throw new Error('fillFigurePlaceholder: source node not found: ' + ${JSON.stringify(sourceNodeId)});
+        const group = await figma.getNodeByIdAsync(${JSON.stringify(groupId)});
+        const rect = await figma.getNodeByIdAsync(${JSON.stringify(rectId)});
+        if (!group || !rect) throw new Error('fillFigurePlaceholder: placeholder not found: group=' + ${JSON.stringify(groupId)} + ' rect=' + ${JSON.stringify(rectId)});
+
+        const { bytes, width: srcW, height: srcH } = await exportRegion(src, ${JSON.stringify(crop ?? null)}, ${scale});
+        const image = figma.createImage(bytes);
+        rect.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
+
+        const w = Math.min(srcW, ${maxWidth});
+        const h = Math.round(srcH * w / srcW);
+        if ('layoutSizingHorizontal' in group) group.layoutSizingHorizontal = 'FIXED';
+        rect.resize(w, h);
+
+        ${hintId ? `
+          const hint = await figma.getNodeByIdAsync(${JSON.stringify(hintId)});
+          if (hint) hint.remove();
+        ` : ''}
+        return { width: w, height: h };
+      `, 30000) as { width: number; height: number };
+      return r;
     },
 
     async commitUndoCheckpoint(_label) {

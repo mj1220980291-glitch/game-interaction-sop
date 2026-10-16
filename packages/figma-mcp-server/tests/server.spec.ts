@@ -7,6 +7,7 @@ import {
   buildNativeTools,
   type CreateServerOptions
 } from '../src/server/createServer.js';
+import { makeBackend } from './v2/helpers/mock-backend.js';
 
 /**
  * Spec: openspec/specs/engine-mcp-server/spec.md
@@ -90,5 +91,51 @@ describe('mcp server — render_v2_markdown_to_figma backend gating', () => {
     expect(r.isError).toBe(true);
     const body = parseToolBody(r) as { code: string };
     expect(body.code).toBe('V2_BACKEND_UNAVAILABLE');
+  });
+});
+
+describe('mcp server — render_v2_markdown_to_figma assetMap (配图键 + crop)', () => {
+  it('schema 声明 figma_node 的 crop / scale', () => {
+    const def = buildNativeTools().find((d) => d.tool.name === 'render_v2_markdown_to_figma')!;
+    const schema = JSON.stringify(def.tool.inputSchema);
+    expect(schema).toContain('"crop"');
+    expect(schema).toContain('"exclusiveMinimum":0');
+    expect(def.tool.description).toContain('NN/C/K');
+  });
+
+  it('接受配图键并原样传给渲染器', async () => {
+    const m = makeBackend();
+    const markdown = VALID_MD;
+    const r = await callTool({ v2Backend: m.backend }, 'render_v2_markdown_to_figma', {
+      markdown,
+      assetMap: {
+        '01': { type: 'skip' },
+        '01/1/1': {
+          type: 'figma_node',
+          fileKey: 'f',
+          nodeId: 'missing:1',
+          crop: { x: 10, y: 20, width: 300, height: 200 }
+        }
+      }
+    });
+    expect(r.isError).toBeFalsy();
+    const body = parseToolBody(r) as { ok: boolean; warnings: Array<{ code: string; context?: string }> };
+    expect(body.ok).toBe(true);
+    // 键到达了渲染器：要么匹配上配图后因源缺失失败，要么被判为未匹配——都带键名。
+    expect(body.warnings.some((w) => w.context === '01/1/1')).toBe(true);
+  });
+
+  it.each([
+    [{ x: 0, y: 0, width: 0, height: 10 }],
+    [{ x: 0, y: 0, width: 10, height: -1 }],
+    [{ x: 'a', y: 0, width: 10, height: 10 }]
+  ])('拒绝非法 crop %j', async (crop) => {
+    const m = makeBackend();
+    const r = await callTool({ v2Backend: m.backend }, 'render_v2_markdown_to_figma', {
+      markdown: VALID_MD,
+      assetMap: { '01/1/1': { type: 'figma_node', fileKey: 'f', nodeId: '1:1', crop } }
+    });
+    expect(r.isError).toBe(true);
+    expect((parseToolBody(r) as { code: string }).code).toBe('INVALID_INPUT');
   });
 });

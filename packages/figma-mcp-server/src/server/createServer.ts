@@ -93,6 +93,19 @@ const V2_VALIDATE_INPUT_SCHEMA = {
   additionalProperties: false
 } as const;
 
+const V2_CROP_JSON = {
+  type: 'object',
+  description: 'Region of the source node, in its local coords (top-left origin).',
+  properties: {
+    x: { type: 'number' },
+    y: { type: 'number' },
+    width: { type: 'number', exclusiveMinimum: 0 },
+    height: { type: 'number', exclusiveMinimum: 0 }
+  },
+  required: ['x', 'y', 'width', 'height'],
+  additionalProperties: false
+} as const;
+
 const V2_ASSET_SPEC_JSON = {
   anyOf: [
     {
@@ -109,7 +122,9 @@ const V2_ASSET_SPEC_JSON = {
       properties: {
         type: { const: 'figma_node' },
         fileKey: { type: 'string', minLength: 1 },
-        nodeId: { type: 'string', minLength: 1 }
+        nodeId: { type: 'string', minLength: 1 },
+        crop: V2_CROP_JSON,
+        scale: { type: 'number', exclusiveMinimum: 0 }
       },
       required: ['type', 'fileKey', 'nodeId'],
       additionalProperties: false
@@ -178,8 +193,13 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
       name: 'render_v2_markdown_to_figma',
       description:
         '把 v2 Markdown 写入 Figma 模板 1:14。需要在 createServer 时传入 v2Backend。' +
-        'assetMap 形如 { "01": { type:"image", src:"..." }, "02": { type:"skip" } }；' +
-        '缺省的章节按 skip 处理。',
+        'assetMap 两类键：' +
+        '① "NN" = 第 NN 章主图，值为 image / figma_node / skip，缺省按 skip；' +
+        '② "NN/C/K" = 第 NN 章第 C 簇的第 K 张配图（C、K 从 1 起；K 按该簇全部「配图：」bullet 的文档顺序计，跨 #### 连续不重置），值为 figma_node / skip。' +
+        'figma_node 可带 crop:{x,y,width,height}（相对源节点左上角）裁出局部，配图占位按裁出区域的宽高比定高（宽度上限为说明栏宽，小图不放大）。' +
+        '源节点必须在渲染目标文件内。' +
+        '例：{ "01": { type:"figma_node", fileKey:"…", nodeId:"588:6399" }, "01/1/2": { type:"figma_node", fileKey:"…", nodeId:"588:6399", crop:{ x:700, y:0, width:520, height:160 } } }。' +
+        '匹配不到的键与单张配图失败均为软告警，不中断渲染。',
       inputSchema: V2_RENDER_INPUT_SCHEMA as unknown as Tool['inputSchema']
     },
     handler: async (args) => {
@@ -193,6 +213,10 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         }
         const markdown = String(args?.markdown ?? '');
         const assetMap = args?.assetMap as Record<string, AssetSpec> | undefined;
+        const assetError = findInvalidAsset(assetMap);
+        if (assetError) {
+          return errorResult(ServerErrorCodes.INVALID_INPUT, assetError);
+        }
         const target = args?.target as { fileKey?: string; pageId?: string } | undefined;
         const result = await renderV2MarkdownToFigma(
           { markdown, assetMap, target },
@@ -299,6 +323,31 @@ function jsonResult(obj: unknown): CallToolResult {
       }
     ]
   };
+}
+
+/**
+ * The JSON Schema above is served to hosts but not enforced here (no runtime
+ * validator), so the numeric bounds that would otherwise reach the plugin as
+ * a zero-size FRAME are checked by hand.
+ */
+function findInvalidAsset(assetMap: Record<string, AssetSpec> | undefined): string | undefined {
+  if (!assetMap) return undefined;
+  for (const [key, spec] of Object.entries(assetMap)) {
+    if (spec?.type !== 'figma_node') continue;
+    const { crop, scale } = spec;
+    if (scale !== undefined && !(typeof scale === 'number' && scale > 0)) {
+      return `assetMap["${key}"].scale must be a number > 0`;
+    }
+    if (crop === undefined) continue;
+    const nums = [crop.x, crop.y, crop.width, crop.height];
+    if (!nums.every((n) => typeof n === 'number' && Number.isFinite(n))) {
+      return `assetMap["${key}"].crop needs numeric x, y, width, height`;
+    }
+    if (!(crop.width > 0 && crop.height > 0)) {
+      return `assetMap["${key}"].crop width/height must be > 0`;
+    }
+  }
+  return undefined;
 }
 
 function errorResult(code: string, message: string, hint?: string): CallToolResult {
