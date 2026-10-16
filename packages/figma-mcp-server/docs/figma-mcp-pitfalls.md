@@ -249,6 +249,114 @@ bullet 经过 markdown parser 后可能保留 `- `、`· `、`• ` 等前缀，
 
 ---
 
+## 从零建树（`figma.createXxx`）踩坑
+
+模板管线是"克隆改字"，从不凭空造节点。下面这批坑来自一次已被撤回的线框
+渲染尝试（2026-08-11，代码未保留）：如果将来又要在沙箱里从零建一棵树，
+这些结论可以直接拿来用，不必重踩。
+
+### 坑 A：字体必须先 load，且失败要硬报错
+
+`node.characters = ...` / `node.fontName = ...` 在字体没 load 时直接抛异常。
+沙箱脚本入口一次性 `loadFontAsync` 全部要用到的 style（`Noto Sans SC` 的
+Regular + Bold），任何一个失败**立即抛错终止整棵树**。
+
+❌ 不要 try/catch 后回退到 Figma 默认字体：中文字宽差异会让整棵树的 HUG
+宽度全错，而错误只会表现为"排版莫名其妙"，没有任何报错线索。
+
+`fontStyles` 由渲染器按实际用到的 style 收集，只有真的出现 bold 文本时才
+会去 load Bold——减少一次可能失败的字体加载。
+
+### 坑 B：HUG 会把空容器塌成 0×0
+
+`layoutSizing* = 'HUG'` 是**内容驱动**的。没有子节点的 Frame 在 HUG 下
+宽高都是 0，在画布上完全看不见，看起来像"节点没建出来"。
+
+两道防线：
+
+- 校验层：容器无子节点且无显式尺寸 → 发 `WFW_EMPTY_CONTAINER` 软警告
+- 渲染层：`ensureNotCollapsed()` 给这类容器兜底 `MIN_CONTAINER_SIZE`（40×40）FIXED 尺寸
+
+### 坑 C：`layoutSizing*` 只在特定条件下合法
+
+Figma 对这两个属性的赋值时机与前提都很挑：
+
+| 前提 | 不满足会怎样 |
+|---|---|
+| 节点必须**已经 appendChild 进父节点** | 孤儿节点赋值直接抛异常 |
+| 父节点必须开着 auto-layout | 父是普通 Frame 时抛异常 |
+| `HUG` 只对**自身开了 auto-layout 的 Frame 或 TEXT** 合法 | 对 RECTANGLE/ELLIPSE 赋 HUG 抛异常 |
+
+所以建树是**两趟**：pass 1 只做 create + applyBase + appendChild，
+pass 2 才做 `applySizing`。合并成一趟必炸。
+
+### 坑 D：`node.width = N` 是无效赋值
+
+尺寸只能通过 `node.resize(w, h)` 设置，而且 `resize` 对某些叶子类型会抛错，
+需要 try/catch 兜住。TEXT 另有 `textAutoResize`：给了宽度就要设成 `HEIGHT`
+（宽固定、高自适应），宽高都给才设 `NONE`，否则宽度会被文字内容顶回去。
+
+### 坑 E：ABSOLUTE 定位的坐标基准不是父节点原点
+
+`layoutPositioning = 'ABSOLUTE'` 只能在**父节点开着 auto-layout** 时设置，
+而设完之后 `node.x` 仍然是**父坐标系下的值而非父内偏移**——沙箱里必须写
+`node.x = parent.x + offsetX`，直接写 `node.x = offsetX` 会把弹窗甩到画布另一头。
+
+这也是 DSL 里 `layout: 'stack'` 被限制成"整棵树最多一个、且只能在根的直接
+子层"的原因：嵌套 stack 的绝对定位补偿是可以算的，但每多一层就多一个出错
+面，收益为零。
+
+### 坑 F：一次 `figma_execute` 的超时是按节点数算的
+
+默认 15s 对单节点编辑够用，对几百节点的树不够。按
+`20s + 60ms × 节点数`（封顶 60s）动态给超时。真机实测约 7ms / 节点、近似线性：
+945 个节点 6.7s。
+
+对应地，整棵树**只发一次** `figma_execute`：几百个节点用 per-node 原语
+就是几百次 RTT，必然撞穿。序列化用单字母字段名 + 色板索引化，避免把
+"重复的键名"塞满脚本字面量。
+
+### 坑 G：建树失败要自己清场
+
+Figma 没有事务。脚本中途抛错时，前面已 `createXxx` 的节点会留在画布上变成
+垃圾。沙箱内 `try/catch` 记录 `created[]`，出错时逐个 `remove()` 后再抛——
+调用方看到的要么是完整的一棵树，要么是什么都没有。
+
+### 坑 H：`layoutGrow` 是 0|1，不是 flex 比例
+
+`layoutGrow` 看着像 CSS 的 `flex-grow`，实则被 Figma 校验成字面量 `0` 或 `1`：
+
+```
+in set_layoutGrow: Property "layoutGrow" failed validation: Expected ... 0 ... 1
+```
+
+把 `span: 2` 或 `value: 0.72` 直接喂进去会直接抛错。更隐蔽的是，就算传了合法的
+`1`，第二遍写 `layoutSizingHorizontal` 时它也会被立刻覆盖——两者写的是同一块状态。
+
+两条正解：
+
+- **"吃掉剩余空间"** → 按父容器主轴写该轴的 `FILL`，不要碰 `layoutGrow`。
+  横向父容器写 `layoutSizingHorizontal = 'FILL'`，纵向父容器写 vertical。
+  轴只有父节点知道，所以要自上而下传下去，不能在子节点里猜。
+- **"占父宽的 N 成"** → Figma 没有百分比尺寸。自己在 sizing 遍里折算：
+  `(父内宽 - 间隙总和) × 比例` 后 `resize()` 成 FIXED。因为第二遍是自顶向下走的，
+  轮到子节点时父宽已经定了。父容器自身是 HUG 时不适用——两边会互相追着算。
+
+这个坑的代价是整屏塌成顶部一条：所有 `fill: true` 的容器都不生长，1080 高的
+画布里内容只占 290px。
+
+### 坑 I：只有灰阶不足以读出"区域"
+
+纯灰块拼出来的界面在真机上读不出层次：相邻两个同级灰块之间只有 8px 间隙，
+一眼扫过去是一整条。补两条固定规则观感才立住：
+
+- 有填充的面加 **1px 描边**，颜色取深两档；暗端（level ≥ 6）没有更深的灰了，
+  反向取浅两档。
+- 有背景的容器一律给 **16px 内边距**；level 0 保持齐平——它是分组手段，不是面，
+  给了只会累积成无意义的缩进。
+
+---
+
 ## 不可恢复失败的处理
 
 - 任何核心模板节点（`模板`, source `Text`, source `说明块`, source `rec组`, source `气泡`）找不到 → 停止所有 Figma 写入，报告失败
