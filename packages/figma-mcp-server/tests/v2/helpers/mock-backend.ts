@@ -16,11 +16,16 @@
  */
 
 import type {
+  ApplyOpsResult,
   CropRect,
   FigmaBackend,
   NodeInfo,
-  ScanSubtreeResult
+  ReconcileOp,
+  ScanSubtreeResult,
+  StampedNodeRaw,
+  StampedTree
 } from '../../../src/v2/figma-client.js';
+import { SCRATCH_ROOT_NAME } from '../../../src/v2/reconcile/stamp.js';
 
 let _uid = 1;
 const uid = (prefix = 'n') => `${prefix}-${_uid++}`;
@@ -225,15 +230,56 @@ export function makeBackend() {
     const src = store[srcId];
     if (!src) throw new Error(`mock clone: src ${srcId} not found`);
     const newId = uid('clone');
+    const extra = src as NodeStore[string] & { stamp?: string; fill?: string };
     addNode(newParentId, newId, newName ?? src.name, src.type, {
       characters: (src as NodeInfo).characters,
-      ...(src.absoluteBoundingBox ? { absoluteBoundingBox: { ...src.absoluteBoundingBox } } : {})
-    });
+      ...(src.absoluteBoundingBox ? { absoluteBoundingBox: { ...src.absoluteBoundingBox } } : {}),
+      ...(extra.stamp ? { stamp: extra.stamp } : {}),
+      ...(extra.fill ? { fill: extra.fill } : {})
+    } as Partial<NodeInfo>);
     for (const childId of src.children) {
       deepClone(childId, newId);
     }
     return newId;
   }
+
+  type Extra = NodeStore[string] & { stamp?: string; fill?: string };
+
+  function ownHash(n: Extra): string | null {
+    return n.fill?.startsWith('IMAGE:') ? n.fill : null;
+  }
+
+  function firstImageHash(id: string): string | null {
+    const n = store[id] as Extra | undefined;
+    if (!n) return null;
+    const own = ownHash(n);
+    if (own) return own;
+    for (const c of n.children) {
+      const h = firstImageHash(c);
+      if (h) return h;
+    }
+    return null;
+  }
+
+  function detach(id: string): void {
+    const n = store[id];
+    if (n?.parentId && store[n.parentId]) {
+      store[n.parentId].children = store[n.parentId].children.filter((c) => c !== id);
+    }
+  }
+
+  function removeTree(id: string): void {
+    const n = store[id];
+    if (!n) return;
+    for (const c of [...n.children]) removeTree(c);
+    delete store[id];
+  }
+
+  /** Every applyOps batch, in order. */
+  const opBatches: ReconcileOp[][] = [];
+  /** Test hook: make applyOps fail once this many ops have been applied in total. */
+  const faults: { failAfterOps?: number } = {};
+  let opsAppliedTotal = 0;
 
   /** Every fillFigurePlaceholder call, in order. */
   const figureFills: Array<{
@@ -332,6 +378,14 @@ export function makeBackend() {
       }
     },
     async reparentNode() {},
+    async rasterizeNodeToImageFill({ sourceNodeId, targetNodeId }) {
+      if (!store[sourceNodeId]) {
+        throw new Error(`rasterizeNodeToImageFill: source node not found: ${sourceNodeId}`);
+      }
+      const tgt = store[targetNodeId] as (NodeStore[string] & { fill?: string }) | undefined;
+      if (!tgt) throw new Error(`rasterizeNodeToImageFill: target node not found: ${targetNodeId}`);
+      tgt.fill = `IMAGE:${sourceNodeId}`;
+    },
     async fillFigurePlaceholder({ sourceNodeId, groupId, rectId, hintId, crop, maxWidth }) {
       const src = store[sourceNodeId];
       if (!src?.absoluteBoundingBox) {
@@ -357,15 +411,122 @@ export function makeBackend() {
     async scanByTypes(rootId, types) {
       const { nodes } = await backend.scanSubtree(rootId);
       return nodes.filter((n) => types.includes(n.type));
+    },
+
+    async readStampedTree(rootId, maxNodes = 20000): Promise<StampedTree> {
+      if (!store[rootId]) throw new Error(`readStampedTree: node ${rootId} not found`);
+      const nodes: StampedNodeRaw[] = [];
+      const queue = [rootId];
+      let truncated = false;
+      while (queue.length > 0) {
+        if (nodes.length >= maxNodes) {
+          truncated = true;
+          break;
+        }
+        const id = queue.shift()!;
+        const n = store[id] as Extra | undefined;
+        if (!n) continue;
+        const descend = n.type !== 'INSTANCE';
+        nodes.push({
+          id: n.id,
+          name: n.name,
+          type: n.type,
+          parentId: n.parentId,
+          childIds: descend ? [...n.children] : [],
+          characters: n.type === 'TEXT' ? (n as NodeInfo).characters ?? '' : undefined,
+          stamp: n.stamp || undefined,
+          imageHash: ownHash(n),
+          width: n.absoluteBoundingBox?.width
+        });
+        if (descend) queue.push(...n.children);
+      }
+      const strayScratchIds = Object.values(store)
+        .filter((n) => !n.parentId && n.name === SCRATCH_ROOT_NAME)
+        .map((n) => n.id);
+      return { nodes, truncated, strayScratchIds };
+    },
+
+    async stampNodes(entries) {
+      for (const e of entries) {
+        const n = store[e.nodeId] as Extra | undefined;
+        if (!n) continue;
+        if (e.stamp === null) {
+          n.stamp = undefined;
+          continue;
+        }
+        const data: Record<string, unknown> = { ...e.stamp };
+        if (e.captureHash) {
+          const h = firstImageHash(e.nodeId);
+          data['imageHash'] = h;
+          if (!h) delete data['asset'];
+        }
+        n.stamp = JSON.stringify(data);
+      }
+    },
+
+    async applyOps(ops): Promise<ApplyOpsResult> {
+      opBatches.push(ops);
+      let applied = 0;
+      for (let i = 0; i < ops.length; i++) {
+        if (faults.failAfterOps !== undefined && opsAppliedTotal >= faults.failAfterOps) {
+          faults.failAfterOps = undefined;
+          return { applied, failedAt: i, reason: 'mock: injected failure' };
+        }
+        const op = ops[i]!;
+        const n = store[op.nodeId] as Extra | undefined;
+        if (op.op === 'delete') {
+          if (n) {
+            detach(op.nodeId);
+            removeTree(op.nodeId);
+          }
+        } else if (!n) {
+          return { applied, failedAt: i, reason: `${op.op}: node not found: ${op.nodeId}` };
+        } else if (op.op === 'setText') {
+          (n as NodeInfo & { characters: string }).characters = op.text;
+        } else if (op.op === 'stamp') {
+          n.stamp = op.stamp === null ? undefined : JSON.stringify(op.stamp);
+        } else {
+          const p = store[op.parentId];
+          if (!p) return { applied, failedAt: i, reason: `place: parent not found: ${op.parentId}` };
+          detach(op.nodeId);
+          const kids = p.children;
+          let idx = 0;
+          if (op.afterId) {
+            const a = kids.indexOf(op.afterId);
+            if (a < 0) return { applied, failedAt: i, reason: `place: anchor not found: ${op.afterId}` };
+            idx = a + 1;
+          }
+          while (idx < kids.length && !(store[kids[idx]!] as Extra).stamp) idx++;
+          kids.splice(idx, 0, op.nodeId);
+          n.parentId = op.parentId;
+        }
+        applied++;
+        opsAppliedTotal++;
+      }
+      return { applied };
     }
   };
+
+  /** Simulate the designer pasting a loose image right after `afterId` in `parentId`. */
+  function pasteForeign(parentId: string, afterId: string | null, name = 'image 45'): string {
+    const id = uid('foreign');
+    addNode(undefined, id, name, 'RECTANGLE');
+    const kids = store[parentId]!.children;
+    const idx = afterId ? kids.indexOf(afterId) + 1 : 0;
+    kids.splice(idx, 0, id);
+    store[id]!.parentId = parentId;
+    return id;
+  }
 
   return {
     backend,
     store,
     cloneLog,
     figureFills,
+    opBatches,
+    faults,
     addSource,
+    pasteForeign,
     masterSectionId: master1Id,
     bubbleFrameId,
     seedBlockId,

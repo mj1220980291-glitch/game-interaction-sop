@@ -10,6 +10,7 @@
 
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { FigmaBackend, NodeInfo, FigmaNodeType } from '../v2/figma-client.js';
+import { SCRATCH_ROOT_NAME, STAMP_KEY, STAMP_NAMESPACE } from '../v2/reconcile/stamp.js';
 
 // ---- low-level execute helper -------------------------------------------
 
@@ -402,6 +403,163 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         return result;
       `, 25000) as Array<Record<string, unknown>>;
       return (r ?? []).map(mapNode);
+    },
+
+    async readStampedTree(rootId, maxNodes = 20000) {
+      const r = await run(`
+        const root = await figma.getNodeByIdAsync(${JSON.stringify(rootId)});
+        if (!root) return null;
+        let page = root.parent;
+        while (page && page.type !== 'PAGE') page = page.parent;
+        const budget = ${maxNodes};
+        const nodes = [];
+        let truncated = false;
+        const queue = [root];
+        let head = 0;
+        while (head < queue.length) {
+          if (nodes.length >= budget) { truncated = true; break; }
+          const n = queue[head++];
+          let hash = null;
+          if ('fills' in n && Array.isArray(n.fills)) {
+            const f = n.fills.find((x) => x.type === 'IMAGE');
+            if (f) hash = f.imageHash;
+          }
+          const descend = 'children' in n && n.type !== 'INSTANCE';
+          nodes.push({
+            id: n.id,
+            name: n.name,
+            type: n.type,
+            parentId: n.parent ? n.parent.id : null,
+            childIds: descend ? n.children.map((c) => c.id) : [],
+            characters: n.type === 'TEXT' ? n.characters : null,
+            stamp: n.getSharedPluginData(${JSON.stringify(STAMP_NAMESPACE)}, ${JSON.stringify(STAMP_KEY)}) || null,
+            imageHash: hash,
+            width: 'width' in n ? n.width : null
+          });
+          if (descend) for (const c of n.children) queue.push(c);
+        }
+        const strayScratchIds = page
+          ? page.children.filter((c) => c.name === ${JSON.stringify(SCRATCH_ROOT_NAME)}).map((c) => c.id)
+          : [];
+        return { nodes, truncated, pageId: page ? page.id : null, strayScratchIds };
+      `, 30000) as {
+        nodes: Array<Record<string, unknown>>;
+        truncated: boolean;
+        pageId: string | null;
+        strayScratchIds: string[];
+      } | null;
+      if (!r) throw new Error(`readStampedTree: node ${rootId} not found`);
+      return {
+        nodes: r.nodes.map((raw) => ({
+          id: String(raw['id']),
+          name: String(raw['name'] ?? ''),
+          type: toNodeType(String(raw['type'] ?? '')),
+          parentId: raw['parentId'] != null ? String(raw['parentId']) : undefined,
+          childIds: Array.isArray(raw['childIds']) ? (raw['childIds'] as string[]) : [],
+          characters: raw['characters'] != null ? String(raw['characters']) : undefined,
+          stamp: raw['stamp'] != null ? String(raw['stamp']) : undefined,
+          imageHash: (raw['imageHash'] as string | null | undefined) ?? null,
+          width: typeof raw['width'] === 'number' ? (raw['width'] as number) : undefined
+        })),
+        truncated: r.truncated,
+        pageId: r.pageId ?? undefined,
+        strayScratchIds: r.strayScratchIds ?? []
+      };
+    },
+
+    async stampNodes(entries) {
+      if (entries.length === 0) return;
+      await run(`
+        ${FIRST_IMAGE_HASH_FN}
+        const entries = ${JSON.stringify(entries)};
+        for (const e of entries) {
+          const n = await figma.getNodeByIdAsync(e.nodeId);
+          if (!n) continue;
+          if (e.stamp === null) {
+            n.setSharedPluginData(${JSON.stringify(STAMP_NAMESPACE)}, ${JSON.stringify(STAMP_KEY)}, '');
+            continue;
+          }
+          const data = Object.assign({}, e.stamp);
+          if (e.captureHash) {
+            const h = firstImageHash(n);
+            data.imageHash = h;
+            if (!h) delete data.asset;
+          }
+          n.setSharedPluginData(${JSON.stringify(STAMP_NAMESPACE)}, ${JSON.stringify(STAMP_KEY)}, JSON.stringify(data));
+        }
+        return null;
+      `, 30000);
+    },
+
+    async applyOps(ops) {
+      if (ops.length === 0) return { applied: 0 };
+      const r = await run(`
+        const NS = ${JSON.stringify(STAMP_NAMESPACE)};
+        const KEY = ${JSON.stringify(STAMP_KEY)};
+        const ops = ${JSON.stringify(ops)};
+        const fonts = new Map();
+        for (const op of ops) {
+          if (op.op !== 'setText') continue;
+          const n = await figma.getNodeByIdAsync(op.nodeId);
+          if (!n || n.type !== 'TEXT') continue;
+          for (const f of n.getRangeAllFontNames(0, n.characters.length || 1)) {
+            fonts.set(f.family + '\\u0000' + f.style, f);
+          }
+        }
+        for (const f of fonts.values()) await figma.loadFontAsync(f);
+
+        let applied = 0;
+        for (let i = 0; i < ops.length; i++) {
+          const op = ops[i];
+          try {
+            const n = await figma.getNodeByIdAsync(op.nodeId);
+            if (op.op === 'delete') {
+              if (n) n.remove();
+            } else if (!n) {
+              return { applied, failedAt: i, reason: op.op + ': node not found: ' + op.nodeId };
+            } else if (op.op === 'setText') {
+              if (n.type !== 'TEXT') return { applied, failedAt: i, reason: 'setText: not a TEXT: ' + op.nodeId };
+              n.characters = op.text;
+            } else if (op.op === 'stamp') {
+              n.setSharedPluginData(NS, KEY, op.stamp === null ? '' : JSON.stringify(op.stamp));
+            } else if (op.op === 'place') {
+              const p = await figma.getNodeByIdAsync(op.parentId);
+              if (!p || !('children' in p)) return { applied, failedAt: i, reason: 'place: parent not found: ' + op.parentId };
+              if (n.parent === p) p.appendChild(n);
+              const kids = p.children.filter((c) => c !== n);
+              let idx = 0;
+              if (op.afterId) {
+                const a = kids.findIndex((c) => c.id === op.afterId);
+                if (a < 0) return { applied, failedAt: i, reason: 'place: anchor not found: ' + op.afterId };
+                idx = a + 1;
+              }
+              while (idx < kids.length && !kids[idx].getSharedPluginData(NS, KEY)) idx++;
+              p.insertChild(idx, n);
+            }
+            applied++;
+          } catch (e) {
+            return { applied, failedAt: i, reason: String(e && e.message ? e.message : e) };
+          }
+        }
+        return { applied };
+      `, 30000) as { applied: number; failedAt?: number; reason?: string };
+      return r;
     }
   };
 }
+
+const FIRST_IMAGE_HASH_FN = `
+function firstImageHash(n) {
+  if ('fills' in n && Array.isArray(n.fills)) {
+    const f = n.fills.find((x) => x.type === 'IMAGE');
+    if (f) return f.imageHash;
+  }
+  if ('children' in n) {
+    for (const c of n.children) {
+      const h = firstImageHash(c);
+      if (h) return h;
+    }
+  }
+  return null;
+}
+`;

@@ -233,6 +233,76 @@ export interface FigmaBackend {
 
   /** Scan a subtree by node types (for finding 气泡 type, role TEXTs etc). */
   scanByTypes(rootId: string, types: FigmaNodeType[]): Promise<NodeInfo[]>;
+
+  /**
+   * Read a whole document subtree in one call, with each node's raw stamp
+   * (shared plugin data `gisop/stamp`) and own IMAGE fill hash. INSTANCE
+   * children are not descended into (their `childIds` come back empty).
+   *
+   * Optional: without it the renderer cannot stamp or reconcile.
+   */
+  readStampedTree?(rootId: string, maxNodes?: number): Promise<StampedTree>;
+
+  /**
+   * Write stamps in one call. `stamp: null` clears. With `captureHash`, the
+   * first IMAGE fill hash found in the node's subtree (pre-order) is written
+   * into the stamp's `imageHash`; when none is found the stamp's `asset` is
+   * dropped, so a failed fill is never remembered as applied.
+   */
+  stampNodes?(entries: StampEntry[]): Promise<void>;
+
+  /**
+   * Apply reconcile ops in order, in one call. Fonts for every `setText`
+   * target are loaded once up front. Stops at the first op that cannot be
+   * applied and reports its index; ops before it stay applied.
+   */
+  applyOps?(ops: ReconcileOp[]): Promise<ApplyOpsResult>;
+}
+
+export interface StampedNodeRaw {
+  id: string;
+  name: string;
+  type: FigmaNodeType;
+  parentId?: string;
+  childIds: string[];
+  characters?: string;
+  /** Raw `gisop/stamp` plugin data; empty / missing = unstamped. */
+  stamp?: string;
+  /** The node's own first IMAGE fill hash, if any. */
+  imageHash?: string | null;
+  width?: number;
+}
+
+export interface StampedTree {
+  nodes: StampedNodeRaw[];
+  truncated: boolean;
+  /** Page holding the root, when the root lives on one. */
+  pageId?: string;
+  /** Leftover scratch roots (from an interrupted sync) on that page. */
+  strayScratchIds: string[];
+}
+
+export interface StampEntry {
+  nodeId: string;
+  stamp: Record<string, unknown> | null;
+  captureHash?: boolean;
+}
+
+export type ReconcileOp =
+  | { op: 'setText'; nodeId: string; text: string }
+  | { op: 'delete'; nodeId: string }
+  /**
+   * Insert or move `nodeId` into `parentId`, right after `afterId` (null =
+   * at the front) and after the run of unstamped nodes that follows it.
+   */
+  | { op: 'place'; nodeId: string; parentId: string; afterId: string | null }
+  | { op: 'stamp'; nodeId: string; stamp: Record<string, unknown> | null };
+
+export interface ApplyOpsResult {
+  applied: number;
+  /** Index of the op that failed; absent when all applied. */
+  failedAt?: number;
+  reason?: string;
 }
 
 // --- Errors --------------------------------------------------------------

@@ -63,6 +63,13 @@ import {
 } from './figma-client.js';
 import { SOFT_WARNING_CODES } from './ir.js';
 import type { DocIR, HardError, SoftWarning, SemanticCluster } from './ir.js';
+import { stampRenderedDoc } from './reconcile/layout.js';
+import {
+  reconcileV2,
+  type ReconcileChange,
+  type ReconcileConflict,
+  type ReconcilePreserved
+} from './reconcile/index.js';
 
 // --- Traced clone helper -------------------------------------------------
 
@@ -152,11 +159,21 @@ export interface RenderInput {
     fileKey?: string;
     /** Page to host the cloned template instance. If omitted, backend chooses. */
     pageId?: string;
+    /**
+     * Root of a document this engine rendered earlier. Passed, the render
+     * syncs that document in place instead of cloning a new one.
+     */
+    rootId?: string;
   };
+  /** Sync only: limit the sync to section `"NN"` or cluster `"NN/C"`. */
+  scope?: string;
+  /** Sync only: compute and report the plan without writing. */
+  dryRun?: boolean;
 }
 
 export interface RenderResult {
   ok: boolean;
+  mode?: 'create' | 'reconcile';
   /** Newly created template-instance node ID (root of the rendered doc). */
   rootInstanceId?: string;
   errors: Array<HardError | { code: string; message: string }>;
@@ -170,6 +187,10 @@ export interface RenderResult {
     /** `配图` placeholders filled from `"NN/C/K"` assets. */
     figuresPlaced: number;
   };
+  /** Sync only. */
+  changes?: ReconcileChange[];
+  conflicts?: ReconcileConflict[];
+  preserved?: ReconcilePreserved[];
 }
 
 export async function renderV2MarkdownToFigma(
@@ -197,6 +218,10 @@ export async function renderV2MarkdownToFigma(
       errors: [{ code: err.code ?? 'V2_TARGET_FILE_ERROR', message: err.message }],
       warnings: parsed.warnings
     };
+  }
+
+  if (input.target?.rootId) {
+    return reconcileV2(parsed.ir, parsed.warnings, input, targetBackend);
   }
 
   // Phase B — Render. Wrap in undo checkpoint + try/catch for one-shot rollback.
@@ -236,11 +261,27 @@ export async function renderV2MarkdownToFigma(
     };
   }
 
+  // Phase C — Stamp. A failure here leaves a usable document that simply
+  // cannot be synced later, so it is a warning, never a rollback.
+  const stampWarnings: SoftWarning[] = [];
+  try {
+    const { problems } = await stampRenderedDoc(targetBackend, rootInstanceId, parsed.ir, input.assetMap);
+    for (const p of problems) {
+      stampWarnings.push({ code: SOFT_WARNING_CODES.W_STAMP_LAYOUT_MISMATCH, message: p });
+    }
+  } catch (e) {
+    stampWarnings.push({
+      code: SOFT_WARNING_CODES.W_STAMP_FAILED,
+      message: `document rendered but not stamped, so it cannot be synced later: ${(e as Error).message}`
+    });
+  }
+
   return {
     ok: true,
+    mode: 'create',
     rootInstanceId,
     errors: [],
-    warnings: [...parsed.warnings, ...keyWarnings, ...figures.warnings],
+    warnings: [...parsed.warnings, ...keyWarnings, ...figures.warnings, ...stampWarnings],
     summary: {
       ...summarize(parsed.ir, input.assetMap),
       figuresPlaced: figures.placed
@@ -327,7 +368,7 @@ async function bindTargetFile(
 
 // --- Inner renderer ------------------------------------------------------
 
-async function renderInner(
+export async function renderInner(
   ir: DocIR,
   input: RenderInput,
   backend: FigmaBackend,
@@ -714,7 +755,7 @@ const SECTION_KEY_RE = /^\d{2}$/;
 const FIGURE_KEY_RE = /^(\d{2})\/(\d+)\/(\d+)$/;
 
 /** Render-wide bookkeeping for figure assets. */
-interface FigureState {
+export interface FigureState {
   /** Asset for figure K of cluster `prefix` ("NN/C"), if the caller gave one. */
   lookup(prefix: string, ordinal: number): AssetSpec | undefined;
   warn(key: string, message: string): void;
@@ -722,7 +763,7 @@ interface FigureState {
   readonly warnings: SoftWarning[];
 }
 
-function makeFigureState(assetMap: Record<string, AssetSpec> | undefined): FigureState {
+export function makeFigureState(assetMap: Record<string, AssetSpec> | undefined): FigureState {
   const warnings: SoftWarning[] = [];
   return {
     lookup: (prefix, ordinal) => assetMap?.[`${prefix}/${ordinal}`],
@@ -1486,7 +1527,7 @@ async function fillOverviewBody(
   }
 }
 
-async function applyAsset(
+export async function applyAsset(
   backend: FigmaBackend,
   mainPlaceholder: NodeInfo,
   asset: AssetSpec

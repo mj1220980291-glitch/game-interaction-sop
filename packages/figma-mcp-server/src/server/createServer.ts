@@ -152,10 +152,13 @@ const V2_RENDER_INPUT_SCHEMA = {
       type: 'object',
       properties: {
         fileKey: { type: 'string' },
-        pageId: { type: 'string' }
+        pageId: { type: 'string' },
+        rootId: { type: 'string' }
       },
       additionalProperties: false
-    }
+    },
+    scope: { type: 'string', pattern: '^\\d{2}(/\\d+)?$' },
+    dryRun: { type: 'boolean' }
   },
   required: ['markdown'],
   additionalProperties: false
@@ -199,7 +202,12 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         'figma_node 可带 crop:{x,y,width,height}（相对源节点左上角）裁出局部，配图占位按裁出区域的宽高比定高（宽度上限为说明栏宽，小图不放大）。' +
         '源节点必须在渲染目标文件内。' +
         '例：{ "01": { type:"figma_node", fileKey:"…", nodeId:"588:6399" }, "01/1/2": { type:"figma_node", fileKey:"…", nodeId:"588:6399", crop:{ x:700, y:0, width:520, height:160 } } }。' +
-        '匹配不到的键与单张配图失败均为软告警，不中断渲染。',
+        '匹配不到的键与单张配图失败均为软告警，不中断渲染。' +
+        '【同步模式】文档已渲染过、需要再次写入时，传 target.rootId（上次返回的 rootInstanceId）：' +
+        '引擎不新建文档，而是逐条比对后只改有变化的地方；设计师手改的文字、手贴的图、拖过的气泡一律保留，' +
+        '双方都改过的条目不覆盖，列在 conflicts 里；返回 changes / conflicts / preserved。' +
+        'scope:"NN" 或 "NN/C" 只同步一个界面或一个簇；dryRun:true 只返回计划不写画布。' +
+        '只比对文字，不比对样式。scope / dryRun 只能和 rootId 一起用。',
       inputSchema: V2_RENDER_INPUT_SCHEMA as unknown as Tool['inputSchema']
     },
     handler: async (args) => {
@@ -217,9 +225,19 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         if (assetError) {
           return errorResult(ServerErrorCodes.INVALID_INPUT, assetError);
         }
-        const target = args?.target as { fileKey?: string; pageId?: string } | undefined;
+        const target = args?.target as { fileKey?: string; pageId?: string; rootId?: string } | undefined;
+        const syncError = findInvalidSyncArgs(target?.rootId, args?.scope, args?.dryRun);
+        if (syncError) {
+          return errorResult(ServerErrorCodes.INVALID_INPUT, syncError);
+        }
         const result = await renderV2MarkdownToFigma(
-          { markdown, assetMap, target },
+          {
+            markdown,
+            assetMap,
+            target,
+            scope: args?.scope as string | undefined,
+            dryRun: args?.dryRun as boolean | undefined
+          },
           opts.v2Backend
         );
         return jsonResult(result);
@@ -346,6 +364,23 @@ function findInvalidAsset(assetMap: Record<string, AssetSpec> | undefined): stri
     if (!(crop.width > 0 && crop.height > 0)) {
       return `assetMap["${key}"].crop width/height must be > 0`;
     }
+  }
+  return undefined;
+}
+
+/** `scope` / `dryRun` only make sense when syncing an existing document. */
+function findInvalidSyncArgs(rootId: unknown, scope: unknown, dryRun: unknown): string | undefined {
+  if (rootId !== undefined && (typeof rootId !== 'string' || rootId === '')) {
+    return 'target.rootId must be a non-empty node id';
+  }
+  if (scope !== undefined && (typeof scope !== 'string' || !/^\d{2}(\/\d+)?$/.test(scope))) {
+    return 'scope must look like "03" (a section) or "03/2" (a cluster)';
+  }
+  if (dryRun !== undefined && typeof dryRun !== 'boolean') {
+    return 'dryRun must be a boolean';
+  }
+  if (rootId === undefined && (scope !== undefined || dryRun !== undefined)) {
+    return 'scope / dryRun only apply when syncing an existing document: pass target.rootId';
   }
   return undefined;
 }

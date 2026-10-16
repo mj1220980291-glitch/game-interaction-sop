@@ -139,3 +139,51 @@ describe('mcp server — render_v2_markdown_to_figma assetMap (配图键 + crop)
     expect((parseToolBody(r) as { code: string }).code).toBe('INVALID_INPUT');
   });
 });
+
+describe('mcp server — render_v2_markdown_to_figma 同步模式参数', () => {
+  it('schema 声明 rootId / scope / dryRun，描述说明同步模式', () => {
+    const def = buildNativeTools().find((d) => d.tool.name === 'render_v2_markdown_to_figma')!;
+    const schema = JSON.stringify(def.tool.inputSchema);
+    expect(schema).toContain('"rootId"');
+    expect(schema).toContain('"scope"');
+    expect(schema).toContain('"dryRun"');
+    expect(def.tool.description).toContain('rootId');
+    expect(def.tool.description).toContain('conflicts');
+  });
+
+  it.each([
+    [{ scope: '03' }],
+    [{ dryRun: true }],
+    [{ scope: '3', target: { rootId: 'x' } }],
+    [{ scope: '03/', target: { rootId: 'x' } }],
+    [{ dryRun: 'yes', target: { rootId: 'x' } }]
+  ])('拒绝 %j', async (extra) => {
+    const m = makeBackend();
+    const r = await callTool({ v2Backend: m.backend }, 'render_v2_markdown_to_figma', {
+      markdown: VALID_MD,
+      ...extra
+    });
+    expect(r.isError).toBe(true);
+    expect((parseToolBody(r) as { code: string }).code).toBe('INVALID_INPUT');
+  });
+
+  it('首次渲染返回 mode:create，带 rootId 的同步返回 mode:reconcile', async () => {
+    const m = makeBackend();
+    const first = parseToolBody(
+      await callTool({ v2Backend: m.backend }, 'render_v2_markdown_to_figma', { markdown: VALID_MD })
+    ) as { ok: boolean; mode: string; rootInstanceId: string };
+    expect(first.mode).toBe('create');
+
+    const second = parseToolBody(
+      await callTool({ v2Backend: m.backend }, 'render_v2_markdown_to_figma', {
+        markdown: VALID_MD,
+        target: { rootId: first.rootInstanceId },
+        dryRun: true
+      })
+    ) as { ok: boolean; mode: string; changes: unknown[]; conflicts: unknown[] };
+    expect(second.ok).toBe(true);
+    expect(second.mode).toBe('reconcile');
+    expect(second.changes).toEqual([]);
+    expect(second.conflicts).toEqual([]);
+  });
+});

@@ -160,7 +160,13 @@ export const SOFT_WARNING_CODES = {
   /** render — assetMap 的键匹配不到任何章节 / 配图 */
   W_ASSET_KEY_UNMATCHED: 'V2_W_ASSET_KEY_UNMATCHED',
   /** render — 单张配图填充失败（源节点不存在、导出失败等），占位保留文案 */
-  W_FIGURE_FILL_FAILED: 'V2_W_FIGURE_FILL_FAILED'
+  W_FIGURE_FILL_FAILED: 'V2_W_FIGURE_FILL_FAILED',
+  /** render — 渲染产物与 IR 对不上，对应部分未打标记，之后无法同步 */
+  W_STAMP_LAYOUT_MISMATCH: 'V2_W_STAMP_LAYOUT_MISMATCH',
+  /** render — 打标记失败，文档可用但无法同步 */
+  W_STAMP_FAILED: 'V2_W_STAMP_FAILED',
+  /** reconcile — 多个节点携带同一个标记 id（设计师复制了节点），只认第一个 */
+  W_DUPLICATE_STAMP: 'V2_W_DUPLICATE_STAMP'
 } as const;
 
 export type SoftWarningCode =

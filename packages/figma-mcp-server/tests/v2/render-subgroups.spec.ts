@@ -438,5 +438,10 @@ const BASELINE_CALL_SEQUENCE: string[] = [
 const EXPECTED_CALL_SEQUENCE: string[] = [
   ...BASELINE_CALL_SEQUENCE.slice(0, -4),
   'deleteNodes', // ImageSeed.flush
-  ...BASELINE_CALL_SEQUENCE.slice(-4)
+  ...BASELINE_CALL_SEQUENCE.slice(-4),
+  // reconcile-render：渲染全部结束后再读一次整棵树、按位置把 IR 映射到节点，
+  // 一次性写入标记。放在最末尾、且只追加不插入，是为了证明打标记没有改动
+  // 任何渲染步骤——它只读取渲染结果，不参与渲染。
+  'readStampedTree',
+  'stampNodes'
 ];
