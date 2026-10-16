@@ -38,7 +38,6 @@ TBD - created by archiving change v2-add-cluster-subgroup-headings. Update Purpo
 - **WHEN** `target.fileKey` 指向一个 `1:14` 为 TEXT 图层的生产文件
 - **THEN** 引擎 SHALL 返回 `V2_TEMPLATE_NODE_MISMATCH` 且不发生任何克隆
 
-
 ### Requirement: 文件头与设计总览一次性注入
 
 文件头 4 行字段 SHALL 写入模板的 4 个标题 TEXT 节点（owner / group / ticketLink / lastUpdate）；`### 功能背景` 与 `### 核心交互` 段 SHALL 写入对应固定 frame 内的 TEXT。
@@ -110,17 +109,17 @@ TBD - created by archiving change v2-add-cluster-subgroup-headings. Update Purpo
 |---|---|
 | `#Title` | `title` 非 null 时克隆并写入；`title === null`（W5 的隐式首组）时不克隆，绝不留下模板占位文案 |
 | 角色标签 FRAME | 仅第 1 段克隆。`@角色` 是 `###` 簇级声明，逐段重复只是噪音 |
-| `正文/规则` | 按该组可见 bullet 数精确克隆，`配图：` bullet 不占正文槽位 |
-| `配图` | 仅声明了 `配图：xxx` 的组克隆，并将描述写入其 `配图占位文案` TEXT |
+| `正文/规则` | 按该组可见 bullet 数精确克隆，`配图：` bullet 不占正文槽位；连续的规则 bullet 合并为一次 `batchCloneNodes` |
+| `配图` | 该组每条 `配图：xxx` 各克隆 1 个，按 bullet 顺序穿插在 `正文/规则` 之间，描述写入各自的 `配图占位文案` TEXT |
 
-无 `####` 的簇（`groups` 长度 ≤ 1 且 `title === null`）SHALL 走原扁平路径，模板自带的
-全部 `#Title` 实例被删除，代码路径与本能力实现之前逐字节一致。
+无 `####` 的簇（`groups` 长度 ≤ 1 且 `title === null`）SHALL 走扁平路径，模板自带的
+全部 `#Title` 实例被删除；扁平路径的配图处理见「配图按 bullet 原位渲染且一簇多张」。
 
 #### Scenario: 无 `####` 完全向后兼容
 
 - **WHEN** 簇 IR 为 `{ groups: [{ title: null, bullets: ['a', 'b'] }] }`
 - **THEN** 渲染路径 SHALL 不进入槽位分支，产物与实现前一致，且模板自带的全部 `#Title` 占位 SHALL 被删除
-- **AND** 整份不含 `####` 的文档，其 backend 调用序列 SHALL 与本能力实现之前逐项一致
+- **AND** 整份不含 `####` 且不含 `配图：` 的文档，其 backend 调用序列 SHALL 与本能力实现之前逐项一致
 
 #### Scenario: 多个 `####` 渲染为同一块内的多段槽位
 
@@ -163,12 +162,17 @@ TBD - created by archiving change v2-add-cluster-subgroup-headings. Update Purpo
 
 ### Requirement: 配图占位双向判定
 
-引擎 SHALL 同时识别两种"是否需要配图"信号——簇 bullets 里有 `配图：…` 行，**且** Phase 3 的 assetMap 里有该簇的图源——两者均成立时配图占位被填充；任一缺失时占位以"待补充"文字形式保留并在结果里报告。
+引擎 SHALL 同时识别两种"是否需要配图"信号——簇 bullets 里有 `配图：…` 行，**且** `assetMap` 里有该配图的键 `"NN/C/K"`——两者均成立时配图占位被填充（见「配图资产按键填充且占位尺寸按图片比例」），填充后占位文案被删除；只有 `配图：` 行而无资产时，占位 SHALL 保留并显示 `配图占位：xxx` 文案，不抛错。
 
 #### Scenario: bullets 有配图标记但 assetMap 无图
 
-- **WHEN** 簇含 `- 配图：xxx，待补充`、assetMap 该簇键缺失
-- **THEN** 占位 SHALL 保留为可见的"待补充"占位，不抛错；引擎结果里 `result.missingAssets` SHALL 包含该簇 ID
+- **WHEN** 簇含 `- 配图：xxx`、`assetMap` 无对应配图键
+- **THEN** 占位 SHALL 保留为可见的 `配图占位：xxx`，不抛错；`summary.figuresPlaced` SHALL 不计入该配图
+
+#### Scenario: bullets 有配图标记且 assetMap 有图
+
+- **WHEN** 簇含 `- 配图：xxx`、`assetMap` 有对应配图键且源节点有效
+- **THEN** 占位 SHALL 被图片填充、尺寸按图片比例，`配图占位文案` SHALL 被删除
 
 ### Requirement: 章节级配图种子存活至章节渲染结束
 
@@ -232,4 +236,98 @@ TBD - created by archiving change v2-add-cluster-subgroup-headings. Update Purpo
 
 - **WHEN** 模板 `气泡` FRAME 初始含 2 个种子节点（`标号/2` 和 `标号/1`）
 - **THEN** 引擎 SHALL 在 cluster 循环前删除第 2 个种子，渲染后该 FRAME 内气泡数量 SHALL 等于该章节簇数，不含孤儿节点
+
+### Requirement: 配图按 bullet 原位渲染且一簇多张
+
+说明块（无 `####` 的簇）或槽位段（`####` 的一组）内，`正文/规则` TEXT 与 `配图` GROUP 的堆叠顺序 SHALL 与 Markdown 中 bullet 顺序一致：每条 `配图：xxx` bullet 渲染为 1 个 `配图` GROUP，位于其前一条规则 bullet 对应的 `正文/规则` 之后，并将 `配图占位：xxx` 写入该 GROUP 内的 `配图占位文案` TEXT。一个说明块或槽位段内 SHALL 允许多个 `配图` GROUP。
+
+扁平路径分两种：
+
+- 簇内无 `配图：` bullet → SHALL 沿用原路径（保留模板前 N 个 `正文/规则`、不足追加、多余删除），backend 调用序列与本能力实现之前逐项一致
+- 簇内有 `配图：` bullet → SHALL 按「先建后删」原位组装：按 bullet 顺序向块尾追加克隆（连续规则 bullet 合并为一次 `batchCloneNodes`，每条 `配图：` 一次 `cloneNode`），全部追加完成后一次性删除模板原有的直接子 `正文/规则` 与 `配图`；章节级配图种子经 `ImageSeed.filterDeletes` 豁免
+
+配图描述 SHALL 在组装与删除完成后，通过一次 `scanSubtree` 定位、并与正文更新合并到同一批 `setMultipleTextContents` 写入。
+
+#### Scenario: 扁平簇多图原位
+
+- **WHEN** 簇 bullets = `['a', '配图：A图', 'b', 'c', '配图：C图']`
+- **THEN** 该说明块直接子节点中，`正文/规则` 与 `配图` 的相对顺序 SHALL 为 `[正文="a", 配图(A图), 正文="b", 正文="c", 配图(C图)]`
+- **AND** 两个 `配图` 的 `配图占位文案` SHALL 分别为 `配图占位：A图`、`配图占位：C图`
+
+#### Scenario: 单图在末尾的扁平簇
+
+- **WHEN** 簇 bullets = `['a', 'b', 'c', '配图：X']`
+- **THEN** 该说明块内 SHALL 只有 1 个 `配图`，位于 `正文="c"` 之后
+
+#### Scenario: 无配图簇调用序列不变
+
+- **WHEN** 整份文档没有任何 `配图：` bullet
+- **THEN** backend 调用序列 SHALL 与本能力实现之前逐项一致
+
+#### Scenario: 槽位段内多图
+
+- **WHEN** 簇有 2 个 `####`，group[1].bullets = `['b', '配图：B1', 'c', '配图：B2']`
+- **THEN** 第 2 段内 SHALL 依次为 `[#Title, 正文="b", 配图(B1), 正文="c", 配图(B2)]`
+
+#### Scenario: 多图簇在不含配图的说明块中
+
+- **WHEN** 簇 2（落在模板 `说明块02`，自身无 `配图`）bullets = `['a', '配图：A', 'b', '配图：B']`，簇 1 无配图
+- **THEN** 渲染 SHALL 成功，簇 2 说明块内 SHALL 有 2 个从种子克隆的 `配图`，顺序与描述正确；簇 1 说明块内 SHALL 不残留 `配图`
+
+### Requirement: 配图资产按键填充且占位尺寸按图片比例
+
+`assetMap` SHALL 支持配图键 `"NN/C/K"`：第 NN 章（两位零填充）第 C 簇（1 起）的第 K 张配图（1 起）。K SHALL 按该簇内全部 `配图：` bullet 的文档顺序计数，跨 `####` 分组连续，不重置。章节键 `"NN"` 仍表示该章主图。
+
+配图键的值 SHALL 为 `{ type: 'figma_node', fileKey, nodeId, crop?, scale? }` 或 `{ type: 'skip' }`。`crop = { x, y, width, height }` 相对源节点左上角；缺省取整个源节点。`scale` 缺省为 1。
+
+对每个有 `figma_node` 资产的配图，引擎 SHALL 在该说明块组装完成后调用一次 backend `fillFigurePlaceholder`，其行为 SHALL 为：
+
+1. 若有 `crop`：建临时 FRAME（`clipsContent = true`，尺寸 = crop 宽高），将源节点 clone 放入并偏移 `(-x, -y)` 后导出；否则直接导出源节点。导出 SHALL 使用 `exportAsync` PNG，SHALL NOT 依赖 `imageTransform`
+2. 临时节点 SHALL 在导出后删除，无论成功或失败
+3. `配图占位` RECTANGLE 的 fills SHALL 替换为该 PNG 的 `IMAGE` / `FILL` 填充
+4. 占位尺寸 SHALL 为 `w = min(源宽, maxWidth)`、`h = round(源高 × w / 源宽)`，其中 `maxWidth` 为说明块宽度；`配图` GROUP SHALL 随之改变尺寸，不再固定 237 高
+5. `配图占位文案` TEXT SHALL 被删除
+
+全部操作 SHALL 在一次 `figma_execute` 内完成。
+
+单张填充失败（源节点不存在、导出失败等）SHALL NOT 中断渲染：该占位保留 `配图占位：xxx` 文案，结果追加软告警 `W_FIGURE_FILL_FAILED`，其 message SHALL 包含配图键、`nodeId` 与原始错误。
+
+`assetMap` 中匹配不到任何章节或配图的键 SHALL 产生软告警 `W_ASSET_KEY_UNMATCHED`（message 含键名），不阻断渲染。
+
+`summary.figuresPlaced` SHALL 等于成功填充的配图数。
+
+#### Scenario: 配图键按簇内顺序匹配
+
+- **WHEN** 01 章第 1 簇 bullets 为 `['a', '配图：A', 'b', '配图：B']`，`assetMap` 含 `"01/1/2": { type: 'figma_node', nodeId: 'X', fileKey: 'f' }`
+- **THEN** 引擎 SHALL 只对描述为 B 的配图调用 `fillFigurePlaceholder`；描述为 A 的配图 SHALL 保留 `配图占位：A` 文案
+
+#### Scenario: K 跨 #### 连续计数
+
+- **WHEN** 第 1 簇有两个 `####`，第一组含 1 条 `配图：`，第二组含 1 条 `配图：`
+- **THEN** 第二组那张配图的键 SHALL 为 `"01/1/2"`
+
+#### Scenario: 按裁剪区域比例定尺寸
+
+- **WHEN** 配图资产 `crop = { x: 0, y: 0, width: 1920, height: 1080 }`，说明块宽 1231
+- **THEN** 该 `配图占位` SHALL 为 1231 × 692，`配图占位文案` SHALL 不存在
+
+#### Scenario: 小图不放大
+
+- **WHEN** 配图资产 `crop` 宽 50、高 636
+- **THEN** 该 `配图占位` SHALL 为 50 × 636
+
+#### Scenario: 单张失败不中断
+
+- **WHEN** 某配图资产的 `nodeId` 在文件中不存在
+- **THEN** 渲染 SHALL 返回 `ok: true`，`warnings` SHALL 含 `W_FIGURE_FILL_FAILED` 且 message 含该 `nodeId`，该占位 SHALL 保留描述文案
+
+#### Scenario: 未匹配键告警
+
+- **WHEN** `assetMap` 含 `"01/9/1"`，而 01 章只有 3 个簇
+- **THEN** `warnings` SHALL 含 `W_ASSET_KEY_UNMATCHED` 且 message 含 `01/9/1`
+
+#### Scenario: 不传配图键时行为不变
+
+- **WHEN** `assetMap` 只含章节键或为空
+- **THEN** 引擎 SHALL NOT 调用 `fillFigurePlaceholder`，配图占位与描述文案与本能力实现之前一致
 

@@ -3,7 +3,6 @@
 ## Purpose
 TBD - created by archiving change proxy-figma-console-tools-from-engine. Update Purpose after archive.
 ## Requirements
-
 ### Requirement: 引擎对外工具集
 
 MCP Server `figma-interaction-doc-engine` SHALL 只暴露 v2 Markdown 管道所需的原生工具，外加从 figma-console-mcp 代理转发的全部工具。
@@ -152,4 +151,46 @@ CodeMaker (and any other MCP host) MUST NOT be configured with both a standalone
 
 - **WHEN** the user reads the engine README / release notes
 - **THEN** the migration steps MUST instruct: (1) remove the standalone `figma-console` MCP entry from CodeMaker MCP settings, (2) ensure only `figma-interaction-doc-engine` remains, (3) restart CodeMaker so lazy-spawn rebuilds the process chain, (4) reload the Figma Desktop Bridge plugin
+
+### Requirement: 批量文本写入按字体去重加载
+
+`setMultipleTextContents` 在单次 `figma_execute` 内 SHALL 对所有目标 TEXT 的字体按 `family + style` 去重，每种字体 SHALL 只调用一次 `figma.loadFontAsync`，全部加载完成后再写入 `characters`。节点不存在或非 TEXT 的条目 SHALL 静默跳过（与原行为一致）。
+
+理由：Figma 对短时间内连续的 `loadFontAsync` 调用节流（实测第 7 次起每次约 1000ms），逐节点加载会使数十条文本的批量写入超过插件 30s 单次执行上限。
+
+#### Scenario: 同字体大批量写入不超时
+
+- **WHEN** 一次 `setMultipleTextContents` 写入 47 个均为同一字体的 TEXT
+- **THEN** 插件端 SHALL 只调用 1 次 `loadFontAsync`，该次执行 SHALL 在 30s 上限内完成
+
+#### Scenario: 混合字体
+
+- **WHEN** 批量中的 TEXT 共涉及 3 种不同字体（含单个 TEXT 内的混合字体）
+- **THEN** 插件端 SHALL 恰好调用 3 次 `loadFontAsync`，再写入全部 `characters`
+
+#### Scenario: 无效节点跳过
+
+- **WHEN** 批量中某个 `nodeId` 不存在或不是 TEXT
+- **THEN** 该条 SHALL 被跳过，其余条目正常写入，不抛错
+
+### Requirement: render 工具 assetMap 支持配图键与裁剪区域
+
+`render_v2_markdown_to_figma` 的 `assetMap` 输入 schema SHALL 接受两类键：
+
+- 章节键 `"NN"`：值为 `image` / `figma_node` / `skip`（含义不变）
+- 配图键 `"NN/C/K"`：值为 `figma_node` / `skip`
+
+`figma_node` 值 SHALL 支持可选字段 `crop: { x: number, y: number, width: number (>0), height: number (>0) }` 与 `scale: number (>0)`。工具描述 SHALL 写明配图键格式、K 的计数规则（簇内文档顺序、跨 `####` 连续）与 `crop` 坐标系（相对源节点左上角）。
+
+源节点 SHALL 位于渲染目标文件内；工具描述 SHALL 注明这一约束。
+
+#### Scenario: 配图键 schema 校验通过
+
+- **WHEN** 客户端传入 `assetMap = { "01": { type: "skip" }, "01/2/1": { type: "figma_node", fileKey: "f", nodeId: "1:2", crop: { x: 10, y: 20, width: 300, height: 200 } } }`
+- **THEN** 服务端 SHALL 接受该输入并把配图键原样传给渲染器
+
+#### Scenario: crop 尺寸非法
+
+- **WHEN** `crop.width` 为 0 或负数
+- **THEN** 服务端 SHALL 以 schema 校验错误拒绝该调用
 
