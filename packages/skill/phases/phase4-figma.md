@@ -63,7 +63,9 @@ Phase 4 只用得到两个工具：
   "assetMap": {
     "01": { "type": "image", "src": "<图片路径或 base64>" },
     "02": { "type": "figma_node", "fileKey": "<file key>", "nodeId": "<node id>" },
-    "03": { "type": "skip" }
+    "03": { "type": "skip" },
+    "01/1/2": { "type": "figma_node", "fileKey": "<file key>", "nodeId": "<node id>",
+                "crop": { "x": 700, "y": 0, "width": 520, "height": 160 } }
   },
   "target": {
     "fileKey": "UYCJok3MXTWITMfeJSqEF6",
@@ -75,11 +77,13 @@ Phase 4 只用得到两个工具：
 参数说明：
 
 - `markdown`（必填）— Markdown 全文，不是路径
-- `assetMap`（可选）— key 是 `## NN.` 的两位章节号字符串；三种 `type`：
-  - `image` — 需要 `src`
-  - `figma_node` — 需要 `fileKey` + `nodeId`
-  - `skip` — 留占位
-  - **缺省的章节按 `skip` 处理**，Phase 3 跳过的章节不写进去即可
+- `assetMap`（可选）— 两类 key：
+  - `"NN"` 章节主图，三种 `type`：
+    - `image` — 需要 `src`
+    - `figma_node` — 需要 `fileKey` + `nodeId`，可选 `crop`
+    - `skip` — 留占位
+    - **缺省的章节按 `skip` 处理**，Phase 3 跳过的章节不写进去即可
+  - `"NN/C/K"` 配图（第 NN 章第 C 簇第 K 张，K 跨 `####` 连续），只支持 `figma_node`（可选 `crop`）/ `skip`；不写键的配图保留"配图占位：xxx"。键怎么编、区域怎么定见 `phase3-asset.md`「配图资产」
 - `target`（可选）— `fileKey` / `pageId`
   - `fileKey` 决定写进哪个文件。**不传就写进 Figma Desktop 当前活动的那个文件**，所以只要用户可能同时开着别的文件，就该显式传 `UYCJok3MXTWITMfeJSqEF6`
   - 目标文件必须也开着 Desktop Bridge 插件；否则引擎返回 `V2_TARGET_FILE_UNREACHABLE`
@@ -98,9 +102,15 @@ Phase 4 只用得到两个工具：
 - 输出位置：[Figma URL，定位到生成的"模板"实例]
 - 共 N 个界面 / M 个气泡 / K 个语义簇
 - 主图：[N 张已置入 / M 张占位]
+- 配图：[summary.figuresPlaced 张已置入 / 其余保留占位]
 
 请在 Figma 检查，需要任何手动微调（气泡位置 / 文字修订）随时告诉我。
 ```
+
+`warnings` 里有配图相关软告警时，附在成功报告后逐条说明，**不重渲染**：
+
+- `V2_W_FIGURE_FILL_FAILED` — 某张配图没贴上（message 带键名和 nodeId，常见原因：源节点不在目标文件 / 被删 / 导出失败）。该占位保留了描述文案，告诉用户是哪张、为什么，问要不要修好 `asset_map` 后重渲染
+- `V2_W_ASSET_KEY_UNMATCHED` — `asset_map` 里某个键在文档里找不到对应章节/配图，多半是编键时数错了 C 或 K。回 `phase3-asset.md` 核对编键
 
 #### 结果 B：v2 强校验失败
 

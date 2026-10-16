@@ -26,17 +26,19 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
    细则：phases/phase0-recall.md
         ↓（嵌入）
 [Phase 1 — 需求挖掘]
+   入场材料识别（路径A 图先行 / 路径B 策划文档先行可提议画草稿）
    读策划文档 → 复述理解 → 翻库咨询结果（若有）→ 1-3 问/轮 → 直到信息可用
    细则：phases/phase1-analysis.md
         ↓
 [Phase 2 — v2 Markdown]
-   先做分类决策（界面清单 → 模块清单 → 规则归位 → 用户确认）
+   先做分类决策（界面清单锚定图清单 → 模块清单 → 规则归位+丢弃清单 → 用户确认）
    再按 v2 格式产出 Markdown → 用户审核 → 用户确认 → 保存到磁盘
    细则：phases/phase2-markdown.md（含 Step 0 分类决策必经路径）
-   规范：references/markdown-v2-spec.md
+   规范：references/markdown-v2-spec.md（含转写文体规范 T1–T5）
         ↓
 [Phase 3 — 索要设计稿]
-   主动问用户：图片 / Figma 链接 / 跳过
+   路径A：入场图已在手 → 确认可作主图 / 补高清图 / 跳过
+   路径B：主动问用户 图片 / Figma 链接 / 跳过
    细则：phases/phase3-asset.md
         ↓
 [Phase 4 — 写 Figma]
@@ -61,9 +63,9 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 | Phase | 进入条件 | 完成条件 | 失败回退 |
 |---|---|---|---|
 | 0. 翻库（内嵌） | Phase 1 启动时自动执行 | 检索完成（无论命中与否），输出嵌入 Phase 1 | 无库 / 低分 → 静默退化 |
-| 1. 分析 | 用户给出需求材料 | 4 维度全满（可调参数 / 差异领域 / 业务专属 / 冲突清零） | 缺关键决策或冲突未决 → 继续 Q&A |
-| 2. Markdown | Phase 1 完成 | 用户确认"可以保存"，文件写入磁盘 | Markdown 不通过 v2 强校验 → 修正后重输 |
-| 3. 索要设计稿 | Phase 2 已保存 | 用户提供链接/图片，或显式说"跳过" | 用户暂时没有 → 用占位走 Phase 4，后续再补 |
+| 1. 分析 | 用户给出需求材料（**入场材料识别**：路径A 图先行 / 路径B 策划文档先行可提议画草稿） | 4 维度全满（可调参数 / 差异领域 / 业务专属 / 冲突清零）；路径已确定 | 缺关键决策或冲突未决 → 继续 Q&A |
+| 2. Markdown | Phase 1 完成 | 用户确认"可以保存"，文件写入磁盘；**Step 0.1 界面清单锚定图清单（一图一章，禁流程章）** | Markdown 不通过 v2 强校验 → 修正后重输 |
+| 3. 索要设计稿 | Phase 2 已保存 | 路径A：入场图确认可作主图 / 补高清图 / 显式跳过；路径B：用户提供链接/图片，或显式说"跳过" | 用户暂时没有 → 用占位走 Phase 4，后续再补 |
 | 4. 写 Figma | Phase 3 完成 | 引擎返回成功，用户在 Figma 看到结果 | 引擎报错 → 修正 Markdown 或设计稿后重跑 |
 | 5. 维护库（增量） | Phase 4 完成后默认触发 | 增量操作完成（含日志写入）或用户跳过 | 写盘失败 → 暂停等用户处理 |
 
@@ -106,9 +108,9 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 | Phase | 输出物 | 落地位置 |
 |---|---|---|
 | 0 | 无独立输出（嵌入 Phase 1 第一回合） | 仅对话 |
-| 1 | 对话内的`已确认 / 待确认`列表 | 仅对话 |
+| 1 | 入场路径判定（A 图先行 / B 策划文档先行）+ 对话内的`已确认 / 待确认`列表 | 仅对话 |
 | 2 | v2 Markdown 文件 | 默认与策划文档同目录，`[需求名]_交互文档.md` |
-| 3 | 用户提供的图片/链接 / 或"跳过"标记 | 仅 Phase 4 输入 |
+| 3 | 路径A：入场图确认/补高清图/"跳过"；路径B：用户提供的图片/链接/"跳过" | 仅 Phase 4 输入 |
 | 4 | Figma 文档 | file `UYCJok3MXTWITMfeJSqEF6` 内新克隆的"模板"实例 |
 | 5 | 模式文件 / 索引更新 / 偏离记录 / 维护日志 | `.interaction-sop/patterns/*.md` / `index.md` / `deviations.md` / `maintenance.log` |
 
@@ -118,14 +120,14 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 
 **Phase 文件**（按 SOP 顺序阅读）：
 - `phases/phase0-recall.md` — 翻库咨询：8 步检索流程、打分公式、输出模板、退化路径
-- `phases/phase1-analysis.md` — 需求挖掘细则、提问类型、分类法、采用契约、撤销机制
-- `phases/phase2-markdown.md` — v2 Markdown 生成、保存、强校验
-- `phases/phase3-asset.md` — 索要设计稿的话术与边界
+- `phases/phase1-analysis.md` — 需求挖掘细则、**入场材料识别（双入口）**、提问类型、分类法、采用契约、撤销机制
+- `phases/phase2-markdown.md` — v2 Markdown 生成、保存、强校验；**Step 0 分类决策（界面清单锚定图、规则归位+丢弃清单）**
+- `phases/phase3-asset.md` — 索要设计稿的话术与边界；**路径A 退化模式（入场图已在手）**
 - `phases/phase4-figma.md` — 调用 `figma-interaction-doc-engine` 的契约
 - `phases/phase5-extract.md` — 模式库冷启动提取、增量维护、9 条硬规则、用户 override
 
 **规范文件**（需要细节时查阅）：
-- `references/markdown-v2-spec.md` — v2 格式权威规范（机器可读契约）
+- `references/markdown-v2-spec.md` — v2 格式权威规范（机器可读契约 + **转写文体规范 T1–T5**）
 - `references/pattern-schema.md` — 项目模式条目格式契约（schema_version: 1）
 - `references/index-schema.md` — 项目库索引文件格式契约（含 glossary）
 - `references/deviation-schema.md` — 规范偏离记录格式契约
