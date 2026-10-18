@@ -59,8 +59,11 @@ import {
   probeMoveOrThrow,
   type CropRect,
   type FigmaBackend,
-  type NodeInfo
+  type NodeInfo,
+  type TextUpdate,
+  type TextWriteResult
 } from './figma-client.js';
+import { stateBoldLength } from './state-line.js';
 import { SOFT_WARNING_CODES } from './ir.js';
 import type { DocIR, HardError, SoftWarning, SemanticCluster } from './ir.js';
 import { stampRenderedDoc } from './reconcile/layout.js';
@@ -754,24 +757,42 @@ const FIGURE_MAX_WIDTH_FALLBACK = 1231;
 const SECTION_KEY_RE = /^\d{2}$/;
 const FIGURE_KEY_RE = /^(\d{2})\/(\d+)\/(\d+)$/;
 
-/** Render-wide bookkeeping for figure assets. */
+/** Render-wide bookkeeping for figure assets and text-write side effects. */
 export interface FigureState {
   /** Asset for figure K of cluster `prefix` ("NN/C"), if the caller gave one. */
   lookup(prefix: string, ordinal: number): AssetSpec | undefined;
   warn(key: string, message: string): void;
+  /** Record families that had no bold weight for state lines (warned once each). */
+  textWritten(r: TextWriteResult): void;
   placed: number;
   readonly warnings: SoftWarning[];
 }
 
 export function makeFigureState(assetMap: Record<string, AssetSpec> | undefined): FigureState {
   const warnings: SoftWarning[] = [];
+  const boldMissing = new Set<string>();
   return {
     lookup: (prefix, ordinal) => assetMap?.[`${prefix}/${ordinal}`],
     warn(key, message) {
       warnings.push({ code: SOFT_WARNING_CODES.W_FIGURE_FILL_FAILED, message, context: key });
     },
+    textWritten(r) {
+      for (const family of r.boldUnavailable) {
+        if (boldMissing.has(family)) continue;
+        boldMissing.add(family);
+        warnings.push(boldUnavailableWarning(family));
+      }
+    },
     placed: 0,
     warnings
+  };
+}
+
+export function boldUnavailableWarning(family: string): SoftWarning {
+  return {
+    code: SOFT_WARNING_CODES.W_STATE_BOLD_UNAVAILABLE,
+    message: `字体族 ${family} 没有可用的粗体字重，状态名未加粗`,
+    context: family
   };
 }
 
@@ -1018,7 +1039,7 @@ async function fillBlockContent(
       bulletTexts.slice(visibleBullets.length).map((n) => n.id)
     );
   }
-  const bulletUpdates: Array<{ nodeId: string; characters: string }> = [];
+  const bulletUpdates: TextUpdate[] = [];
   for (let i = 0; i < visibleBullets.length; i++) {
     const node = bulletNodes[i];
     const raw = visibleBullets[i] ?? '';
@@ -1036,11 +1057,11 @@ async function fillBlockContent(
         .replace(/\*\*([^*]+)\*\*/g, '$1')
         .replace(/__([^_]+)__/g, '$1')
         .trim();
-      bulletUpdates.push({ nodeId: node.id, characters: body });
+      bulletUpdates.push({ nodeId: node.id, characters: body, bold: stateBoldLength(body) });
     }
   }
   if (bulletUpdates.length > 0) {
-    await backend.setMultipleTextContents(bulletUpdates);
+    p.figures.textWritten(await backend.setMultipleTextContents(bulletUpdates));
   }
 
   // No 配图 wanted here: drop the template's (the section seed survives
@@ -1111,7 +1132,7 @@ interface AppendedImage {
 }
 
 interface AppendedBullets {
-  textUpdates: Array<{ nodeId: string; characters: string }>;
+  textUpdates: TextUpdate[];
   images: AppendedImage[];
 }
 
@@ -1153,10 +1174,8 @@ async function appendBulletsInOrder(
     for (let j = 0; j < pending.length; j++) {
       const node = cloned[j];
       if (node) {
-        out.textUpdates.push({
-          nodeId: node.id,
-          characters: normalizeBulletText(pending[j] ?? '')
-        });
+        const characters = normalizeBulletText(pending[j] ?? '');
+        out.textUpdates.push({ nodeId: node.id, characters, bold: stateBoldLength(characters) });
       }
     }
     pending = [];
@@ -1198,7 +1217,7 @@ async function finishBlockFigures(
   backend: FigmaBackend,
   p: {
     blockId: string;
-    textUpdates: Array<{ nodeId: string; characters: string }>;
+    textUpdates: TextUpdate[];
     images: AppendedImage[];
     figures: FigureState;
     keyPrefix: string;
@@ -1240,7 +1259,7 @@ async function finishBlockFigures(
     if (hintId && img.desc) updates.push({ nodeId: hintId, characters: `配图占位：${img.desc}` });
   }
 
-  if (updates.length > 0) await backend.setMultipleTextContents(updates);
+  if (updates.length > 0) p.figures.textWritten(await backend.setMultipleTextContents(updates));
 
   for (const { img, key, asset } of toFill) {
     const { rectId, hintId } = parts.get(img.groupId) ?? {};
@@ -1355,7 +1374,7 @@ async function fillGroupSlots(
     ) ??
     (ctx.imageSeed.id ? ({ id: ctx.imageSeed.id } as NodeInfo) : undefined);
 
-  const textUpdates: Array<{ nodeId: string; characters: string }> = [];
+  const textUpdates: TextUpdate[] = [];
   const images: AppendedImage[] = [];
   const ordinal = { next: 1 };
 

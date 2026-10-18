@@ -215,6 +215,47 @@ describe('reconcile — items', () => {
   });
 });
 
+describe('reconcile — state-line weight', () => {
+  const boldOf = (m: M, id: string) => (m.store[id] as NodeStore[string] & { bold?: number }).bold;
+  const setTexts = (m: M) => m.opBatches.flat().filter((op) => op.op === 'setText');
+
+  it('a rule rewritten as a state line gets its name bolded, and back again', async () => {
+    const m = makeBackend();
+    const root = await create(m, ONE(['a', '点击后进入冷却', '默认状态', 'c']));
+    const [, xId, yId] = rulesOf(m.store, root).map((n) => n.id);
+    expect(boldOf(m, xId!)).toBe(0);
+    expect(boldOf(m, yId!)).toBe(4);
+
+    await sync(m, root, ONE(['a', '冷却状态：释放后进入', '默认无描边', 'c']));
+    expect(m.store[xId!]!.characters).toBe('冷却状态：释放后进入');
+    expect(boldOf(m, xId!)).toBe(4);
+    expect(m.store[yId!]!.characters).toBe('默认无描边');
+    expect(boldOf(m, yId!)).toBe(0);
+    expect(setTexts(m).map((op) => op.op === 'setText' && op.bold)).toEqual([4, 0]);
+  });
+
+  it('unchanged text is not rewritten, so a designer un-bolding stays', async () => {
+    const m = makeBackend();
+    const root = await create(m, ONE(['a', '默认状态']));
+    const yId = rulesOf(m.store, root)[1]!.id;
+    (m.store[yId] as NodeStore[string] & { bold?: number }).bold = 0;
+
+    const r = await sync(m, root, ONE(['a', '默认状态']));
+    expect(r.changes).toEqual([]);
+    expect(boldOf(m, yId)).toBe(0);
+    expect(setTexts(m)).toEqual([]);
+  });
+
+  it('non-rule text (section name) carries no bold', async () => {
+    const m = makeBackend();
+    const root = await create(m, ONE(['a']));
+    await sync(m, root, ONE(['a']).replace('## 01. 战斗界面', '## 01. 战斗主界面'));
+    const ops = setTexts(m);
+    expect(ops).toHaveLength(1);
+    expect(ops[0]!.op === 'setText' && ops[0]!.bold).toBeUndefined();
+  });
+});
+
 describe('reconcile — foreign nodes', () => {
   it('a hand-copied engine node counts as foreign and is warned about', async () => {
     const m = makeBackend();

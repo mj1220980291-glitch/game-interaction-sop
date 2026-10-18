@@ -48,6 +48,58 @@ async function exec(
   return parsed;
 }
 
+// ---- text weight helpers (runs inside Figma plugin) ---------------------
+
+/**
+ * Regular / bold weight resolution for state-line bolding (runs inside the
+ * plugin). `fonts` is the call's already-loaded, deduped font map; each
+ * family is resolved once per call, so at most a few extra loadFontAsync.
+ *
+ * Regular = a non-bold style already on the batch's nodes, else `Regular`.
+ * Bold    = first loadable of BOLD_STYLES. Missing → family reported back.
+ *
+ * Writing `characters` inherits the old first character's style, so callers
+ * always pass `bold` (0 included) for bullet text; applyWeight then resets
+ * the whole run to regular before bolding the prefix.
+ */
+const TEXT_WEIGHT_FNS = `
+const BOLD_STYLES = ['Bold', 'SemiBold', 'Semibold', 'Medium'];
+async function resolveWeights(families, fonts) {
+  const loaded = new Set(fonts.keys());
+  const tryLoad = async (f) => {
+    const k = f.family + '\\u0000' + f.style;
+    if (loaded.has(k)) return true;
+    try { await figma.loadFontAsync(f); loaded.add(k); return true; } catch (e) { return false; }
+  };
+  const out = new Map();
+  for (const family of families) {
+    const own = [...fonts.values()].filter((f) => f.family === family);
+    let regular = own.find((f) => !BOLD_STYLES.includes(f.style)) || null;
+    if (!regular) {
+      const r = { family, style: 'Regular' };
+      if (await tryLoad(r)) regular = r;
+    }
+    let bold = null;
+    for (const style of BOLD_STYLES) {
+      const b = { family, style };
+      if (await tryLoad(b)) { bold = b; break; }
+    }
+    out.set(family, { regular, bold });
+  }
+  return out;
+}
+function applyWeight(n, family, bold, weights, unavailable) {
+  const w = weights.get(family);
+  const len = n.characters.length;
+  if (!w || len === 0) return;
+  if (w.regular) n.setRangeFontName(0, len, w.regular);
+  if (bold > 0) {
+    if (w.bold) n.setRangeFontName(0, Math.min(bold, len), w.bold);
+    else unavailable.add(family);
+  }
+}
+`;
+
 // ---- node shape serialiser (runs inside Figma plugin, async-aware) ------
 
 const SERIALIZE_NODE_FN = `
@@ -278,22 +330,31 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       // loadFontAsync calls (~1s each after the first handful, even for an
       // already-loaded font), so loading per node pushed a 47-text batch past
       // the plugin's 30s execute cap; deduped, the same batch takes ~13ms.
-      await run(`
+      const r = await run(`
+        ${TEXT_WEIGHT_FNS}
         const updates = ${JSON.stringify(updates)};
         const targets = [];
         const fonts = new Map();
-        for (const { nodeId, characters } of updates) {
+        const families = new Set();
+        for (const { nodeId, characters, bold } of updates) {
           const n = await figma.getNodeByIdAsync(nodeId);
           if (!n || n.type !== 'TEXT') continue;
-          targets.push([n, characters]);
-          for (const f of n.getRangeAllFontNames(0, n.characters.length || 1)) {
-            fonts.set(f.family + '\\u0000' + f.style, f);
-          }
+          const own = n.getRangeAllFontNames(0, n.characters.length || 1);
+          const family = own[0] ? own[0].family : undefined;
+          targets.push([n, characters, bold, family]);
+          for (const f of own) fonts.set(f.family + '\\u0000' + f.style, f);
+          if (bold !== undefined && family) families.add(family);
         }
         for (const f of fonts.values()) await figma.loadFontAsync(f);
-        for (const [n, characters] of targets) n.characters = characters;
-        return null;
-      `, 30000);
+        const weights = families.size > 0 ? await resolveWeights(families, fonts) : new Map();
+        const unavailable = new Set();
+        for (const [n, characters, bold, family] of targets) {
+          n.characters = characters;
+          if (bold !== undefined) applyWeight(n, family, bold, weights, unavailable);
+        }
+        return { boldUnavailable: [...unavailable] };
+      `, 30000) as { boldUnavailable?: string[] } | null;
+      return { boldUnavailable: r?.boldUnavailable ?? [] };
     },
 
     async deleteNodes(nodeIds) {
@@ -494,19 +555,25 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     async applyOps(ops) {
       if (ops.length === 0) return { applied: 0 };
       const r = await run(`
+        ${TEXT_WEIGHT_FNS}
         const NS = ${JSON.stringify(STAMP_NAMESPACE)};
         const KEY = ${JSON.stringify(STAMP_KEY)};
         const ops = ${JSON.stringify(ops)};
         const fonts = new Map();
+        const families = new Set();
+        const familyOf = new Map();
         for (const op of ops) {
           if (op.op !== 'setText') continue;
           const n = await figma.getNodeByIdAsync(op.nodeId);
           if (!n || n.type !== 'TEXT') continue;
-          for (const f of n.getRangeAllFontNames(0, n.characters.length || 1)) {
-            fonts.set(f.family + '\\u0000' + f.style, f);
-          }
+          const own = n.getRangeAllFontNames(0, n.characters.length || 1);
+          for (const f of own) fonts.set(f.family + '\\u0000' + f.style, f);
+          if (own[0]) familyOf.set(op.nodeId, own[0].family);
+          if (op.bold !== undefined && own[0]) families.add(own[0].family);
         }
         for (const f of fonts.values()) await figma.loadFontAsync(f);
+        const weights = families.size > 0 ? await resolveWeights(families, fonts) : new Map();
+        const unavailable = new Set();
 
         let applied = 0;
         for (let i = 0; i < ops.length; i++) {
@@ -520,6 +587,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
             } else if (op.op === 'setText') {
               if (n.type !== 'TEXT') return { applied, failedAt: i, reason: 'setText: not a TEXT: ' + op.nodeId };
               n.characters = op.text;
+              if (op.bold !== undefined) applyWeight(n, familyOf.get(op.nodeId), op.bold, weights, unavailable);
             } else if (op.op === 'stamp') {
               n.setSharedPluginData(NS, KEY, op.stamp === null ? '' : JSON.stringify(op.stamp));
             } else if (op.op === 'place') {
@@ -541,8 +609,8 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
             return { applied, failedAt: i, reason: String(e && e.message ? e.message : e) };
           }
         }
-        return { applied };
-      `, 30000) as { applied: number; failedAt?: number; reason?: string };
+        return { applied, boldUnavailable: [...unavailable] };
+      `, 30000) as { applied: number; failedAt?: number; reason?: string; boldUnavailable?: string[] };
       return r;
     }
   };

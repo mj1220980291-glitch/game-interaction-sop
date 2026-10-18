@@ -9,6 +9,7 @@ import { SOFT_WARNING_CODES } from '../ir.js';
 import type { FigmaBackend, NodeInfo, ReconcileOp } from '../figma-client.js';
 import {
   applyAsset,
+  boldUnavailableWarning,
   makeFigureState,
   renderInner,
   type AssetSpec,
@@ -117,6 +118,12 @@ export async function reconcileV2(
     const chunks = chunkBatches(plan.batches, resolver);
     for (const chunk of chunks) {
       const r = await backend.applyOps(chunk.ops);
+      for (const family of r.boldUnavailable ?? []) {
+        const seen = warnings.some(
+          (w) => w.code === SOFT_WARNING_CODES.W_STATE_BOLD_UNAVAILABLE && w.context === family
+        );
+        if (!seen) warnings.push(boldUnavailableWarning(family));
+      }
       if (r.failedAt !== undefined) {
         throw Object.assign(new Error(`applyOps stopped at op ${r.failedAt}: ${r.reason ?? 'unknown'}`), {
           code: 'V2_RECONCILE_APPLY_FAILED'

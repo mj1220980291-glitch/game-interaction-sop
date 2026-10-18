@@ -33,6 +33,9 @@ const uid = (prefix = 'n') => `${prefix}-${_uid++}`;
 /** Width of a 说明块 in the real 1:14 template (= max 配图 width). */
 export const BLOCK_WIDTH = 1231;
 
+/** Font family of the template's 正文/规则 TEXTs (verified 2026-10-17). */
+export const MOCK_FONT_FAMILY = 'Noto Sans SC';
+
 /** The 7 role TEXTs every `Frame 4273xxx` ships with, in template order. */
 const ROLE_TEXTS = [
   '@GUI',
@@ -243,7 +246,8 @@ export function makeBackend() {
     return newId;
   }
 
-  type Extra = NodeStore[string] & { stamp?: string; fill?: string };
+  /** `bold`: leading bold character count last written (undefined = never set). */
+  type Extra = NodeStore[string] & { stamp?: string; fill?: string; bold?: number };
 
   function ownHash(n: Extra): string | null {
     return n.fill?.startsWith('IMAGE:') ? n.fill : null;
@@ -277,9 +281,23 @@ export function makeBackend() {
 
   /** Every applyOps batch, in order. */
   const opBatches: ReconcileOp[][] = [];
-  /** Test hook: make applyOps fail once this many ops have been applied in total. */
-  const faults: { failAfterOps?: number } = {};
+  /**
+   * Test hooks: make applyOps fail once this many ops have been applied in
+   * total; `noBold` simulates a font family without a bold weight.
+   */
+  const faults: { failAfterOps?: number; noBold?: boolean } = {};
   let opsAppliedTotal = 0;
+
+  /** Apply a `bold` write; returns the family when bold is unavailable. */
+  function writeBold(n: Extra, bold: number | undefined): string | undefined {
+    if (bold === undefined) return undefined;
+    if (faults.noBold) {
+      n.bold = 0;
+      return bold > 0 ? MOCK_FONT_FAMILY : undefined;
+    }
+    n.bold = bold;
+    return undefined;
+  }
 
   /** Every fillFigurePlaceholder call, in order. */
   const figureFills: Array<{
@@ -362,10 +380,15 @@ export function makeBackend() {
       if (n) (n as NodeInfo & { characters: string }).characters = chars;
     },
     async setMultipleTextContents(updates) {
-      for (const { nodeId, characters } of updates) {
-        const n = store[nodeId];
-        if (n) (n as NodeInfo & { characters: string }).characters = characters;
+      const unavailable = new Set<string>();
+      for (const { nodeId, characters, bold } of updates) {
+        const n = store[nodeId] as Extra | undefined;
+        if (!n) continue;
+        (n as NodeInfo & { characters: string }).characters = characters;
+        const miss = writeBold(n, bold);
+        if (miss) unavailable.add(miss);
       }
+      return { boldUnavailable: [...unavailable] };
     },
     async deleteNodes(ids) {
       for (const id of ids) {
@@ -466,6 +489,7 @@ export function makeBackend() {
 
     async applyOps(ops): Promise<ApplyOpsResult> {
       opBatches.push(ops);
+      const unavailable = new Set<string>();
       let applied = 0;
       for (let i = 0; i < ops.length; i++) {
         if (faults.failAfterOps !== undefined && opsAppliedTotal >= faults.failAfterOps) {
@@ -483,6 +507,8 @@ export function makeBackend() {
           return { applied, failedAt: i, reason: `${op.op}: node not found: ${op.nodeId}` };
         } else if (op.op === 'setText') {
           (n as NodeInfo & { characters: string }).characters = op.text;
+          const miss = writeBold(n, op.bold);
+          if (miss) unavailable.add(miss);
         } else if (op.op === 'stamp') {
           n.stamp = op.stamp === null ? undefined : JSON.stringify(op.stamp);
         } else {
@@ -503,7 +529,7 @@ export function makeBackend() {
         applied++;
         opsAppliedTotal++;
       }
-      return { applied };
+      return { applied, boldUnavailable: [...unavailable] };
     }
   };
 

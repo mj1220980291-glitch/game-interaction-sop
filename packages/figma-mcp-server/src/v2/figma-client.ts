@@ -155,8 +155,14 @@ export interface FigmaBackend {
   /** Set TEXT.characters. Loads font automatically. */
   setTextContent(nodeId: string, characters: string): Promise<void>;
 
-  /** Batch text set, in one MCP call. */
-  setMultipleTextContents(updates: Array<{ nodeId: string; characters: string }>): Promise<void>;
+  /**
+   * Batch text set, in one MCP call.
+   *
+   * `bold` (optional, per update): after writing, set the whole text to the
+   * family's regular weight, then `[0, bold)` to its bold weight (0 = all
+   * regular). Omitted = characters only, styles untouched.
+   */
+  setMultipleTextContents(updates: TextUpdate[]): Promise<TextWriteResult>;
 
   /** Batch delete. */
   deleteNodes(nodeIds: string[]): Promise<void>;
@@ -288,8 +294,20 @@ export interface StampEntry {
   captureHash?: boolean;
 }
 
+export interface TextUpdate {
+  nodeId: string;
+  characters: string;
+  /** Number of leading characters to set bold; see setMultipleTextContents. */
+  bold?: number;
+}
+
+export interface TextWriteResult {
+  /** Font families with no loadable bold weight; their bold ranges were skipped. */
+  boldUnavailable: string[];
+}
+
 export type ReconcileOp =
-  | { op: 'setText'; nodeId: string; text: string }
+  | { op: 'setText'; nodeId: string; text: string; bold?: number }
   | { op: 'delete'; nodeId: string }
   /**
    * Insert or move `nodeId` into `parentId`, right after `afterId` (null =
@@ -303,6 +321,8 @@ export interface ApplyOpsResult {
   /** Index of the op that failed; absent when all applied. */
   failedAt?: number;
   reason?: string;
+  /** See TextWriteResult. */
+  boldUnavailable?: string[];
 }
 
 // --- Errors --------------------------------------------------------------

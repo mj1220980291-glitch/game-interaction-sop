@@ -32,6 +32,8 @@ import {
   type SemanticCluster,
   type SoftWarning
 } from './ir.js';
+import { isImageBullet, normalizeBulletText } from './reconcile/stamp.js';
+import { isLegacyStatePrefix, parseStateLine } from './state-line.js';
 
 // --- Header field labels -------------------------------------------------
 
@@ -457,6 +459,8 @@ function parseClusters(
             warnings
           );
 
+    checkBulletOrder(groups, absLine, b.title, warnings);
+
     out.push({
       order: i + 1,
       title: b.title,
@@ -467,6 +471,45 @@ function parseClusters(
   }
 
   return out;
+}
+
+// --- 簇内叙述顺序（T9）与状态行写法 -----------------------------------------
+
+function checkBulletOrder(
+  groups: BulletGroup[],
+  line: number,
+  clusterTitle: string,
+  warnings: SoftWarning[]
+): void {
+  for (const g of groups) {
+    const context = g.title ? `${clusterTitle} > ${g.title}` : clusterTitle;
+    const items = g.bullets.map(normalizeBulletText).filter((t) => !isImageBullet(t));
+
+    for (const t of items) {
+      if (isLegacyStatePrefix(t)) {
+        warnings.push({
+          code: SOFT_WARNING_CODES.W_LEGACY_STATE_PREFIX,
+          message: `\`${t}\` 使用了旧的 \`状态·\` 写法，请改为"xx状态：出现条件"或只写"xx状态"`,
+          line,
+          context
+        });
+      }
+    }
+
+    const stateIdx = items.flatMap((t, i) => (parseStateLine(t) ? [i] : []));
+    if (stateIdx.length > 1) {
+      const first = stateIdx[0]!;
+      const last = stateIdx[stateIdx.length - 1]!;
+      if (last - first + 1 !== stateIdx.length) {
+        warnings.push({
+          code: SOFT_WARNING_CODES.W_STATE_LINES_SCATTERED,
+          message: `\`${context}\` 的状态行之间夹着其他规则，状态行应连续书写`,
+          line,
+          context
+        });
+      }
+    }
+  }
 }
 
 // --- `####` sub-group parsing --------------------------------------------

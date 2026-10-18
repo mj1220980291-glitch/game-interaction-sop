@@ -28,6 +28,7 @@ import {
   type SlotStamp
 } from './stamp.js';
 import { SECTION_CHILD_NAMES } from '../template-map.js';
+import { stateBoldLength } from '../state-line.js';
 
 // --- Report types ----------------------------------------------------------
 
@@ -70,7 +71,7 @@ export interface Resolver {
 }
 
 export type PlanOp =
-  | { op: 'setText'; nodeId: string; text: string }
+  | { op: 'setText'; nodeId: string; text: string; bold?: number }
   | { op: 'delete'; nodeId: string }
   | { op: 'place'; node: Ref; parentId: string; after: Ref | null }
   | { op: 'stamp'; node: Ref; stamp: (r: Resolver) => object };
@@ -201,8 +202,12 @@ class Planner {
     for (const n of nodes) this.keep({ path, kind: 'foreign', nodeId: n.id, detail: n.name });
   }
 
-  /** The D5 table for one text slot. Returns the new "last written" value. */
-  private text(path: string, node: TNode | undefined, W: string, M: string, ops: PlanOp[]): string {
+  /**
+   * The D5 table for one text slot. Returns the new "last written" value.
+   * `bold` (bullet rules only) rides along on the setText op; see
+   * TextUpdate.bold. Weight is never compared — only characters are.
+   */
+  private text(path: string, node: TNode | undefined, W: string, M: string, ops: PlanOp[], bold?: number): string {
     if (W === M) {
       if (node && (node.characters ?? '') !== W) {
         this.keep({ path, kind: 'hand-edit', nodeId: node.id });
@@ -215,7 +220,7 @@ class Planner {
     }
     const F = node.characters ?? '';
     if (F === W) {
-      ops.push({ op: 'setText', nodeId: node.id, text: M });
+      ops.push(bold === undefined ? { op: 'setText', nodeId: node.id, text: M } : { op: 'setText', nodeId: node.id, text: M, bold });
       this.change({ path, action: 'update' });
       return M;
     }
@@ -636,7 +641,7 @@ class Planner {
       const newW =
         it.t === 'figure'
           ? this.figure(path, it, w, `${sec.index}/${k + 1}/${ordinal}`, oc, seqOps)
-          : this.text(path, it.node, it.W, w.text, seqOps);
+          : this.text(path, it.node, it.W, w.text, seqOps, it.t === 'rule' ? stateBoldLength(w.text) : undefined);
       if (newW !== it.W) {
         dirty = true;
         const st = it.stamp!;

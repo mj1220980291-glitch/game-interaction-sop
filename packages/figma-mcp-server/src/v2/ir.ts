@@ -157,6 +157,12 @@ export const SOFT_WARNING_CODES = {
   /** W5 — `####` 之前存在游离 bullet，分组与不分组混用 */
   W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS:
     'V2_W3_CLUSTER_MIXED_FREE_BULLETS_AND_GROUPS',
+  /** T9 — 同组内状态行之间夹着普通规则 */
+  W_STATE_LINES_SCATTERED: 'V2_W_STATE_LINES_SCATTERED',
+  /** 状态行仍使用 `状态·` / `状态｜` 前缀 */
+  W_LEGACY_STATE_PREFIX: 'V2_W_LEGACY_STATE_PREFIX',
+  /** render — 正文字体族没有可用的粗体字重，状态名未加粗 */
+  W_STATE_BOLD_UNAVAILABLE: 'V2_W_STATE_BOLD_UNAVAILABLE',
   /** render — assetMap 的键匹配不到任何章节 / 配图 */
   W_ASSET_KEY_UNMATCHED: 'V2_W_ASSET_KEY_UNMATCHED',
   /** render — 单张配图填充失败（源节点不存在、导出失败等），占位保留文案 */
