@@ -84,8 +84,9 @@ Markdown is written without touching the phases:
 
 Resolution order (first match wins): any `style_<name>.md` present → ask once per
 document which one to use (default `style_own.md`); otherwise `style_own.md`
-present → use it silently; otherwise only `style.md` → use it; nothing present →
-skill defaults.
+present → use it silently; otherwise `style.md` → use it; **nothing present → use
+the bundled `packages/skill/references/style-default.md`**, so a fresh install
+works with zero configuration.
 
 - `verbosity` — terse / normal / verbose, bullets per cluster
 - `role_annotation` — when a rule becomes a `- @职能：…` bullet (and therefore

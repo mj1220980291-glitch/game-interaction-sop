@@ -21,10 +21,11 @@ Phase 1 第一回合开口前，Phase 0 会在内部完成项目模式库的检�
 | 存在任意 `style_<name>.md` | **本次写文档前问一次用哪份**，选项含 `style_own.md`，默认它 |
 | 没有 `style_<name>.md`，有 `style_own.md` | 用 `style_own.md`，不问 |
 | 只有 `style.md` | 用 `style.md`（项目默认基线），不问 |
-| 都没有 | 用 skill 默认表述规则，静默继续，不追问、不主动提议建文风 |
+| 都没有 | **加载 skill 自带的 `../references/style-default.md`**（等同默认文风），静默继续，不追问、不主动提议建文风 |
 
 - 记下该份的 `verbosity` / `role_annotation` / `wording` 与正文段，Phase 2 按它写；Phase 1 的提问纪律与冲突门禁不受影响
-- **`schema_version` 不匹配** → 提示一次，用户不处理则本次用 default 文风
+- **`schema_version` 不匹配** → 提示一次，用户不处理则本次用 `../references/style-default.md`
+- **零配置也要生效**：目录里一个 `style*.md` 都没有时，必须读 `../references/style-default.md`，不要回落到"skill 通用默认表述"
 - **`role_annotation.mode: never`** → Phase 2 不写 `- @职能：` 条目，Phase 4 也就不需要「职能标记」组件集
 - `style.md` 只读，任何 Phase 都不改写它；沉淀永远落在 `style_own.md` 或本次选中的 `style_<name>.md`
 

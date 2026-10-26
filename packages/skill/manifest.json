@@ -1,6 +1,6 @@
 {
   "name": "game-interaction-sop",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Game UI interaction-doc SOP — Phase 0 pattern recall → Phase 1 requirement confirmation → Phase 2 v2 Markdown → Phase 3 asset collection → Phase 4 Figma rendering → Phase 5 style learning → Phase 6 pattern-library maintenance. Configurable template address, 职能标记 role blocks, project style mod.",
   "entry": "SKILL.md",
   "phases": [

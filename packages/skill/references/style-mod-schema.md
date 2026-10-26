@@ -141,21 +141,23 @@ wording:
 | 存在任意 `style_<name>.md` | **每次写文档前问一次**：选项列出 `style_own.md` 与每个 `style_<name>.md`，默认标 `style_own.md`；用户指定后，本份文档全程用它 |
 | 没有 `style_<name>.md`，有 `style_own.md` | 直接用 `style_own.md`，**不询问** |
 | 只有 `style.md` | 直接用 `style.md`，**不询问** |
-| 一个文风文件都没有 | 用 skill 默认表述规则，静默继续，不追问、不主动提议建文风 |
+| 一个文风文件都没有 | **加载 skill 自带的 `references/style-default.md`**（等同项目默认文风），静默继续，不追问、不主动提议建文风 |
 
 - 询问一份文档只做一次，问完记在会话里，中途不重复问
 - 用户中途改口（「换成 XX 那份」）→ 从下一次输出生效，已输出的 Markdown 不追溯改写
 - `style.md` 是项目默认基线，**只读**：任何 Phase 都不写它
-- `schema_version` 不匹配 → 提示一次，用户不处理则本次用 skill 默认
+- `schema_version` 不匹配 → 提示一次，用户不处理则本次用 `references/style-default.md`
+- **零配置保证**：项目里一个 `style*.md` 都没有时，也必须读到 `references/style-default.md`；它随 skill 一起分发，不依赖安装脚本往项目里写文件，因此新用户开箱即用
 
 ## 默认 style.md 模板
 
-本 skill 自带一份版本化的默认文风：`references/style-default.md`（簇结构约定 + 职能标注）。
+本 skill 自带一份版本化的默认文风：`references/style-default.md`（簇结构约定 + 职能标注）。它有两个用途：
 
-项目还没有任何文风文件时，直接复制它到 `<项目根>/.interaction-sop/style.md`，再按用户习惯增删：
+1. **零配置直接生效**：项目里没有任何 `style*.md` 时，Phase 1 直接加载这份文件，不需要复制、不需要用户操作
+2. **项目基线**：用户希望把默认文风落到项目里可改时，复制一份过去：
 
 ```bash
-cp packages/skill/references/style-default.md <项目根>/.interaction-sop/style.md
+cp <skill目录>/references/style-default.md <项目根>/.interaction-sop/style.md
 ```
 
 - 只预置正文两段，不预置 `verbosity` / `role_annotation` / `wording`：缺省走 skill 默认，个人偏好留给 `style_own.md` 沉淀

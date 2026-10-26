@@ -161,6 +161,9 @@ npm run install-skill -- --agent codemaker --dry-run
 
 Skill 安装后，新开一个 Agent 会话即可使用。
 
+> **默认文风开箱即用**：`packages/skill/references/style-default.md` 随 skill 一起安装。项目里没有任何 `style*.md` 时，Phase 1 会直接加载它（簇结构约定 + 职能标注），不需要额外配置。
+> 想改成项目自己的一份：`cp packages/skill/references/style-default.md <项目根>/.interaction-sop/style.md`，之后个人偏好由 Phase 5 沉淀进 `style_own.md`。
+
 > **更新 skill**：当你拉取仓库新版本后，重新运行 `npm run install-skill -- --agent <你的 agent> --force` 同步最新内容。
 
 ---

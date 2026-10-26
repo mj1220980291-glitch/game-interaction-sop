@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.2.2 — 2026-10-26
+
+**默认文风随 skill 分发，新用户零配置即可生效。**
+
+- 新增 `packages/skill/references/style-default.md`（簇结构约定 + 职能标注），作为出厂默认文风
+- **加载规则改为**：项目里没有任何 `style*.md` 时，Phase 1 直接加载这份内置文件，不再回落到"skill 通用默认表述"；因此新下载 SOP 的用户无需任何配置就能得到同一套文档结构
+- `style-mod-schema.md`「默认 style.md 模板」改为指向该文件（不再内联两份）；Phase 5 在项目无文风文件时，先复制它生成 `style.md`，再复制出 `style_own.md` 沉淀
+- `manifest.references`、`SKILL.md` 项目级配置与文件索引、`phase1` / `phase2` / `phase5`、`README` / `SETUP` / skill README 同步
+- 版本统一 `2.2.2`（根包 / lock / skill 包 / manifest）；引擎仍为 `0.2.0`
+
 ## v2.2.1 — 2026-10-26
 
 SOP 增加文风沉淀闭环（新 Phase 5），文风文件改成三角结构，Figma 连接插件改以社区插件为首选。Skill `2.2.1`，引擎仍为 `0.2.0`（无引擎代码改动）。

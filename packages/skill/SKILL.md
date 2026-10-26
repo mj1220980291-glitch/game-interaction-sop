@@ -88,6 +88,7 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 |---|---|---|
 | `.interaction-sop/template.json` | 指定本项目的 Figma 模板地址 `{template:{fileKey,nodeId}}`，可加 `roleBlock.componentSetId` | Phase 4 preflight |
 | `.interaction-sop/style.md` | 项目默认文风基线，**只读**；既无 `style_own.md` 也无 `style_<name>.md` 时用它 | Phase 1 读，Phase 2 用 |
+| `references/style-default.md`（skill 内置） | 出厂默认文风；项目里一个 `style*.md` 都没有时**直接加载它**，零配置即生效 | Phase 1 读，Phase 2 用 |
 | `.interaction-sop/style_own.md` | 个人文风，Phase 5 的自动沉淀目标；存在即默认生效 | 同上 |
 | `.interaction-sop/style_<name>.md` | 他人 / 分享 / 导入的文风；存在任意一份时，**每次写文档前询问用哪份** | 同上 |
 | `.interaction-sop/snapshots/<需求名>.md` | Phase 2 保存时的 Markdown 原稿，只作 Phase 5 diff 基线，同名覆盖 | Phase 5 |
@@ -97,6 +98,7 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 - **主图用 `figma_instance`**：放的是母版/粘贴子版的真实实例（等比缩放居中、删除占位），不是栅格图片
 - `- @职能：正文` 条目渲染成「职能标记」组件实例；模板没配组件集时引擎报 `V2_ROLE_BLOCK_UNAVAILABLE`
 - 文风 mod 契约见 `references/style-mod-schema.md`（含文件选择顺序、导入/分享）；**唯一沉淀出口是 Phase 5**，Phase 2 / Phase 4 中途不追问；`style.md` 只读不写，存在 `style_<name>.md` 时每份文档先问用哪份
+- **零配置默认文风**：项目里没有任何 `style*.md` 时，加载 skill 自带的 `references/style-default.md`（随 skill 分发，不需要安装脚本往项目里写文件），保证新用户开箱即用
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "game-interaction-sop-monorepo",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Game UI interaction-doc SOP. Monorepo: engine (TS library) + skill (Markdown bundle for AI agents).",
   "private": true,
   "type": "module",
