@@ -24,6 +24,8 @@ export interface AdoptNestedPartsInput {
   /** 库文件里放收编零件的页面 id。 */
   partsPageId: string;
   project: string;
+  /** 内容闸门尺寸，缺省 600×400（超过即视为截图类内容）。 */
+  contentSize?: { width: number; height: number };
 }
 
 export interface AdoptOutcome {
@@ -34,6 +36,8 @@ export interface AdoptOutcome {
   unresolved: AdoptResult['unresolved'];
   /** 原组件 id → 本库组件 id，重编时可复用。 */
   mapping: Record<string, string>;
+  /** 被判为「项目原稿内容」而跳过收编的实例（渲染时会被替换）。 */
+  skipped: AdoptResult['skipped'];
 }
 
 /** 变体名必须能解析成 `属性=值`，否则重新合成的组件集没有可切换的变体属性。 */
@@ -58,17 +62,20 @@ export async function adoptNestedParts(input: AdoptNestedPartsInput): Promise<Ad
   // 跨部件复用：同一个源组件（例如 num 三角）只收编一次，
   // 否则 4 个部件里出现几百个实例就会造出几百个重复组件。
   const mapping: Record<string, string> = {};
+  const skipped: AdoptResult['skipped'] = [];
 
   for (const part of input.parts) {
     const r = await backend.adoptInstances({
       rootId: part.componentId,
       partsPageId: input.partsPageId,
       project: input.project,
-      reuse: mapping
+      reuse: mapping,
+      ...(input.contentSize ? { contentSize: input.contentSize } : {})
     });
     adopted.push(...r.adopted);
     sets.push(...r.sets);
     unresolved.push(...r.unresolved);
+    skipped.push(...r.skipped);
     Object.assign(mapping, r.mapping ?? {});
   }
 
@@ -99,7 +106,18 @@ export async function adoptNestedParts(input: AdoptNestedPartsInput): Promise<Ad
     });
   }
 
-  return { adopted, sets, gaps, unresolved, mapping };
+  if (skipped.length > 0) {
+    gaps.push({
+      what: `跳过 ${skipped.length} 个大尺寸实例（视为项目原稿内容，如截图）：${skipped
+        .slice(0, 3)
+        .map((s) => `${s.name} ${s.width}×${s.height}`)
+        .join('、')}${skipped.length > 3 ? '…' : ''}`,
+      impact: '这些位置仍引用外部组件；渲染时图区会整体替换，不受影响',
+      fix: '无需处理；若确实需要保留，调高 contentSize 阈值'
+    });
+  }
+
+  return { adopted, sets, gaps, unresolved, mapping, skipped };
 }
 
 /**

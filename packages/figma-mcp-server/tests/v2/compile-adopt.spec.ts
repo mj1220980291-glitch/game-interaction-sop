@@ -14,6 +14,7 @@ function outcome(patch: Partial<AdoptResult> = {}): AdoptResult {
     createdInstances: [],
     unresolved: [],
     mapping: {},
+    skipped: [],
     ...patch
   };
 }
@@ -79,6 +80,21 @@ describe('adoptNestedParts', () => {
     });
     expect(isFullyAdopted(out)).toBe(false);
     expect(out.gaps[0]!.what).toContain('未收编');
+  });
+
+  it('大尺寸实例被判为内容并跳过，只记提示不算失败', async () => {
+    const h = fakeBackend(
+      outcome({ skipped: [{ nodeId: 'i7', name: 'Slide 16:9 - 24', width: 1440, height: 810 }] })
+    );
+    const out = await adoptNestedParts({
+      backend: h.backend,
+      parts: PARTS,
+      partsPageId: 'page:parts',
+      project: 'P'
+    });
+    expect(isFullyAdopted(out)).toBe(true);
+    expect(out.gaps[0]!.what).toContain('跳过 1 个大尺寸实例');
+    expect(out.gaps[0]!.what).toContain('Slide 16:9 - 24');
   });
 
   it('后端不支持时明确拒绝', async () => {

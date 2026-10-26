@@ -474,11 +474,15 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 15000);
     },
 
-    async adoptInstances({ rootId, partsPageId, project, reuse }) {
+    async adoptInstances({ rootId, partsPageId, project, reuse, contentSize }) {
       const r = await run(`
         const ROOT = ${JSON.stringify(rootId)};
         const PARTS = ${JSON.stringify(partsPageId)};
         const PROJECT = ${JSON.stringify(project)};
+        // 内容闸门：截图 / 界面局部图是项目原稿内容，渲染时会被替换，
+        // 收进库只会污染资产。只有小尺寸的结构性零件才值得收编。
+        const MAX_W = ${contentSize?.width ?? 600};
+        const MAX_H = ${contentSize?.height ?? 400};
         // 原组件 id → 已收编的本库组件 id。跨部件回传，避免同一个 num
         // 三角被几十个实例各造一份组件。
         const reused = Object.assign({}, ${JSON.stringify(reuse ?? {})});
@@ -487,7 +491,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         const partsPage = await figma.getNodeByIdAsync(PARTS);
         if (!partsPage) throw new Error('adoptInstances: parts page not found: ' + PARTS);
 
-        const out = { adopted: [], sets: [], createdInstances: [], unresolved: [] };
+        const out = { adopted: [], sets: [], createdInstances: [], unresolved: [], skipped: [] };
         const ours = {};            // 已收编的组件 id，避免自我循环
         const bySet = {};           // 原组件集名 -> [{compId, variantName}]
 
@@ -518,6 +522,10 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
             const parent = inst.parent;
             if (!parent) { out.unresolved.push({ nodeId: inst.id, reason: 'no parent' }); continue; }
             if (!main) { out.unresolved.push({ nodeId: inst.id, reason: 'no mainComponent' }); continue; }
+            if (inst.width > MAX_W || inst.height > MAX_H) {
+              out.skipped.push({ nodeId: inst.id, name: inst.name, width: Math.round(inst.width), height: Math.round(inst.height) });
+              continue;
+            }
             const index = parent.children.indexOf(inst);
             const x = inst.x, y = inst.y;
             const instName = inst.name;
@@ -585,7 +593,10 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         for (const setName of Object.keys(bySet)) {
           const members = bySet[setName];
           if (members.length < 2) {
-            out.unresolved.push({ nodeId: members[0].compId, reason: 'variant set has a single member: ' + setName });
+            // 只有一个成员时无法组集，但它已经是我们的独立组件、实例也换好了。
+            // 改成独立组件的名字即可，不算"未收编"（否则报告会误报外部依赖）。
+            const only = await figma.getNodeByIdAsync(members[0].compId);
+            if (only) only.name = PROJECT + ' / 零件 / ' + setName;
             continue;
           }
           const comps = [];
@@ -603,13 +614,21 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
             out.unresolved.push({ nodeId: comps[0] ? comps[0].id : '', reason: 'combine: ' + (e && e.message) });
           }
         }
-        return { adopted: out.adopted, sets: out.sets, createdInstances: out.createdInstances, unresolved: out.unresolved, mapping: reused };
-      `, 120000) as { adopted: unknown[]; sets: unknown[]; createdInstances: string[]; unresolved: unknown[]; mapping: Record<string, string> };
+        return { adopted: out.adopted, sets: out.sets, createdInstances: out.createdInstances, unresolved: out.unresolved, skipped: out.skipped, mapping: reused };
+      `, 120000) as {
+        adopted: unknown[];
+        sets: unknown[];
+        createdInstances: string[];
+        unresolved: unknown[];
+        skipped: Array<{ nodeId: string; name: string; width: number; height: number }>;
+        mapping: Record<string, string>;
+      };
       return {
         adopted: (r?.adopted ?? []) as never,
         sets: (r?.sets ?? []) as never,
         createdInstances: r?.createdInstances ?? [],
         unresolved: (r?.unresolved ?? []) as never,
+        skipped: r?.skipped ?? [],
         mapping: r?.mapping ?? {}
       };
     },

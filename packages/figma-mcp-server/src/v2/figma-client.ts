@@ -284,6 +284,11 @@ export interface FigmaBackend {
     project: string;
     /** 已收编的映射（原组件 id → 本库组件 id），跨部件复用以避免重复造组件。 */
     reuse?: Record<string, string>;
+    /**
+     * 内容闸门：超过该尺寸的实例视为「项目原稿内容」（截图 / 界面局部图），
+     * 不收编。缺省 600×400。
+     */
+    contentSize?: { width: number; height: number };
   }): Promise<AdoptResult>;
 
   /**
@@ -491,6 +496,8 @@ export interface AdoptResult {
   unresolved: Array<{ nodeId: string; reason: string }>;
   /** 原组件 id → 本库组件 id；下次调用可原样回传，避免重复造组件。 */
   mapping: Record<string, string>;
+  /** 因尺寸超阈值被判为「内容」而跳过的实例（渲染时会被替换）。 */
+  skipped: Array<{ nodeId: string; name: string; width: number; height: number }>;
 }
 
 export interface TextUpdate {
