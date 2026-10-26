@@ -56,6 +56,11 @@ export interface NodeInfo {
   childIds?: string[];
   /** TEXT only: the rendered characters. */
   characters?: string;
+  /**
+   * `node.visible`. Undefined when the backend could not report it (older
+   * backends and test doubles) — callers must treat undefined as visible.
+   */
+  visible?: boolean;
 }
 
 /**

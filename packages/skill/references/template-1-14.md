@@ -2,6 +2,10 @@
 
 本文件定义 v2 Markdown ↔ Figma 模板节点的字段映射。引擎按此表填充。
 
+> **本文件是「模板契约 v1」的实现 #1**（见 `references/template-contract.md`）。本模板的 8 项能力全为契约缺省值：
+> `overview=two-frames` / `clusterGroups=slot-run` / `badgeSlot=container` / `numberBadge=text` /
+> `roleAnnotation=component-variant` / `figure=named-group` / `hiddenPool=ignore` / `column=right`。
+
 ---
 
 ## 模板基本信息

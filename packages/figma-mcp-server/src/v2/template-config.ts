@@ -23,6 +23,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { TEMPLATE_FILE_KEY, TEMPLATE_NODE_ID } from './template-map.js';
+import { parseTemplatePack, type TemplatePack } from './template/schema.js';
 
 export interface TemplateRef {
   /** File that owns the template component (file mode). */
@@ -47,6 +48,15 @@ export interface RoleBlockConfig {
 
 export interface TemplateConfig extends TemplateRef {
   roleBlock?: RoleBlockConfig;
+  /**
+   * Project template pack, when one was found. Its `components` are the four
+   * published library keys; its `capabilities` say which strategy each
+   * ambiguous slot follows. Absent = behaviour identical to before packs
+   * existed.
+   */
+  pack?: TemplatePack;
+  /** Path the pack was read from (for diagnostics). */
+  packPath?: string;
 }
 
 export const DEFAULT_TEMPLATE = {
@@ -69,9 +79,9 @@ interface RawConfig {
   };
 }
 
-function readJson(path: string): RawConfig | undefined {
+function readJson(path: string): unknown {
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as RawConfig;
+    return JSON.parse(readFileSync(path, 'utf8'));
   } catch {
     return undefined;
   }
@@ -84,18 +94,61 @@ function loadConfigFile(env: NodeJS.ProcessEnv): RawConfig | undefined {
   // ~/.game-interaction-sop/template.json cannot change their outcome.
   if (explicit === 'off') return undefined;
   if (explicit) {
-    const cfg = readJson(explicit);
+    const cfg = readJson(explicit) as RawConfig | undefined;
     if (cfg) return cfg;
   }
   const home = homedir();
   return (
-    readJson(join(home, '.game-interaction-sop', 'template.json')) ??
-    readJson(join(home, '.game-interaction-sop', 'config.local.json'))
+    (readJson(join(home, '.game-interaction-sop', 'template.json')) as RawConfig | undefined) ??
+    (readJson(join(home, '.game-interaction-sop', 'config.local.json')) as RawConfig | undefined)
   );
 }
 
 function pick(...values: Array<string | undefined>): string | undefined {
   return values.find((v) => typeof v === 'string' && v.trim() !== '');
+}
+
+export interface TemplatePackLookupOptions {
+  /** Directory treated as the project root. Defaults to `process.cwd()`. */
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Locate the project template pack. Order (first hit wins, spec D8):
+ *
+ *   1. `$GISOP_TEMPLATE_PACK` (explicit path; `off` disables the whole lookup)
+ *   2. `<cwd>/.interaction-sop/template.json`
+ *   3. `~/.game-interaction-sop/templates/<project>.json` (`$GISOP_PROJECT`)
+ *   4. `~/.game-interaction-sop/templates/default.json`
+ *
+ * Never throws: an unreadable or invalid pack is skipped, and rendering falls
+ * back to the pre-pack behaviour of {@link resolveTemplateConfig}.
+ */
+export function loadTemplatePack(
+  opts: TemplatePackLookupOptions = {}
+): { path: string; pack: TemplatePack } | undefined {
+  const env = opts.env ?? process.env;
+  const explicit = env.GISOP_TEMPLATE_PACK;
+  if (explicit === 'off') return undefined;
+
+  const home = homedir();
+  const project = env.GISOP_PROJECT;
+  const candidates = [
+    explicit,
+    join(opts.cwd ?? process.cwd(), '.interaction-sop', 'template.json'),
+    project ? join(home, '.game-interaction-sop', 'templates', `${project}.json`) : undefined,
+    join(home, '.game-interaction-sop', 'templates', 'default.json')
+  ];
+
+  for (const path of candidates) {
+    if (!path) continue;
+    const raw = readJson(path);
+    if (raw === undefined) continue;
+    const parsed = parseTemplatePack(raw);
+    if (parsed.ok) return { path, pack: parsed.pack };
+  }
+  return undefined;
 }
 
 /**
@@ -104,7 +157,8 @@ function pick(...values: Array<string | undefined>): string | undefined {
  */
 export function resolveTemplateConfig(
   explicit?: Partial<TemplateRef>,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  opts: { cwd?: string } = {}
 ): TemplateConfig {
   const file = loadConfigFile(env);
   const fileKey =
@@ -138,7 +192,11 @@ export function resolveTemplateConfig(
             labelTextName: pick(file?.roleBlock?.labelTextName) ?? DEFAULT_LABEL_TEXT_NAME
           }
         }
-      : {})
+      : {}),
+    ...(() => {
+      const found = loadTemplatePack({ cwd: opts.cwd, env });
+      return found ? { pack: found.pack, packPath: found.path } : {};
+    })()
   };
 }
 

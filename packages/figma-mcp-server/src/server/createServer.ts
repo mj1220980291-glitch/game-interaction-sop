@@ -29,6 +29,7 @@ import {
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   parseV2,
+  probeTemplate,
   renderV2MarkdownToFigma,
   type AssetSpec,
   type FigmaBackend as V2FigmaBackend
@@ -183,6 +184,17 @@ const V2_RENDER_INPUT_SCHEMA = {
   additionalProperties: false
 } as const;
 
+const V2_PROBE_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    nodeId: { type: 'string', minLength: 1 },
+    fileKey: { type: 'string', minLength: 1 },
+    maxNodes: { type: 'number', exclusiveMinimum: 0 }
+  },
+  required: ['nodeId'],
+  additionalProperties: false
+} as const;
+
 // =========================================================================
 // Native tool definitions
 // =========================================================================
@@ -270,7 +282,46 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
     }
   };
 
-  return [validateV2Markdown, renderV2MarkdownTool];
+  const probeTemplateTool: NativeToolDef = {
+    tool: {
+      name: 'figma_probe_template',
+      description:
+        '【只读，不修改文件】体检一个项目模板：判断骨架六条铁律、找出章节/簇母版、判定 8 项能力、' +
+        '输出缺口清单与 template.json 草案（components 为 null，编译发布后回填）+ 结构指纹。' +
+        '结论三态：ready（可接，0 改造）/ needs-anchor（可接，需补或确认锚点）/ non-conformant（铁律不满足，不能接）。' +
+        'nodeId 传模板根节点；fileKey 缺省为当前连接文件。每条能力都带 source：probed（实测）/ inferred（推断）/ default（按契约缺省），' +
+        'inferred 与 default 必须人工确认后才能用于编译。',
+      inputSchema: V2_PROBE_INPUT_SCHEMA as unknown as Tool['inputSchema']
+    },
+    handler: async (args) => {
+      try {
+        if (!opts.v2Backend) {
+          return errorResult(
+            ServerErrorCodes.V2_BACKEND_UNAVAILABLE,
+            'v2Backend 未配置；本工具需要在 createServer({ v2Backend }) 初始化时传入。'
+          );
+        }
+        const nodeId = String(args?.nodeId ?? '').trim();
+        if (!nodeId) {
+          return errorResult(ServerErrorCodes.INVALID_INPUT, 'nodeId 必填：传模板根节点 id');
+        }
+        const fileKey = typeof args?.fileKey === 'string' ? args.fileKey : undefined;
+        const maxNodes = typeof args?.maxNodes === 'number' ? args.maxNodes : undefined;
+        const report = await probeTemplate({
+          nodeId,
+          ...(fileKey ? { fileKey } : {}),
+          ...(maxNodes ? { maxNodes } : {}),
+          backend: opts.v2Backend
+        });
+        return jsonResult(report);
+      } catch (e) {
+        const err = e as Error & { code?: string };
+        return errorResult(err.code ?? ServerErrorCodes.INTERNAL_ERROR, err.message);
+      }
+    }
+  };
+
+  return [validateV2Markdown, renderV2MarkdownTool, probeTemplateTool];
 }
 
 // =========================================================================

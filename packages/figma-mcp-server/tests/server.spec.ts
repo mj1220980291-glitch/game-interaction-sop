@@ -42,10 +42,14 @@ function parseToolBody(resp: { content: Array<{ type: string; text: string }> })
 }
 
 describe('mcp server — tool registration', () => {
-  it('registers exactly the 2 v2 native tools', () => {
+  it('registers exactly the native v2 tools', () => {
     const defs = buildNativeTools();
     const names = defs.map((d) => d.tool.name).sort();
-    expect(names).toEqual(['render_v2_markdown_to_figma', 'validate_v2_markdown']);
+    expect(names).toEqual([
+      'figma_probe_template',
+      'render_v2_markdown_to_figma',
+      'validate_v2_markdown'
+    ]);
   });
 
   it('does not register any removed gen-1 DSL tool', () => {

@@ -24,16 +24,18 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
 
 写 Figma 前先读两处项目配置，缺省即回退官方模板，不要阻塞：
 
-1. `<项目根>/.interaction-sop/template.json`（可选）— 项目指定的模板
-   ```json
-   { "template": { "fileKey": "…", "nodeId": "1:14" } }
-   ```
+1. `<项目根>/.interaction-sop/template.json`（项目模板包，含 4 个部件 key 与 8 项能力；格式见 `references/template-contract.md`）
 2. `<项目根>/.interaction-sop/` 下本次生效的文风文件（按 `references/style-mod-schema.md` 的「文件选择顺序」确定，Phase 1 已选定）— 只为判断 `role_annotation.mode`
 
 **preflight（只用现有 Figma 只读工具，不写画布）**：
 
-- 模板地址：项目配置 > `~/.game-interaction-sop/template.json` > `config.local.json` 的 `figma` 段 > 官方默认
-  - **库引用模式**（配置里有 `template.componentKey`）：目标文件只要开着连接插件即可，无需包含模板；`target.fileKey` 填用户当前要写入的文件
+- **先跑探针**：`figma_probe_template({ nodeId: <模板根> })`，按结论处理：
+  - `ready` → 继续（能力项可采信）
+  - `needs-anchor` → 把 `gaps` 里 `inferred` / `default` 的项列给用户确认，确认后才渲染
+  - `non-conformant` → 停下来，说清哪条铁律没过、缺什么；不改 Markdown 硬写
+  - 报告里的 `capabilities` 决定 md 写法是否成立：`clusterGroups: none` 时 md 不能有 `####`；`overview: none` 时 md 不能有 `## 设计总览`。**冲突就报错，不要静默丢弃**
+- 模板地址查找顺序（见 `references/template-contract.md` 第四节）：项目模板包 > `~/.game-interaction-sop/templates/<项目名>.json` > 全局 default > 官方 1:14
+  - **库引用模式**（模板包里有 4 个 `components` key）：目标文件只要开着连接插件即可，无需包含模板；`target.fileKey` 填用户当前要写入的文件
   - **同文件模式**（只有 `fileKey` + `nodeId`）：渲染文件必须就是模板所在文件，把该 key 写进 `target.fileKey`
 - Markdown 里有 `- @职能：` 条目时，确认 `roleBlock.componentSetId` 已配置，且该组件集在**同一个文件**里、角色变体齐全。缺配置就明确告诉用户，不要先渲染再报错
 - 用户在别的文件里做设计时，先让用户把连接插件切到目标文件

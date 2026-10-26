@@ -39,12 +39,28 @@ export {
 } from './template-map.js';
 export {
   resolveTemplateConfig,
+  loadTemplatePack,
   isDefaultTemplate,
   DEFAULT_TEMPLATE,
   DEFAULT_VARIANT_PREFIX,
   DEFAULT_LABEL_TEXT_NAME,
   type TemplateRef,
   type TemplateConfig,
-  type RoleBlockConfig
+  type RoleBlockConfig,
+  type TemplatePackLookupOptions
 } from './template-config.js';
+export {
+  CAPABILITY_KEYS,
+  CAPABILITY_VALUES,
+  DEFAULT_CAPABILITIES,
+  TEMPLATE_PACK_SCHEMA_VERSION,
+  parseTemplatePack,
+  type Capabilities,
+  type CapabilityKey,
+  type ComponentKeys,
+  type AnchorSpec,
+  type TemplatePack
+} from './template/schema.js';
+export { probeTemplate, probeFromTree, type ProbeReport, type ProbeVerdict } from './probe/index.js';
+export { structuralFingerprint } from './probe/fingerprint.js';
 export { parseRoleBullet, type RoleBullet } from './role-block.js';

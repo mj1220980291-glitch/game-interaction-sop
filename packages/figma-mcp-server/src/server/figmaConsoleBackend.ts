@@ -128,8 +128,9 @@ function applyWeight(n, family, bold, weights, unavailable) {
 // ---- node shape serialiser (runs inside Figma plugin, async-aware) ------
 
 const SERIALIZE_NODE_FN = `
-async function serNode(n) {
+function serNode(n) {
   if (!n) return null;
+  const chars = n.type === 'TEXT' ? String(n.characters ?? '') : null;
   return {
     id: n.id,
     name: n.name,
@@ -138,7 +139,11 @@ async function serNode(n) {
     parentId: n.parent ? n.parent.id : null,
     parentType: n.parent ? n.parent.type : null,
     childIds: ('children' in n) ? n.children.map(c => c.id) : null,
-    characters: n.type === 'TEXT' ? n.characters : null
+    // Capped: capability detection only needs a line's opening (and inline
+    // \`@角色\` tags, which never sit past the first few hundred chars). Keeping
+    // whole paragraphs made 14k-node documents exceed the 25s scan budget.
+    characters: chars === null ? null : chars.slice(0, 400),
+    visible: typeof n.visible === 'boolean' ? n.visible : true
   };
 }
 `;
@@ -197,7 +202,8 @@ function mapNode(raw: Record<string, unknown>): NodeInfo {
     parentId: raw['parentId'] != null ? String(raw['parentId']) : undefined,
     parentType: raw['parentType'] != null ? toNodeType(String(raw['parentType'])) : undefined,
     childIds: Array.isArray(raw['childIds']) ? (raw['childIds'] as string[]) : undefined,
-    characters: raw['characters'] != null ? String(raw['characters']) : undefined
+    characters: raw['characters'] != null ? String(raw['characters']) : undefined,
+    visible: typeof raw['visible'] === 'boolean' ? (raw['visible'] as boolean) : undefined
   };
 }
 
@@ -260,10 +266,11 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         const budget = ${maxNodes};
         // Iterative BFS — avoids deep recursion; children prop is sync
         const queue = [root];
-        while (queue.length > 0) {
+        let head = 0;
+        while (head < queue.length) {
           if (result.length >= budget) { truncated = true; break; }
-          const node = queue.shift();
-          const s = await serNode(node);
+          const node = queue[head++];
+          const s = serNode(node);
           if (s) result.push(s);
           if ('children' in node) {
             for (const c of node.children) queue.push(c);
