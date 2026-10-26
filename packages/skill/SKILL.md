@@ -174,6 +174,7 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 - `references/template-1-14.md` — Figma 模板节点 ID 映射表（含可配地址、「职能标记」组件集）
 - `references/role-tags.md` — 7 角色定义、颜色、模板节点对应
 - `references/style-mod-schema.md` — 项目文风 mod 契约（精简度 / @职能 策略 / 用词）
+- `references/style-default.md` — 默认文风文件（簇结构约定 + 职能标注），新建项目 `style.md` 时直接复制
 
 阅读顺序建议：先读本 SKILL.md → 进入对应 Phase 时读对应 phase 文件 → 需要细节时查 references。
 

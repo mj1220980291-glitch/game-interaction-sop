@@ -34,7 +34,7 @@ This copies the skill into the agent's skill directory as declared in
 - `SKILL.md` — entry; agents read this first
 - `phases/` — phase-specific instructions (0–6)
 - `references/` — authoritative spec files (Markdown v2 contract, template
-  map, role tags, style-mod contract, pattern-library schemas)
+  map, role tags, style-mod contract + default style file, pattern-library schemas)
 - `agents/` — agent-specific overrides (e.g. `openai.yaml`)
 - `manifest.json` — machine-readable metadata (version, phases, targets,
   companion engine version)

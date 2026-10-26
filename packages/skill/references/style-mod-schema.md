@@ -148,6 +148,20 @@ wording:
 - `style.md` 是项目默认基线，**只读**：任何 Phase 都不写它
 - `schema_version` 不匹配 → 提示一次，用户不处理则本次用 skill 默认
 
+## 默认 style.md 模板
+
+本 skill 自带一份版本化的默认文风：`references/style-default.md`（簇结构约定 + 职能标注）。
+
+项目还没有任何文风文件时，直接复制它到 `<项目根>/.interaction-sop/style.md`，再按用户习惯增删：
+
+```bash
+cp packages/skill/references/style-default.md <项目根>/.interaction-sop/style.md
+```
+
+- 只预置正文两段，不预置 `verbosity` / `role_annotation` / `wording`：缺省走 skill 默认，个人偏好留给 `style_own.md` 沉淀
+- 项目那份可自由改；skill 里这份是出厂值，改动需同步 CHANGELOG
+- 保持两份同一套段落标题（`## 簇结构约定` / `## 职能标注`），便于 Phase 5 定位回写
+
 ## 导入与分享
 
 - **导入**（贴一段 md / 给 Figma 文档 / 给别人的文件）：先反推成 schema 字段，出草案让用户确认，再存为 `style_<name>.md`；同名已存在先备份 `.bak`。下次写文档时它会出现在选择询问里
@@ -160,7 +174,7 @@ wording:
 
 1. 读用户给的 2–3 份历史交互文档（Figma 文档用引擎的只读工具取文本，不要只靠截图 OCR）
 2. 反推 `verbosity` / `role_annotation` / `wording` 三组字段，并把作者反复出现的固定写法写进正文段（few-shot）
-3. 先输出草案给用户改，确认后才写 `.interaction-sop/style_own.md`（或用户指定的 `style_<name>.md`）
+3. 先输出草案给用户改，确认后才写 `.interaction-sop/style_own.md`（或用户指定的 `style_<name>.md`）；若项目还没有 `style.md`，同时用「默认 style.md 模板」建一份干净基线，草案只写进 `style_own.md`
 4. 不覆盖已存在的文件，必须先备份或征得同意
 
 ## 迭代协议（唯一出口：Phase 5 文风沉淀）
@@ -190,7 +204,7 @@ wording:
 | `style_own.md` | 写 `style_own.md` |
 | `style_<name>.md` | 写回该份（用户明确选了这份，本轮改动就归它） |
 | `style.md`（首次，还没有 own） | **不写 `style.md`**：以它为基底复制出 `style_own.md`，再追加条目 |
-| 一个文风文件都没有 | 按本文档骨架新建 `style_own.md`（`schema_version: 1`），只填确认过的条目 |
+| 一个文风文件都没有 | 先复制 `references/style-default.md` 生成 `style.md`，再以它为基底复制出 `style_own.md` 写条目 |
 
 - 写前一律备份 `<目标文件>.bak`
 - 只改涉及字段与正文段，不重排、不删用户手写段落

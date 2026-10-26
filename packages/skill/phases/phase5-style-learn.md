@@ -90,7 +90,7 @@ Phase 4 完成后统一收口：把这一轮被人工改过的**表述**沉进�
 | `style_own.md` | `style_own.md` |
 | `style_<name>.md` | 写回该份（你选了谁的文风，本轮改动就归谁） |
 | `style.md`（首次，还没有 own） | **不写 `style.md`**：以它为基底复制出 `style_own.md`，再追加条目 |
-| 一个文风文件都没有 | 按 `references/style-mod-schema.md` 骨架新建 `style_own.md`（`schema_version: 1`），只填确认过的条目 |
+| 一个文风文件都没有 | 先复制 `references/style-default.md` 生成 `style.md`（干净基线），再以它复制出 `style_own.md` 写入条目 |
 
 写入规则：
 

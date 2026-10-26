@@ -19,7 +19,8 @@
     "references/deviation-schema.md",
     "references/role-tags.md",
     "references/template-1-14.md",
-    "references/style-mod-schema.md"
+    "references/style-mod-schema.md",
+    "references/style-default.md"
   ],
   "agents": {
     "openai": "agents/openai.yaml"
