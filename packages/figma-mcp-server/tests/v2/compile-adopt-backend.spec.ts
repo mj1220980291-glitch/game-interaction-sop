@@ -47,10 +47,13 @@ function adoptHarness() {
   attach(set, v2);
   const i1 = node('i1', 'INSTANCE', '标签', { main: v1 });
   const i2 = node('i2', 'INSTANCE', '标签', { main: v2 });
+  // 同一个源组件的第二个实例：应复用已收编的组件，而不是再造一个。
+  const i3 = node('i3', 'INSTANCE', '标签', { main: v1 });
   attach(root, i1);
   attach(root, i2);
+  attach(root, i3);
 
-  const all = [partsPage, root, set, v1, v2, i1, i2];
+  const all = [partsPage, root, set, v1, v2, i1, i2, i3];
 
   const real = (n: N): N => all.find((x) => x.id === n.id) ?? n;
 
@@ -78,6 +81,10 @@ function adoptHarness() {
       getMainComponentAsync: async () => (n.main ? wrap(n.main) : null),
       insertChild: (index: number, child: N) => attach(n, real(child), index),
       appendChild: (child: N) => attach(n, real(child)),
+      remove: () => {
+        const i = n.parent ? n.parent.children.indexOf(n) : -1;
+        if (i >= 0) n.parent!.children.splice(i, 1);
+      },
       detachInstance: () => {
         const p = n.parent!;
         const i = p.children.indexOf(n);
@@ -145,7 +152,10 @@ describe('adoptInstances（插件脚本）', () => {
     expect(r.sets).toHaveLength(1);
     expect(r.sets[0]!.name).toBe('P / 零件 / 标签');
     expect(r.sets[0]!.variants).toEqual(['职能=策划', '职能=美术']);
-    expect(r.createdInstances).toHaveLength(2);
+    expect(r.createdInstances).toHaveLength(3);
+    // 两个源组件 → 两个自有组件；第三个实例复用，不再多造。
+    expect(Object.keys(r.mapping)).toHaveLength(2);
+    expect(r.adopted).toHaveLength(2);
 
     // 部件里剩下的是实例，且指向我们自己组好的变体集成员
     expect(h.root.children.every((c) => c.type === 'INSTANCE')).toBe(true);

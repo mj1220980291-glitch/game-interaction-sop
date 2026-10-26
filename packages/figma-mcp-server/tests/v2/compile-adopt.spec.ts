@@ -13,6 +13,7 @@ function outcome(patch: Partial<AdoptResult> = {}): AdoptResult {
     sets: [],
     createdInstances: [],
     unresolved: [],
+    mapping: {},
     ...patch
   };
 }

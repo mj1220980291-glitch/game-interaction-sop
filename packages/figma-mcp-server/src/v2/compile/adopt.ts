@@ -32,6 +32,8 @@ export interface AdoptOutcome {
   gaps: CompileGap[];
   /** 没能处理的实例（按节点列出原因）——非空即视为编译不可交付。 */
   unresolved: AdoptResult['unresolved'];
+  /** 原组件 id → 本库组件 id，重编时可复用。 */
+  mapping: Record<string, string>;
 }
 
 /** 变体名必须能解析成 `属性=值`，否则重新合成的组件集没有可切换的变体属性。 */
@@ -53,16 +55,21 @@ export async function adoptNestedParts(input: AdoptNestedPartsInput): Promise<Ad
   const sets: AdoptResult['sets'] = [];
   const unresolved: AdoptResult['unresolved'] = [];
   const gaps: CompileGap[] = [];
+  // 跨部件复用：同一个源组件（例如 num 三角）只收编一次，
+  // 否则 4 个部件里出现几百个实例就会造出几百个重复组件。
+  const mapping: Record<string, string> = {};
 
   for (const part of input.parts) {
     const r = await backend.adoptInstances({
       rootId: part.componentId,
       partsPageId: input.partsPageId,
-      project: input.project
+      project: input.project,
+      reuse: mapping
     });
     adopted.push(...r.adopted);
     sets.push(...r.sets);
     unresolved.push(...r.unresolved);
+    Object.assign(mapping, r.mapping ?? {});
   }
 
   for (const set of sets) {
@@ -92,7 +99,7 @@ export async function adoptNestedParts(input: AdoptNestedPartsInput): Promise<Ad
     });
   }
 
-  return { adopted, sets, gaps, unresolved };
+  return { adopted, sets, gaps, unresolved, mapping };
 }
 
 /**

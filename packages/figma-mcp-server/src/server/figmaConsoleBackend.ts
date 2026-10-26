@@ -474,11 +474,14 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 15000);
     },
 
-    async adoptInstances({ rootId, partsPageId, project }) {
+    async adoptInstances({ rootId, partsPageId, project, reuse }) {
       const r = await run(`
         const ROOT = ${JSON.stringify(rootId)};
         const PARTS = ${JSON.stringify(partsPageId)};
         const PROJECT = ${JSON.stringify(project)};
+        // 原组件 id → 已收编的本库组件 id。跨部件回传，避免同一个 num
+        // 三角被几十个实例各造一份组件。
+        const reused = Object.assign({}, ${JSON.stringify(reuse ?? {})});
         const root = await figma.getNodeByIdAsync(ROOT);
         if (!root) throw new Error('adoptInstances: root not found: ' + ROOT);
         const partsPage = await figma.getNodeByIdAsync(PARTS);
@@ -525,9 +528,24 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
             try { frame = inst.detachInstance(); }
             catch (e) { out.unresolved.push({ nodeId: inst.id, reason: 'detach: ' + (e && e.message) }); continue; }
             const compName = originalSetName ? originalName : (PROJECT + ' / 零件 / ' + originalName);
+            const originalId = main.id;
             let comp = null;
             let instance = null;
             try {
+              // 同一个源组件只收编一次；后续实例直接复用已有组件。
+              if (reused[originalId]) {
+                const existing = await figma.getNodeByIdAsync(reused[originalId]);
+                if (existing) {
+                  instance = existing.createInstance();
+                  instance.name = instName;
+                  parent.insertChild(Math.max(index, 0), instance);
+                  instance.x = x;
+                  instance.y = y;
+                  out.createdInstances.push(instance.id);
+                  frame.remove();
+                  continue;
+                }
+              }
               // 必须先挪出部件再转组件：图层还嵌在 COMPONENT 里时，
               // Figma 会直接拒绝（真机报 "Cannot create component from node"）。
               partsPage.appendChild(frame);
@@ -535,6 +553,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
               comp.name = compName;
               comp.x = 0;
               comp.y = 0;
+              reused[originalId] = comp.id;
               instance = comp.createInstance();
               instance.name = instName;
               parent.insertChild(Math.max(index, 0), instance);
@@ -584,13 +603,14 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
             out.unresolved.push({ nodeId: comps[0] ? comps[0].id : '', reason: 'combine: ' + (e && e.message) });
           }
         }
-        return out;
-      `, 120000) as { adopted: unknown[]; sets: unknown[]; createdInstances: string[]; unresolved: unknown[] };
+        return { adopted: out.adopted, sets: out.sets, createdInstances: out.createdInstances, unresolved: out.unresolved, mapping: reused };
+      `, 120000) as { adopted: unknown[]; sets: unknown[]; createdInstances: string[]; unresolved: unknown[]; mapping: Record<string, string> };
       return {
         adopted: (r?.adopted ?? []) as never,
         sets: (r?.sets ?? []) as never,
         createdInstances: r?.createdInstances ?? [],
-        unresolved: (r?.unresolved ?? []) as never
+        unresolved: (r?.unresolved ?? []) as never,
+        mapping: r?.mapping ?? {}
       };
     },
 

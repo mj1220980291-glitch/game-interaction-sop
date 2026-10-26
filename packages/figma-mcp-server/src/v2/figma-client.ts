@@ -282,6 +282,8 @@ export interface FigmaBackend {
     rootId: string;
     partsPageId: string;
     project: string;
+    /** 已收编的映射（原组件 id → 本库组件 id），跨部件复用以避免重复造组件。 */
+    reuse?: Record<string, string>;
   }): Promise<AdoptResult>;
 
   /**
@@ -487,6 +489,8 @@ export interface AdoptResult {
   createdInstances: string[];
   /** Instances left untouched, with the reason. */
   unresolved: Array<{ nodeId: string; reason: string }>;
+  /** 原组件 id → 本库组件 id；下次调用可原样回传，避免重复造组件。 */
+  mapping: Record<string, string>;
 }
 
 export interface TextUpdate {
