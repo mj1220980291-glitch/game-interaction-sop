@@ -75,6 +75,7 @@ function adoptHarness() {
       get mainComponent() {
         return n.main ? wrap(n.main) : null;
       },
+      getMainComponentAsync: async () => (n.main ? wrap(n.main) : null),
       insertChild: (index: number, child: N) => attach(n, real(child), index),
       appendChild: (child: N) => attach(n, real(child)),
       detachInstance: () => {

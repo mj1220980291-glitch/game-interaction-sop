@@ -363,6 +363,12 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
             }
           },
           partsPageId: { type: 'string', description: '收编出来的零件落脚的页面 id' },
+          capabilities: {
+            type: 'object',
+            description: '源模板探针给出的 8 项能力；不给则按契约缺省，差异对比会失真'
+          },
+          expectedFingerprint: { type: 'string', description: '探针阶段记录的源模板指纹（漂移检查）' },
+          actualFingerprint: { type: 'string', description: '当前源模板指纹（由调用方先探一次）' },
           badgeContainerSourceId: { type: 'string', description: '散落标号模板用来补容器的 1:14 气泡节点 id' },
           components: {
             type: 'object',
@@ -396,24 +402,42 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
             'source.nodeId / library.fileKey / library.pageId 均为必填'
           );
         }
+        // 编译全程只写库文件；verify 的 import 冒烟必须落在**非库文件**
+        // （同文件取自己永远成功，测不出是否真的发布过）。
+        const sourceFileKey =
+          typeof (args?.source as { fileKey?: string })?.fileKey === 'string'
+            ? (args!.source as { fileKey: string }).fileKey
+            : undefined;
+        const targetFileKey =
+          phase === 'verify' ? (sourceFileKey ?? library.fileKey) : library.fileKey;
+        const bound =
+          typeof opts.v2Backend.withFileKey === 'function'
+            ? opts.v2Backend.withFileKey(targetFileKey)
+            : opts.v2Backend;
+
         const report = await compileTemplate({
           phase,
           project: String(args?.project ?? '').trim(),
           source: {
             nodeId,
-            ...(typeof (args?.source as { fileKey?: string })?.fileKey === 'string'
-              ? { fileKey: (args!.source as { fileKey: string }).fileKey }
-              : {})
+            ...(sourceFileKey ? { fileKey: sourceFileKey } : {})
           },
           library: { fileKey: library.fileKey, pageId: library.pageId },
           ...(args?.staged ? { staged: args.staged as never } : {}),
+          ...(args?.capabilities ? { capabilities: args.capabilities as never } : {}),
+          ...(typeof args?.expectedFingerprint === 'string'
+            ? { expectedFingerprint: args.expectedFingerprint }
+            : {}),
+          ...(typeof args?.actualFingerprint === 'string'
+            ? { actualFingerprint: args.actualFingerprint }
+            : {}),
           ...(typeof args?.partsPageId === 'string' ? { partsPageId: args.partsPageId } : {}),
           ...(typeof args?.badgeContainerSourceId === 'string'
             ? { badgeContainerSourceId: args.badgeContainerSourceId }
             : {}),
           ...(args?.components ? { components: args.components as never } : {}),
           write: args?.write === true,
-          backend: opts.v2Backend
+          backend: bound
         });
         return jsonResult(report);
       } catch (e) {

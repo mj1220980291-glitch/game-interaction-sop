@@ -464,26 +464,31 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         const bySet = {};           // 原组件集名 -> [{compId, variantName}]
 
         function collect(node, acc) {
-          if (node.type === 'INSTANCE') {
-            // 自己造的实例不再二次收编，否则每轮都会把自己拆一遍。
-            if (node.mainComponent && ours[node.mainComponent.id]) return acc;
-            if (node.mainComponent && node.mainComponent.parent && node.mainComponent.parent.id === PARTS) return acc;
-            acc.push(node);
-            return acc;
-          }
-          if ('children' in node) for (const c of node.children) collect(c, acc);
-          return acc;
+          // dynamic-page 权限下 mainComponent 必须异步取（同步读会直接报错）。
+          const walkAsync = async (n) => {
+            if (n.type === 'INSTANCE') {
+              const main = await n.getMainComponentAsync();
+              // 自己造的实例不再二次收编，否则每轮都会把自己拆一遍。
+              if (main && ours[main.id]) return;
+              if (main && main.parent && main.parent.id === PARTS) return;
+              acc.push({ inst: n, main: main });
+              return;
+            }
+            if ('children' in n) for (const c of n.children) await walkAsync(c);
+          };
+          return walkAsync(node).then(() => acc);
         }
 
         let pass = 0;
         while (pass < 6) {
           pass++;
-          const found = collect(root, []);
+          const found = await collect(root, []);
           if (found.length === 0) break;
-          for (const inst of found) {
+          for (const entry of found) {
+            const inst = entry.inst;
+            const main = entry.main;
             const parent = inst.parent;
             if (!parent) { out.unresolved.push({ nodeId: inst.id, reason: 'no parent' }); continue; }
-            const main = inst.mainComponent;
             if (!main) { out.unresolved.push({ nodeId: inst.id, reason: 'no mainComponent' }); continue; }
             const index = parent.children.indexOf(inst);
             const x = inst.x, y = inst.y;
