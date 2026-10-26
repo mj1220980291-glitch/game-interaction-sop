@@ -62,5 +62,6 @@ export {
   type TemplatePack
 } from './template/schema.js';
 export { probeTemplate, probeFromTree, type ProbeReport, type ProbeVerdict } from './probe/index.js';
+export { compileTemplate, type CompileReport, type CompileInput } from './compile/index.js';
 export { structuralFingerprint } from './probe/fingerprint.js';
 export { parseRoleBullet, type RoleBullet } from './role-block.js';

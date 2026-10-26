@@ -46,6 +46,7 @@ describe('mcp server — tool registration', () => {
     const defs = buildNativeTools();
     const names = defs.map((d) => d.tool.name).sort();
     expect(names).toEqual([
+      'figma_compile_template',
       'figma_probe_template',
       'render_v2_markdown_to_figma',
       'validate_v2_markdown'

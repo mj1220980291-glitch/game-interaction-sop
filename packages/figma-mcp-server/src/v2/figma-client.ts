@@ -266,6 +266,31 @@ export interface FigmaBackend {
   }): Promise<FontNormalizeResult>;
 
   /**
+   * Adopt every nested INSTANCE inside a component into the library's own
+   * components, in one round-trip.
+   *
+   * For each INSTANCE (deepest first, repeated passes because a detached
+   * instance can expose more instances):
+   *   detachInstance → createComponentFromNode → createInstance of it at the
+   *   original slot → move the component to `partsPageId`
+   *
+   * Components whose origin was a variant set are recombined with
+   * `combineAsVariants` and the set is renamed, so variant switching survives.
+   * After this call the part must reference only same-library components.
+   */
+  adoptInstances?(p: {
+    rootId: string;
+    partsPageId: string;
+    project: string;
+  }): Promise<AdoptResult>;
+
+  /**
+   * 降级锚点的最后一档：在 `parentId` 下放一个不可见、零高度、命名为
+   * `#anchor:<role>` 的 FRAME。plugin data 不可用时用它兜底。
+   */
+  createInvisibleAnchor?(p: { parentId: string; role: string }): Promise<NodeInfo>;
+
+  /**
    * Place a live instance over a placeholder: instantiate the source (COMPONENT)
    * or clone it (INSTANCE), append under the placeholder's parent, scale it to
    * fit, remove the placeholder rectangle. Used for `figma_instance` assets so
@@ -431,6 +456,29 @@ export interface FontNormalizeResult {
   changed: number;
   /** Source fonts with no same-name target weight (they fell back to Regular). */
   unmapped: Array<{ nodeId: string; from: string }>;
+}
+
+/** One component created by the adopt step. */
+export interface AdoptedComponent {
+  /** Our component id (library-owned). */
+  componentId: string;
+  /** Name it carries in the library. */
+  name: string;
+  /** Original component name, kept for traceability. */
+  originalName: string;
+  /** Original component-set name, when the source was a variant set. */
+  originalSetName: string | null;
+}
+
+/** Result of `adoptInstances`. */
+export interface AdoptResult {
+  adopted: AdoptedComponent[];
+  /** Variant sets rebuilt from adopted components. */
+  sets: Array<{ setId: string; name: string; variants: string[] }>;
+  /** Same-library instances created in place of the detached ones. */
+  createdInstances: string[];
+  /** Instances left untouched, with the reason. */
+  unresolved: Array<{ nodeId: string; reason: string }>;
 }
 
 export interface TextUpdate {

@@ -28,6 +28,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
+  compileTemplate,
   parseV2,
   probeTemplate,
   renderV2MarkdownToFigma,
@@ -321,7 +322,108 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
     }
   };
 
-  return [validateV2Markdown, renderV2MarkdownTool, probeTemplateTool];
+  const compileTemplateTool: NativeToolDef = {
+    tool: {
+      name: 'figma_compile_template',
+      description:
+        '【会写入库文件，需 write: true】把一个项目模板编译成我们自己库文件里的 4 个原子组件' +
+        '（顶部 / 章节 / 簇 / 结尾，结尾可选）：克隆人工粘到 _staging 页的部件 → 字体统一为 Noto Sans SC' +
+        ' → 补标号容器（按 1:14 形态）→ 收编嵌套零件为自有组件（变体集重建）→ 对产物重算能力。' +
+        '项目源模板全程只读。Figma 没有发布 API，所以发布要人工在 Assets 面板点一次，' +
+        '然后用 phase=verify 做真实 import 冒烟并回填组件 key。write 缺省 false = 干跑，只出计划与缺口。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          phase: { type: 'string', enum: ['compile', 'verify'] },
+          project: { type: 'string', description: '项目名，用于组件命名 <项目> / 顶部' },
+          source: {
+            type: 'object',
+            properties: {
+              fileKey: { type: 'string' },
+              nodeId: { type: 'string', description: '项目模板根节点 id' }
+            },
+            required: ['nodeId']
+          },
+          library: {
+            type: 'object',
+            properties: {
+              fileKey: { type: 'string' },
+              pageId: { type: 'string', description: '库文件里放组件的页面 id' }
+            },
+            required: ['fileKey', 'pageId']
+          },
+          staged: {
+            type: 'object',
+            description: '_staging 页上人工粘好的部件节点 id',
+            properties: {
+              top: { type: 'string' },
+              chapter: { type: 'string' },
+              cluster: { type: 'string' },
+              footer: { type: 'string' }
+            }
+          },
+          partsPageId: { type: 'string', description: '收编出来的零件落脚的页面 id' },
+          badgeContainerSourceId: { type: 'string', description: '散落标号模板用来补容器的 1:14 气泡节点 id' },
+          components: {
+            type: 'object',
+            description: 'phase=verify 时传入编译产出的 4 个 key',
+            properties: {
+              top: { type: 'string' },
+              chapter: { type: 'string' },
+              cluster: { type: 'string' },
+              footer: { type: 'string' }
+            }
+          },
+          write: { type: 'boolean', description: '缺省 false（干跑）；true 才写入库文件' }
+        },
+        required: ['phase', 'project', 'source', 'library']
+      }
+    },
+    handler: async (args) => {
+      try {
+        if (!opts.v2Backend) {
+          return errorResult(
+            ServerErrorCodes.V2_BACKEND_UNAVAILABLE,
+            'v2Backend 未配置；本工具需要在 createServer({ v2Backend }) 初始化时传入。'
+          );
+        }
+        const phase = args?.phase === 'verify' ? 'verify' : 'compile';
+        const nodeId = String((args?.source as { nodeId?: string })?.nodeId ?? '').trim();
+        const library = args?.library as { fileKey?: string; pageId?: string } | undefined;
+        if (!nodeId || !library?.fileKey || !library?.pageId) {
+          return errorResult(
+            ServerErrorCodes.INVALID_INPUT,
+            'source.nodeId / library.fileKey / library.pageId 均为必填'
+          );
+        }
+        const report = await compileTemplate({
+          phase,
+          project: String(args?.project ?? '').trim(),
+          source: {
+            nodeId,
+            ...(typeof (args?.source as { fileKey?: string })?.fileKey === 'string'
+              ? { fileKey: (args!.source as { fileKey: string }).fileKey }
+              : {})
+          },
+          library: { fileKey: library.fileKey, pageId: library.pageId },
+          ...(args?.staged ? { staged: args.staged as never } : {}),
+          ...(typeof args?.partsPageId === 'string' ? { partsPageId: args.partsPageId } : {}),
+          ...(typeof args?.badgeContainerSourceId === 'string'
+            ? { badgeContainerSourceId: args.badgeContainerSourceId }
+            : {}),
+          ...(args?.components ? { components: args.components as never } : {}),
+          write: args?.write === true,
+          backend: opts.v2Backend
+        });
+        return jsonResult(report);
+      } catch (e) {
+        const err = e as Error & { code?: string };
+        return errorResult(err.code ?? ServerErrorCodes.INTERNAL_ERROR, err.message);
+      }
+    }
+  };
+
+  return [validateV2Markdown, renderV2MarkdownTool, probeTemplateTool, compileTemplateTool];
 }
 
 // =========================================================================

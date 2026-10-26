@@ -432,6 +432,128 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return mapNode(r);
     },
 
+    async createInvisibleAnchor({ parentId, role }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+        if (!parent) throw new Error('createInvisibleAnchor: parent not found: ' + ${JSON.stringify(parentId)});
+        const f = figma.createFrame();
+        f.name = ${JSON.stringify('#anchor:')} + ${JSON.stringify(role)};
+        f.resize(1, 1);
+        f.fills = [];
+        f.clipsContent = false;
+        f.visible = false;
+        parent.appendChild(f);
+        return serNode(f);
+      `, 15000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async adoptInstances({ rootId, partsPageId, project }) {
+      const r = await run(`
+        const ROOT = ${JSON.stringify(rootId)};
+        const PARTS = ${JSON.stringify(partsPageId)};
+        const PROJECT = ${JSON.stringify(project)};
+        const root = await figma.getNodeByIdAsync(ROOT);
+        if (!root) throw new Error('adoptInstances: root not found: ' + ROOT);
+        const partsPage = await figma.getNodeByIdAsync(PARTS);
+        if (!partsPage) throw new Error('adoptInstances: parts page not found: ' + PARTS);
+
+        const out = { adopted: [], sets: [], createdInstances: [], unresolved: [] };
+        const ours = {};            // 已收编的组件 id，避免自我循环
+        const bySet = {};           // 原组件集名 -> [{compId, variantName}]
+
+        function collect(node, acc) {
+          if (node.type === 'INSTANCE') {
+            // 自己造的实例不再二次收编，否则每轮都会把自己拆一遍。
+            if (node.mainComponent && ours[node.mainComponent.id]) return acc;
+            if (node.mainComponent && node.mainComponent.parent && node.mainComponent.parent.id === PARTS) return acc;
+            acc.push(node);
+            return acc;
+          }
+          if ('children' in node) for (const c of node.children) collect(c, acc);
+          return acc;
+        }
+
+        let pass = 0;
+        while (pass < 6) {
+          pass++;
+          const found = collect(root, []);
+          if (found.length === 0) break;
+          for (const inst of found) {
+            const parent = inst.parent;
+            if (!parent) { out.unresolved.push({ nodeId: inst.id, reason: 'no parent' }); continue; }
+            const main = inst.mainComponent;
+            if (!main) { out.unresolved.push({ nodeId: inst.id, reason: 'no mainComponent' }); continue; }
+            const index = parent.children.indexOf(inst);
+            const x = inst.x, y = inst.y;
+            const instName = inst.name;
+            const originalName = main.name;
+            const mp = main.parent;
+            const originalSetName = (mp && mp.type === 'COMPONENT_SET') ? mp.name : null;
+            let frame;
+            try { frame = inst.detachInstance(); }
+            catch (e) { out.unresolved.push({ nodeId: inst.id, reason: 'detach: ' + (e && e.message) }); continue; }
+            const compName = originalSetName ? originalName : (PROJECT + ' / 零件 / ' + originalName);
+            const comp = figma.createComponentFromNode(frame);
+            comp.name = compName;
+            const instance = comp.createInstance();
+            instance.name = instName;
+            parent.insertChild(Math.max(index, 0), instance);
+            instance.x = x;
+            instance.y = y;
+            partsPage.appendChild(comp);
+            comp.x = 0;
+            comp.y = 0;
+            ours[comp.id] = true;
+            out.createdInstances.push(instance.id);
+            out.adopted.push({
+              componentId: comp.id,
+              name: compName,
+              originalName: originalName,
+              originalSetName: originalSetName
+            });
+            if (originalSetName) {
+              (bySet[originalSetName] = bySet[originalSetName] || []).push({
+                compId: comp.id,
+                variantName: originalName
+              });
+            }
+          }
+        }
+
+        // 变体集必须重建：detach 抹掉了变体关系，不重组就退化成互不相关的图层。
+        for (const setName of Object.keys(bySet)) {
+          const members = bySet[setName];
+          if (members.length < 2) {
+            out.unresolved.push({ nodeId: members[0].compId, reason: 'variant set has a single member: ' + setName });
+            continue;
+          }
+          const comps = [];
+          for (const m of members) {
+            const c = await figma.getNodeByIdAsync(m.compId);
+            if (c) comps.push(c);
+          }
+          try {
+            const set = figma.combineAsVariants(comps, partsPage);
+            set.name = PROJECT + ' / 零件 / ' + setName;
+            set.x = 0;
+            set.y = 0;
+            out.sets.push({ setId: set.id, name: set.name, variants: comps.map((c) => c.name) });
+          } catch (e) {
+            out.unresolved.push({ nodeId: comps[0] ? comps[0].id : '', reason: 'combine: ' + (e && e.message) });
+          }
+        }
+        return out;
+      `, 120000) as { adopted: unknown[]; sets: unknown[]; createdInstances: string[]; unresolved: unknown[] };
+      return {
+        adopted: (r?.adopted ?? []) as never,
+        sets: (r?.sets ?? []) as never,
+        createdInstances: r?.createdInstances ?? [],
+        unresolved: (r?.unresolved ?? []) as never
+      };
+    },
+
     async normalizeFontsInSubtree({ rootId, family, weightMap }) {
       const r = await run(`
         const root = await figma.getNodeByIdAsync(${JSON.stringify(rootId)});

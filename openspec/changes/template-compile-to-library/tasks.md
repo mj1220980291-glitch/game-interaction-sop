@@ -38,48 +38,54 @@
 
 ## 6. 收编（adopt）
 
-- [ ] 6.1 新增 `src/v2/compile/adopt.ts`：递归扫部件内的 `INSTANCE`，逐个 `detachInstance` → `createComponentFromNode`
-- [ ] 6.2 原组件是组件集时：`combineAsVariants` 重建，逐个还原变体名，并与原变体名逐项比对，不一致即拒绝
-- [ ] 6.3 父部件中把该位置替换为本库组件实例（同库 `createInstance`，不走 `import`）
-- [ ] 6.4 发布顺序：先零件、后部件（由编排层保证，`parts.ts` 不直接发）
-- [ ] 6.5 收编后校验：部件内不存在任何指向外部文件 key 的实例
-- [ ] 6.6 单测：`num` 三角 → 变成本库组件且内文本可写；变体集 → 变体名逐项一致；残留外部引用 → 报错
+- [x] 6.1 后端 `adoptInstances({rootId, partsPageId, project})`：单次 `figma_execute` 内递归扫 `INSTANCE`（不钻入实例内部），最多 6 轮（拆一层可能露出新的实例）
+- [x] 6.2 每个实例：`detachInstance` → `createComponentFromNode` → 建议原位的自有实例；组件移到库的零件页；`ours[]` + 零件页双重护栏防自我重拆
+- [x] 6.3 组件集：按原组件集名分组 → `combineAsVariants` 重组 → 集名 `<项目> / 零件 / <原集名>`；成员保留原组件名（变体属性靠它解析）
+- [x] 6.4 发布顺序：先零件、后部件（`adoptNestedParts` 只产出组件，发布由编排层在部件之后统一做）
+- [x] 6.5 收编后自检：`unresolved` 非空即视为未通（`isFullyAdopted`）
+- [x] 6.6 单测：两变体实例 → 自有组件 + 组件集重建 + 原位换自家实例（`compile-adopt-backend.spec.ts`，1 例）；聚合/变体名不合规/有残留/后端不支持（`compile-adopt.spec.ts`，4 例）
 
 ## 7. 锚点
 
-- [ ] 7.1 新增 `src/v2/compile/anchor.ts`：`setSharedPluginData('gisop', 'part'|'role'|'adopt'|'source', …)`
-- [ ] 7.2 降级链：plugin data 写入失败 → 约定图层名 → 不可见零高度 FRAME（`#anchor:<role>`）
-- [ ] 7.3 生成 `anchors` 字段：只写降级项，plugin data 项不写
-- [ ] 7.4 单测：三档降级各一例；`anchors` 只含降级项
+- [x] 7.1 `src/v2/compile/anchor.ts`：`applyPluginDataAnchors` 写 `role:<role>`，`part` / `project` 在 `parts.ts` 里写；后端缺 `setPluginData` 时明确报错而非静默
+- [x] 7.2 降级链三档：plugin data → `nameAnchorSpec(图层名)` → `createInvisibleAnchorSpec`（后端新增 `createInvisibleAnchor`，建不可见 1×1 FRAME `#anchor:<role>`）
+- [x] 7.3 `mergeAnchorSpecs`：只保留降级项，plugin data 已覆盖的槽位不写配置
+- [x] 7.4 单测：plugin data 优先 / 空输入零写入 / 后端不支持报错 / 不可见锚点 / 降级项过滤（`compile-anchor.spec.ts`，5 例）
 
 ## 8. 产物探针与能力重算
 
-- [ ] 8.1 新增 `src/v2/compile/verify-capabilities.ts`：对 4 个产出部件调用现有 `probeFromTree` / `probeTemplate`
-- [ ] 8.2 产物能力覆盖源能力；逐项差异写进 `gaps`
-- [ ] 8.3 单测：`instance → text` 场景产出差异条目；无差异时不产出噪声条目
+- [x] 8.1 `src/v2/compile/verify-capabilities.ts`：用现有 `probe/detect.ts` 的判定函数（`detect` / `detectOverview` / `detectRoleHabit` / `detectColumn` / `detectFigure` / `detectHiddenPool`）重算，不另写一套
+- [x] 8.2 产物能力覆盖源能力；逐项差异 + 「无法实测项」都写进 `gaps`，不静默
+- [x] 8.3 单测：差异逐项比对、无差异不产噪声、无证据时沿用源值并记缺口（`compile-verify-capabilities.spec.ts`，5 例）
 
 ## 9. 前置校验与拒绝路径
 
-- [ ] 9.1 `src/v2/compile/preflight.ts`：库文件可写、字体可加载、源指纹一致、能力可表达
-- [ ] 9.2 错误码：`V2_COMPILE_LIBRARY_UNWRITABLE` / `V2_COMPILE_FONT_UNAVAILABLE` / `V2_COMPILE_SOURCE_DRIFT` / `V2_COMPILE_CAPABILITY_UNEXPRESSIBLE` / `V2_COMPILE_NOT_PUBLISHED`
-- [ ] 9.3 字体校验只看 `Noto Sans SC` 各字重；失败列出缺失字重
-- [ ] 9.4 单测：四种拒绝各一例；拒绝后库里零新增节点
+- [x] 9.1 `src/v2/compile/preflight.ts`：后端能力齐备、库落点是 PAGE、源指纹一致、差异可表达（四条任一失败即拒绝且不写画布）
+- [x] 9.2 错误码集中在 `src/v2/compile/errors.ts`：`V2_COMPILE_LIBRARY_UNWRITABLE` / `FONT_UNAVAILABLE` / `SOURCE_DRIFT` / `CAPABILITY_UNEXPRESSIBLE` / `NOT_PUBLISHED` / `STAGED_PART_MISSING` / `UNPUBLISHABLE_NAME` / `BACKEND_UNSUPPORTED`
+- [x] 9.3 字体侧改为**归一化**：只校验 `Noto Sans SC` 三档字重；项目字体缺失不再阻断（`normalizeFontsInSubtree` 会报不可用字重）
+- [x] 9.4 单测：四种拒绝各一例（`compile-preflight-backfill.spec.ts`）
 
 ## 10. 发布回填与重编
 
-- [ ] 10.1 `src/v2/compile/backfill.ts`：`verify` 阶段读 4 个组件 key；任一缺失 → `V2_COMPILE_NOT_PUBLISHED`，不写部分 key
-- [ ] 10.2 写 `<项目根>/.interaction-sop/template.json`，结果必须能过 `parseTemplatePack`
-- [ ] 10.3 重编：新组件名带版本后缀，旧组件标 `gisop.deprecated = true`，不删不原地改
-- [ ] 10.4 单测：未发布 → 报错且不改文件；已发布 → 文件可解析；重编 → 旧组件仍在
-- [ ] 10.5 `verify` 用**真 import 冒烟**：在非库文件里逐个 `importComponentByKeyAsync`，单次预算 ≥ 30s；只读到非空 key 不算已发布
+- [x] 10.1 `src/v2/compile/backfill.ts` 的 `verifyPublished`：任一非可选部件缺失或取不到即 `V2_COMPILE_NOT_PUBLISHED`，不返回部分 key
+- [x] 10.2 `buildTemplatePack` 组装并**自检**（过 `parseTemplatePack`），失败即拒绝
+- [x] 10.3 重编：`planParts({versionSuffix})` 产出带版本后缀的新名字，旧组件不删不改
+- [x] 10.4 单测：未发布 / 有 key 取不到 / footer 缺省 / 组装可解析（`compile-preflight-backfill.spec.ts`，10 例）
+- [x] 10.5 `verify` 用**真 import 冒烟**：逐个 `importComponentByKey`，后端超时 40s；只读到非空 key 不算已发布
 - [ ] 10.6 命名红线校验：部件与收编零件的名字不得以 `_` 或 `.` 开头（否则 Figma 归入「不发布」）
 
 ## 11. MCP 工具
 
-- [ ] 11.1 `src/v2/compile/index.ts` 导出 `compileTemplate({ phase, source, library, project, samples?, parts?, write?, backend })`
-- [ ] 11.2 `createServer.ts` 注册 `figma_compile_template`（写入类，`write` 缺省 `false`），更新 `server.spec.ts` 工具清单断言
-- [ ] 11.3 `write: true` 前 `commitUndoCheckpoint`
-- [ ] 11.4 报告结构：`phase` / `created` / `adopted` / `anchors` / `capabilities` / `gaps` / `checks` / `templateJson` + 人读版
+- [x] 10.6 命名红线校验：`isPublishableName`，`_` / `.` 开头在写画布之前就拒绝
+- [x] 10.7 单测：命名红线（`compile-parts.spec.ts`）
+
+## 11. MCP 工具
+
+- [x] 11.1 `src/v2/compile/index.ts` 导出 `compileTemplate({ phase, source, library, project, staged?, partsPageId?, badgeContainerSourceId?, capabilities?, components?, write?, backend })`，并从 `src/v2/index.ts` 再导出
+- [x] 11.2 `createServer.ts` 注册 `figma_compile_template`（写入类，`write` 缺省 `false`），`server.spec.ts` 工具清单已更新
+- [x] 11.3 `write: true` 时先 `commitUndoCheckpoint('template-compile')` 再动手
+- [x] 11.4 报告结构：`phase` / `parts`（含 componentId、key）/ `adopted` / `sets` / `capabilities` / `diffs` / `anchors` / `gaps` / `templateJson` / `written`
+- [x] 11.5 单测：注册与写入声明、缺参数、干跑默认、缺部件、write 缺 partiesPage、后端未配置（`compile-tool.spec.ts`，6 例）
 
 ## 12. 验证（真机）
 
