@@ -465,6 +465,15 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return mapNode(r);
     },
 
+    async setNodeVisible(nodeId, visible) {
+      await run(`
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) throw new Error('setNodeVisible: node not found: ' + ${JSON.stringify(nodeId)});
+        n.visible = ${visible ? 'true' : 'false'};
+        return null;
+      `, 15000);
+    },
+
     async adoptInstances({ rootId, partsPageId, project }) {
       const r = await run(`
         const ROOT = ${JSON.stringify(rootId)};

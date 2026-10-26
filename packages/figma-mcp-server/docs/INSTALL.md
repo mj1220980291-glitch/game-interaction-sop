@@ -103,8 +103,13 @@ stderr 会打印一行 banner：
 
 ### 重启引擎后 Bridge「坏了」
 
-症状：重启 MCP 后 `figma_get_status` 显示未连接，或 `portFallbackUsed: true`
-落在 9224 及以后，而插件仍显示已连接。
+症状（按严重程度）：
+
+| 现象 | 含义 |
+|---|---|
+| `figma_get_status` 显示 `portFallbackUsed: true`，端口是 9224+ | 9223 被僵尸占着，插件还连在僵尸上 |
+| 工具调用报 `Cannot connect to Figma Desktop … ws://localhost:923x` | 新引擎已经漂到 923x，插件连的是 9223 |
+| 每次重启报的端口都不一样（9229 → 9230 → …） | **僵尸在累积**，见下文 |
 
 成因：引擎被强杀时（Windows 上无窗口控制台进程只能强杀，退出钩子一律不执行），
 子链 `npx → cmd.exe → local.js` 里只有 `local.js` 不响应 stdin EOF，于是它活下来
@@ -115,15 +120,45 @@ stderr 会打印一行 banner：
 orphaned figma-console-mcp pid=…`。父进程还活着的实例（例如你另外配置的一份
 `figma-console` MCP）不会被动，只会收到 WARNING。
 
-若仍需手动处理：
+#### 僵尸为什么会累积到「直接连不上」
+
+自动回收只处理「父进程已消失」的实例，而且**一次启动只回收当时存活的那些**。
+连续快速重启（改代码 → 重启 → 改代码 → 重启）时：上一个引擎的父进程可能还在
+退出途中，子进程被判定为「非孤儿」而跳过；等父进程真死了，已经没人再扫一次。
+于是 9224、9225、9226… 逐个被僵尸占住，端口范围只有 `9223–9232`，**占满 10 个之后
+新引擎绑不上任何端口，插件就彻底连不上**，而 Figma 里那个插件显示「已连接」——
+它连的是最早那只僵尸。
+
+排查（30 秒）：
 
 ```bat
-netstat -ano | findstr ":922"
-taskkill /F /T /PID <占用 9223 的 pid>
+netstat -ano | findstr "LISTENING" | findstr ":92"
 ```
 
-然后在目标文件里重新连接插件（优先社区插件
+看到 `9223..922x` 一串 `LISTENING` 就是它。对照 MCP 日志 banner 里的实际端口，
+**除当前引擎占用的那个以外**，其余监听 9223–9232 的 node 进程都是僵尸。
+
+清理（把 PID 换成上一步查到的，不要杀当前引擎）：
+
+```bat
+taskkill /F /PID <僵尸pid>
+```
+
+批量清理（PowerShell，执行前先确认列表里没混进当前引擎）：
+
+```powershell
+Get-NetTCPConnection -State Listen -LocalPort 9223,9224,9225,9226,9227,9228,9229,9230,9231,9232 -ErrorAction SilentlyContinue |
+  Select-Object -ExpandProperty OwningProcess -Unique |
+  Where-Object { (Get-Process -Id $_ -ErrorAction SilentlyContinue).ProcessName -eq 'node' } |
+  ForEach-Object { Stop-Process -Id $_ -Force }
+```
+
+清完再重启一次引擎，它会重新占到首选的 9223，插件通常会自动重连；
+没重连就在目标文件里重开一次插件（优先社区插件
 <https://www.figma.com/community/plugin/1695400514520991057>，回退 Desktop Bridge）。
+
+预防：改后端代码时不要连环重启——**先停掉旧实例再启动新的**，让子进程随父进程
+一起退出，比事后清僵尸省事。
 
 ### Markdown 校验不通过
 

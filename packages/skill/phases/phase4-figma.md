@@ -52,7 +52,8 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
 
    关键点要一起说：**它可以在网页端启动，不需要安装 Figma 客户端**；启动后窗口保持打开，连接建立期间别关
 3. 该插件因版本/权限原因起不来，才回退到本地 Desktop Bridge（Figma 桌面端 → Plugins → Development → Figma Desktop Bridge）
-4. 两条都不通 → 停下来等用户，不改 Markdown、不降级贴图、不换文件硬写
+4. 报错里出现 `ws://localhost:923x` 且 x 每重启一次 +1，或用 `figma_get_status` 看到 `portFallbackUsed: true`：这是**端口漂移**（旧引擎进程没退、僵尸占满 9223–9232），不是插件问题。处理办法见 `packages/figma-mcp-server/docs/INSTALL.md` 的「重启引擎后 Bridge『坏了』」，不要反复重开插件
+5. 两条都不通 → 停下来等用户，不改 Markdown、不降级贴图、不换文件硬写
 
 对用户复述一句（不要长篇）：
 

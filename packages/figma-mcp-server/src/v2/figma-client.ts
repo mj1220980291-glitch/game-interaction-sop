@@ -291,6 +291,14 @@ export interface FigmaBackend {
   createInvisibleAnchor?(p: { parentId: string; role: string }): Promise<NodeInfo>;
 
   /**
+   * 设置节点可见性。
+   *
+   * 编译必需：多数项目的簇母版是**隐藏**的「草稿面板」（`796` / `798` 的
+   * `Frame 1244`），克隆出来的组件若保持隐藏，渲染时整簇都看不见。
+   */
+  setNodeVisible?(nodeId: string, visible: boolean): Promise<void>;
+
+  /**
    * Place a live instance over a placeholder: instantiate the source (COMPONENT)
    * or clone it (INSTANCE), append under the placeholder's parent, scale it to
    * fit, remove the placeholder rectangle. Used for `figma_instance` assets so

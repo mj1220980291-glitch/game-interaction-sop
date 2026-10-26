@@ -145,6 +145,11 @@ export async function buildParts(input: BuildPartsInput): Promise<BuildPartsResu
       node = await backend.detachInstance!(node.id);
     }
     const comp = await backend.createComponentFromNode!({ nodeId: node.id, name: step.name });
+    // 簇母版在多数项目里是隐藏的「草稿面板」，克隆后必须显式可见，
+    // 否则渲染出来的每一簇都是隐形的。
+    if (backend.setNodeVisible) {
+      await backend.setNodeVisible(comp.id, true);
+    }
     if (backend.setPluginData) {
       await backend.setPluginData([
         { nodeId: comp.id, key: 'part', value: step.part },

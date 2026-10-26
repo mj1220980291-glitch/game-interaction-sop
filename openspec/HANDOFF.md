@@ -116,6 +116,7 @@ git add -A && git commit -m "feat(template): contract v1 + read-only template pr
 
 ## 已知遗留
 
+- **端口漂移（2026-10-26 踩过）**：连续重启 MCP 时旧进程不退、继续占 9223–9232，新进程一路上漂（9229→9230…），插件只认 9223，表现是「重启后插件连不上 / 显示已连接但工具报 Cannot connect」。排查与清理命令见 `packages/figma-mcp-server/docs/INSTALL.md`「重启引擎后 Bridge『坏了』」。本次已一次性清掉 7 个僵尸进程。
 - 14000 节点文档扫描约 17s；超时自动降级到 1/4 预算并把结论降为 `needs-anchor`（不会误判 non-conformant）
 - `badgeSlot=manual` 的项目，图上标号仍需人工摆位（`796` / `798` 都是）
 - 一项目一套模板；多套留到之后
