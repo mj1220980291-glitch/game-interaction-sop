@@ -200,6 +200,12 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   });
   gaps.push(...verdict.gaps);
 
+  // 排版：编译默认把组件都落在 (0,0) 上互相遮挡，人打开库看不清有没有齐。
+  if (backend.arrangePageChildren) {
+    await backend.arrangePageChildren({ pageId: input.library.pageId });
+    await backend.arrangePageChildren({ pageId: input.partsPageId });
+  }
+
   return {
     phase: 'compile',
     project,

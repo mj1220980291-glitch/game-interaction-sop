@@ -306,6 +306,19 @@ export interface FigmaBackend {
   setNodeVisible?(nodeId: string, visible: boolean): Promise<void>;
 
   /**
+   * 把某页的顶层节点按名字顺序排成多行（永不重叠）。
+   *
+   * 编译产出的组件默认都落在 `(0,0)` 上互相遮挡，人打开库根本看不清有几个；
+   * 排版是给人看的最小礼貌，也让"少了哪个部件"一眼可辨。
+   */
+  arrangePageChildren?(p: {
+    pageId: string;
+    gapX?: number;
+    gapY?: number;
+    maxWidth?: number;
+  }): Promise<Array<{ name: string; x: number; y: number }>>;
+
+  /**
    * Place a live instance over a placeholder: instantiate the source (COMPONENT)
    * or clone it (INSTANCE), append under the placeholder's parent, scale it to
    * fit, remove the placeholder rectangle. Used for `figma_instance` assets so

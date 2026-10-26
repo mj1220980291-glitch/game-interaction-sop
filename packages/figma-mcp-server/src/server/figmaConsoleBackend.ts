@@ -474,6 +474,27 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 15000);
     },
 
+    async arrangePageChildren({ pageId, gapX = 120, gapY = 120, maxWidth = 6000 }) {
+      const r = await run(`
+        const page = await figma.getNodeByIdAsync(${JSON.stringify(pageId)});
+        if (!page) throw new Error('arrangePageChildren: page not found: ' + ${JSON.stringify(pageId)});
+        const GAP_X = ${gapX}, GAP_Y = ${gapY}, MAX_W = ${maxWidth};
+        const kids = page.children.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        let x = 0, y = 0, rowH = 0;
+        const out = [];
+        for (const n of kids) {
+          if (x > 0 && x + n.width > MAX_W) { x = 0; y += rowH + GAP_Y; rowH = 0; }
+          n.x = x;
+          n.y = y;
+          out.push({ name: n.name, x: Math.round(x), y: Math.round(y) });
+          x += n.width + GAP_X;
+          rowH = Math.max(rowH, n.height);
+        }
+        return out;
+      `, 30000) as Array<{ name: string; x: number; y: number }>;
+      return r ?? [];
+    },
+
     async adoptInstances({ rootId, partsPageId, project, reuse, contentSize }) {
       const r = await run(`
         const ROOT = ${JSON.stringify(rootId)};

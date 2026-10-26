@@ -197,6 +197,7 @@ figma_compile_template({
 | key 漂移 | 删组件 / 整份复制文件会让 key 变 | D6 key 稳定性纪律 + D8 追加式重编 |
 | 14000 节点扫描超时 | `796` 约 17s，超时降级 1/4 预算 | 编译阶段对源模板**只读母版子树**，不做全文档扫描；样本仅用于核对重复度 |
 | 切换页面会报错 | `figma.currentPage = page` 在 `documentAccess: dynamic-page` 下抛错：`Use figma.setCurrentPageAsync instead`（真机已踩） | 编译若需切页一律走 `figma.setCurrentPageAsync` |
+| 部件携带原稿内容 | 编译是"克隆母版"，所以章节部件里仍带着该项目当时的文案、截图实例与全部簇 | **采编阶段有尺寸闸门**（>600×400 视为内容，不收编、不复制进库）；残留内容由渲染变更在填充前清空 —— 与本变更并列的已知债务 |
 | 契约过窄 | 第 3 个项目出现第 4 种差异 | D7 + 「拒绝而非扩张」：不临时加能力 |
 
 ## Migration Plan
