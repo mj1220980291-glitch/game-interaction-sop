@@ -21,7 +21,7 @@
 
 铁律只看**结构**，不看图层命名。两份真实模板的命名几乎完全不同，但都满足六条：
 
-| | 官方 `1:14` | 惊魂寻宝队 `798:17608` |
+| | 官方 `1:14` | 蛋仔派对 `798:17608` |
 |---|---|---|
 | 章节 | `界面说明1` | `Group 2360` |
 | 簇 | `说明块01` | `Frame 1245`（内含 `Group 1253`） |
@@ -95,7 +95,7 @@
 ```json
 {
   "schema_version": 1,
-  "project": "惊魂寻宝队",
+  "project": "蛋仔派对",
   "source": { "fileKey": "…", "nodeIds": ["798:17608"], "fingerprint": "sha256:…" },
   "components": { "top": "…", "chapter": "…", "cluster": "…", "footer": null },
   "capabilities": {
