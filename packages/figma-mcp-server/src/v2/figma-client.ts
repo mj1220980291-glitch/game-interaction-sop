@@ -193,6 +193,79 @@ export interface FigmaBackend {
   detachInstance?(nodeId: string): Promise<NodeInfo>;
 
   /**
+   * Convert an existing FRAME / GROUP subtree into a COMPONENT in place
+   * (`figma.createComponentFromNode`).
+   *
+   * Template compilation needs this because most project masters are NOT
+   * components: `798:17608` ships its chapter master as a plain `Group 2360`
+   * and its cluster master as a hidden `Frame 1244`, so neither has a key and
+   * neither can be imported into the library file. Converting first is the
+   * only way to make them publishable.
+   *
+   * Returns the NEW node: converting a GROUP replaces it, so the id changes.
+   */
+  createComponentFromNode?(p: { nodeId: string; name?: string }): Promise<NodeInfo>;
+
+  /**
+   * Combine sibling COMPONENTs into a COMPONENT_SET (`figma.combineAsVariants`).
+   *
+   * Required by compilation's "adopt" step: `detachInstance` destroys variant
+   * relationships, so a copied 职能=策划/美术/程序 set degrades into unrelated
+   * layers unless it is recombined and renamed.
+   */
+  combineAsVariants?(p: {
+    componentIds: string[];
+    parentId: string;
+    name?: string;
+  }): Promise<NodeInfo>;
+
+  /**
+   * Batch write shared plugin data in the `gisop` namespace (same one
+   * `stampNodes` uses). `value: null` clears the key.
+   *
+   * This is the primary anchor mechanism for compiled parts. It is not
+   * guaranteed to survive every context (cross-file copies, some instance
+   * scopes), which is why the contract allows two fallbacks.
+   */
+  setPluginData?(entries: PluginDataEntry[]): Promise<void>;
+
+  /** Rename one node. Compilation never renames the project's own layers. */
+  renameNode?(nodeId: string, name: string): Promise<void>;
+
+  /**
+   * Read a COMPONENT node's library key.
+   *
+   * WARNING (verified on device 2026-10-26): a non-null key does NOT mean the
+   * component is published. Every local component in an unpublished file also
+   * reports a key, while `importComponentByKeyAsync` still fails with
+   * "Could not find a published component with the key". The only real check
+   * is a cross-file import smoke test — see `importComponentByKey`.
+   */
+  readComponentKey?(nodeId: string): Promise<string | null>;
+
+  /**
+   * Import a published library component by key, without instantiating it.
+   * Throws when the key is not published / not accessible from this file.
+   * Cross-file only: importing a key that lives in the same file proves
+   * nothing about publishing.
+   */
+  importComponentByKey?(componentKey: string): Promise<NodeInfo>;
+
+  /**
+   * Rewrite every TEXT font in a subtree to one family, mapping source weights
+   * through `weightMap` (keys normalized: lowercase, separators stripped).
+   * Only fontName changes — size / line height / letter spacing / fills stay.
+   *
+   * Applied per styled-text segment, so mixed-weight paragraphs keep their
+   * bolding after the family swap.
+   */
+  normalizeFontsInSubtree?(p: {
+    rootId: string;
+    family: string;
+    weightMap: Record<string, string>;
+  }): Promise<FontNormalizeResult>;
+
+  /**
    * Place a live instance over a placeholder: instantiate the source (COMPONENT)
    * or clone it (INSTANCE), append under the placeholder's parent, scale it to
    * fit, remove the placeholder rectangle. Used for `figma_instance` assets so
@@ -343,6 +416,21 @@ export interface StampEntry {
   nodeId: string;
   stamp: Record<string, unknown> | null;
   captureHash?: boolean;
+}
+
+/** One shared-plugin-data write (`gisop` namespace). `null` clears the key. */
+export interface PluginDataEntry {
+  nodeId: string;
+  key: string;
+  value: string | null;
+}
+
+/** Result of `normalizeFontsInSubtree`. */
+export interface FontNormalizeResult {
+  /** How many text ranges were rewritten. */
+  changed: number;
+  /** Source fonts with no same-name target weight (they fell back to Regular). */
+  unmapped: Array<{ nodeId: string; from: string }>;
 }
 
 export interface TextUpdate {

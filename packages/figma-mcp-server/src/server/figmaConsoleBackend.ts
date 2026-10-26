@@ -347,6 +347,136 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return mapNode(r);
     },
 
+    async createComponentFromNode({ nodeId, name }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) throw new Error('createComponentFromNode: node not found: ' + ${JSON.stringify(nodeId)});
+        if (n.type === 'COMPONENT') {
+          ${name != null ? `n.name = ${JSON.stringify(name)};` : ''}
+          return serNode(n);
+        }
+        // Layout containers only: converting a TEXT / VECTOR in place would
+        // silently change what the compiled part is, which the probe then
+        // reports as a capability mismatch far from the real cause.
+        if (n.type !== 'FRAME' && n.type !== 'GROUP') {
+          throw new Error('createComponentFromNode: unsupported type ' + n.type + ' for node ' + ${JSON.stringify(nodeId)});
+        }
+        const comp = figma.createComponentFromNode(n);
+        ${name != null ? `comp.name = ${JSON.stringify(name)};` : ''}
+        return serNode(comp);
+      `, 20000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async combineAsVariants({ componentIds, parentId, name }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const ids = ${JSON.stringify(componentIds)};
+        if (ids.length < 2) throw new Error('combineAsVariants: need at least 2 components, got ' + ids.length);
+        const comps = [];
+        for (const id of ids) {
+          const n = await figma.getNodeByIdAsync(id);
+          if (!n) throw new Error('combineAsVariants: component not found: ' + id);
+          if (n.type !== 'COMPONENT') throw new Error('combineAsVariants: not a COMPONENT: ' + id + ' (' + n.type + ')');
+          comps.push(n);
+        }
+        const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+        if (!parent) throw new Error('combineAsVariants: parent not found: ' + ${JSON.stringify(parentId)});
+        const set = figma.combineAsVariants(comps, parent);
+        ${name != null ? `set.name = ${JSON.stringify(name)};` : ''}
+        return serNode(set);
+      `, 20000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async setPluginData(entries) {
+      if (entries.length === 0) return;
+      await run(`
+        const NS = ${JSON.stringify(STAMP_NAMESPACE)};
+        const ops = ${JSON.stringify(entries)};
+        for (const op of ops) {
+          const n = await figma.getNodeByIdAsync(op.nodeId);
+          if (!n) throw new Error('setPluginData: node not found: ' + op.nodeId);
+          n.setSharedPluginData(NS, op.key, op.value === null ? '' : op.value);
+        }
+        return null;
+      `, 20000);
+    },
+
+    async renameNode(nodeId, name) {
+      await run(`
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) throw new Error('renameNode: node not found: ' + ${JSON.stringify(nodeId)});
+        n.name = ${JSON.stringify(name)};
+        return null;
+      `, 15000);
+    },
+
+    async readComponentKey(nodeId) {
+      const r = await run(`
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n || n.type !== 'COMPONENT') return null;
+        return n.key || null;
+      `, 15000) as string | null;
+      return r ?? null;
+    },
+
+    async importComponentByKey(componentKey) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const comp = await figma.importComponentByKeyAsync(${JSON.stringify(componentKey)});
+        if (!comp) throw new Error('importComponentByKey: not published: ' + ${JSON.stringify(componentKey)});
+        return serNode(comp);
+      `, 40000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async normalizeFontsInSubtree({ rootId, family, weightMap }) {
+      const r = await run(`
+        const root = await figma.getNodeByIdAsync(${JSON.stringify(rootId)});
+        if (!root) throw new Error('normalizeFontsInSubtree: node not found: ' + ${JSON.stringify(rootId)});
+        const FAMILY = ${JSON.stringify(family)};
+        const MAP = ${JSON.stringify(weightMap)};
+        const res = { changed: 0, unmapped: [] };
+        const loaded = {};
+        const keyOf = (s) => String(s || '').toLowerCase().replace(/[\\s_-]/g, '');
+        async function apply(n, start, end, fontName) {
+          const k = keyOf(fontName.style);
+          const style = MAP[k] || 'Regular';
+          if (fontName.family === FAMILY && fontName.style === style) return;
+          const fk = FAMILY + '/' + style;
+          if (!loaded[fk]) { await figma.loadFontAsync({ family: FAMILY, style: style }); loaded[fk] = true; }
+          if (start == null) n.fontName = { family: FAMILY, style: style };
+          else n.setRangeFontName(start, end, { family: FAMILY, style: style });
+          res.changed++;
+          // 「映射」的判据：原字重名与目标字重名不同（Light→Regular 要记，
+          // Bold→Bold 不记）。与 font-normalize.ts 的 mapFontStyle 同义。
+          if (k !== String(style).toLowerCase()) {
+            const from = fontName.family + '/' + fontName.style;
+            if (!res.unmapped.some((u) => u.nodeId === n.id && u.from === from)) {
+              res.unmapped.push({ nodeId: n.id, from: from });
+            }
+          }
+        }
+        async function walk(n) {
+          if (n.type === 'TEXT' && n.characters && n.characters.length > 0) {
+            let segs = null;
+            try { segs = n.getStyledTextSegments ? n.getStyledTextSegments(['fontName']) : null; } catch (e) { segs = null; }
+            if (segs && segs.length > 0) {
+              for (const s of segs) await apply(n, s.start, s.end, s.fontName);
+            } else if (n.fontName) {
+              await apply(n, null, null, n.fontName);
+            }
+          }
+          if ('children' in n) { for (const c of n.children) await walk(c); }
+        }
+        await walk(root);
+        return res;
+      `, 60000) as { changed: number; unmapped: Array<{ nodeId: string; from: string }> };
+      return { changed: r?.changed ?? 0, unmapped: r?.unmapped ?? [] };
+    },
+
     async instantiateByKey({ componentKey, parentId, name }) {
       const r = await run(`
         ${SERIALIZE_NODE_FN}
