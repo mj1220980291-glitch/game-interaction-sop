@@ -27,7 +27,7 @@ function harness(nodes: FakeNode[], opts: { importFails?: boolean } = {}) {
   const wrap = (n: FakeNode) => ({
     id: n.id,
     type: n.type,
-    parent: { id: 'page:1', type: 'PAGE' },
+    parent: { id: 'page:1', type: 'PAGE', appendChild: () => {} },
     children: [],
     get name() {
       return n.name;
@@ -45,12 +45,21 @@ function harness(nodes: FakeNode[], opts: { importFails?: boolean } = {}) {
       const frame: FakeNode = { id: `frame:${++seq}`, name: n.name, type: 'FRAME', data: {} };
       byId.set(frame.id, frame);
       return wrap(frame);
-    }
+    },
+    appendChild: () => {},
+    resize: () => {},
+    fills: [] as unknown[],
+    clipsContent: false
   });
 
   const page: FakeNode = { id: 'page:1', name: 'Page 1', type: 'PAGE', data: {} };
 
   const figma = {
+    createFrame: () => {
+      const n: FakeNode = { id: `frame:${++seq}`, name: 'Frame', type: 'FRAME', data: {} };
+      byId.set(n.id, n);
+      return wrap(n);
+    },
     getNodeByIdAsync: async (id: string) => {
       if (id === page.id) return wrap(page);
       const n = byId.get(id);

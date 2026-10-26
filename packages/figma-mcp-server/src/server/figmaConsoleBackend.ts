@@ -356,13 +356,29 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           ${name != null ? `n.name = ${JSON.stringify(name)};` : ''}
           return serNode(n);
         }
-        // Layout containers only: converting a TEXT / VECTOR in place would
-        // silently change what the compiled part is, which the probe then
-        // reports as a capability mismatch far from the real cause.
-        if (n.type !== 'FRAME' && n.type !== 'GROUP') {
+        // Figma 不接受 GROUP 直转（真机报 "Cannot create component from node"）。
+        // 项目母版大多是 GROUP（796 的 Group 2363 / 798 的 Group 2360），
+        // 所以先套一个同尺寸的透明 FRAME，再把这个 FRAME 转成组件。
+        let target = n;
+        if (n.type === 'GROUP') {
+          const parent = n.parent;
+          const gx = n.x, gy = n.y, gw = n.width, gh = n.height;
+          const f = figma.createFrame();
+          f.name = n.name;
+          f.fills = [];
+          f.clipsContent = false;
+          f.resize(Math.max(gw, 1), Math.max(gh, 1));
+          if (parent) parent.appendChild(f);
+          f.x = gx;
+          f.y = gy;
+          f.appendChild(n);
+          n.x = 0;
+          n.y = 0;
+          target = f;
+        } else if (n.type !== 'FRAME' && n.type !== 'COMPONENT') {
           throw new Error('createComponentFromNode: unsupported type ' + n.type + ' for node ' + ${JSON.stringify(nodeId)});
         }
-        const comp = figma.createComponentFromNode(n);
+        const comp = figma.createComponentFromNode(target);
         ${name != null ? `comp.name = ${JSON.stringify(name)};` : ''}
         return serNode(comp);
       `, 20000) as Record<string, unknown>;
@@ -500,16 +516,24 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
             try { frame = inst.detachInstance(); }
             catch (e) { out.unresolved.push({ nodeId: inst.id, reason: 'detach: ' + (e && e.message) }); continue; }
             const compName = originalSetName ? originalName : (PROJECT + ' / 零件 / ' + originalName);
-            const comp = figma.createComponentFromNode(frame);
-            comp.name = compName;
-            const instance = comp.createInstance();
-            instance.name = instName;
-            parent.insertChild(Math.max(index, 0), instance);
-            instance.x = x;
-            instance.y = y;
-            partsPage.appendChild(comp);
-            comp.x = 0;
-            comp.y = 0;
+            let comp = null;
+            let instance = null;
+            try {
+              comp = figma.createComponentFromNode(frame);
+              comp.name = compName;
+              instance = comp.createInstance();
+              instance.name = instName;
+              parent.insertChild(Math.max(index, 0), instance);
+              instance.x = x;
+              instance.y = y;
+              partsPage.appendChild(comp);
+              comp.x = 0;
+              comp.y = 0;
+            } catch (e) {
+              // 单个零件失败不拖垮整篇：记进 unresolved，交给报告与人工处理。
+              out.unresolved.push({ nodeId: inst.id, reason: 'adopt: ' + (e && e.message) });
+              continue;
+            }
             ours[comp.id] = true;
             out.createdInstances.push(instance.id);
             out.adopted.push({
