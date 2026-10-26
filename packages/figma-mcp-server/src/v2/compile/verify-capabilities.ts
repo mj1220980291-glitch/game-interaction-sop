@@ -68,7 +68,11 @@ export function deriveCapabilities(input: {
 
   if (input.top) {
     caps.overview = detectOverview(input.top, []);
-    caps.roleAnnotation = detectRoleHabit(input.top);
+    // 职能写法的主证据经常不在顶部：796 是句内 `@GUI@程序`，证据在章节里。
+    // 顶部只看到「没有成组 @」时不能据此判定 none，保留源模板结论。
+    const habit = detectRoleHabit(input.top);
+    if (habit !== 'none') caps.roleAnnotation = habit;
+    else if (caps.roleAnnotation !== 'inline-suffix') undecidable.push('roleAnnotation');
   } else {
     undecidable.push('overview', 'roleAnnotation');
   }
@@ -92,12 +96,11 @@ export function deriveCapabilities(input: {
         : kinds.some((k) => k !== 'none')
           ? 'manual'
           : 'none';
-      caps.clusterGroups = chapterDetect.subrunGroup
-        ? 'slot-run'
-        : caps.clusterGroups === 'inline-subtitle'
-          ? 'inline-subtitle'
-          : 'slot-run';
-      if (!chapterDetect.subrunGroup && caps.clusterGroups === 'slot-run') {
+      // `subrunGroup` 是「簇内第二级」的唯一硬证据。看不到就保留源模板结论——
+      // 单看一个簇部件，扁平行序列很容易被误判成 slot run。
+      if (chapterDetect.subrunGroup) {
+        caps.clusterGroups = 'slot-run';
+      } else if (caps.clusterGroups === 'slot-run') {
         undecidable.push('clusterGroups');
       }
     }

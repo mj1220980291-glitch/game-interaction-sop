@@ -528,16 +528,18 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
             let comp = null;
             let instance = null;
             try {
+              // 必须先挪出部件再转组件：图层还嵌在 COMPONENT 里时，
+              // Figma 会直接拒绝（真机报 "Cannot create component from node"）。
+              partsPage.appendChild(frame);
               comp = figma.createComponentFromNode(frame);
               comp.name = compName;
+              comp.x = 0;
+              comp.y = 0;
               instance = comp.createInstance();
               instance.name = instName;
               parent.insertChild(Math.max(index, 0), instance);
               instance.x = x;
               instance.y = y;
-              partsPage.appendChild(comp);
-              comp.x = 0;
-              comp.y = 0;
             } catch (e) {
               // 单个零件失败不拖垮整篇：记进 unresolved，交给报告与人工处理。
               out.unresolved.push({ nodeId: inst.id, reason: 'adopt: ' + (e && e.message) });

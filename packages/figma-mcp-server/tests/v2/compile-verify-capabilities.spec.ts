@@ -44,6 +44,16 @@ describe('deriveCapabilities', () => {
     expect(r.capabilities.overview).toBe('none');
   });
 
+  it('顶部看不出成组 @ 时不清零职能写法，保留源模板结论', () => {
+    const top = tree('top', [
+      { id: 'top', name: '顶部', type: 'FRAME', childIds: ['a'] },
+      { id: 'a', name: '标题', type: 'TEXT', characters: '角色系统' }
+    ]);
+    const r = deriveCapabilities({ top, source: { ...DEFAULT_CAPABILITIES, roleAnnotation: 'inline-suffix' } });
+    expect(r.capabilities.roleAnnotation).toBe('inline-suffix');
+    expect(r.diffs.some((d) => d.key === 'roleAnnotation')).toBe(false);
+  });
+
   it('章节部件里没有簇 → 编号/标号/分级三项记为无法实测', () => {
     const chapter = tree('ch', [
       { id: 'ch', name: '章节', type: 'FRAME', childIds: ['g', 't'] },
