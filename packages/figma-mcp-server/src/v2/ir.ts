@@ -167,6 +167,8 @@ export const SOFT_WARNING_CODES = {
   W_ASSET_KEY_UNMATCHED: 'V2_W_ASSET_KEY_UNMATCHED',
   /** render — 单张配图填充失败（源节点不存在、导出失败等），占位保留文案 */
   W_FIGURE_FILL_FAILED: 'V2_W_FIGURE_FILL_FAILED',
+  /** render — 带 @职能 的条目找不到对应「职能标记」变体，降级为普通正文 */
+  W_ROLE_BLOCK_MISSING: 'V2_W_ROLE_BLOCK_MISSING',
   /** render — 渲染产物与 IR 对不上，对应部分未打标记，之后无法同步 */
   W_STAMP_LAYOUT_MISMATCH: 'V2_W_STAMP_LAYOUT_MISMATCH',
   /** render — 打标记失败，文档可用但无法同步 */

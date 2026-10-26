@@ -1,7 +1,7 @@
 {
   "name": "game-interaction-sop",
-  "version": "0.2.0",
-  "description": "Game UI interaction-doc SOP — Phase 0 pattern recall → Phase 1 requirement confirmation → Phase 2 v2 Markdown → Phase 3 asset collection → Phase 4 Figma rendering → Phase 5 pattern-library maintenance.",
+  "version": "2.2.1",
+  "description": "Game UI interaction-doc SOP — Phase 0 pattern recall → Phase 1 requirement confirmation → Phase 2 v2 Markdown → Phase 3 asset collection → Phase 4 Figma rendering → Phase 5 style learning → Phase 6 pattern-library maintenance. Configurable template address, 职能标记 role blocks, project style mod.",
   "entry": "SKILL.md",
   "phases": [
     "phases/phase0-recall.md",
@@ -9,7 +9,8 @@
     "phases/phase2-markdown.md",
     "phases/phase3-asset.md",
     "phases/phase4-figma.md",
-    "phases/phase5-extract.md"
+    "phases/phase5-style-learn.md",
+    "phases/phase6-extract.md"
   ],
   "references": [
     "references/markdown-v2-spec.md",
@@ -17,12 +18,13 @@
     "references/index-schema.md",
     "references/deviation-schema.md",
     "references/role-tags.md",
-    "references/template-1-14.md"
+    "references/template-1-14.md",
+    "references/style-mod-schema.md"
   ],
   "agents": {
     "openai": "agents/openai.yaml"
   },
-  "engineVersion": "^0.1.0",
+  "engineVersion": "^0.2.0",
   "mcp": {
     "name": "figma-console",
     "package": "figma-console-mcp",

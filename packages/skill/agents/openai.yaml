@@ -1,4 +1,4 @@
 interface:
   display_name: "游戏交互 SOP"
-  short_description: "需求挖掘 → v2 Markdown → 索要设计稿 → 写入 Figma 的完整 SOP"
-  default_prompt: "对这个游戏交互需求执行完整 SOP。先按 Phase 1 复述理解、每轮 ≤3 问追问；信息可用后按 Phase 2 输出 v2 Markdown 给用户审、确认后保存；Phase 3 主动问用户要设计稿（图片/链接/跳过）；Phase 4 调 figma-interaction-doc-engine 写入 Figma 模板 1:14。每个 Phase 有明确的进入/完成条件，不跨 Phase。"
+  short_description: "需求挖掘 → v2 Markdown → 索要设计稿 → 写入 Figma → 文风沉淀 → 模式库维护的完整 SOP"
+  default_prompt: "对这个游戏交互需求执行完整 SOP。先按 Phase 1 复述理解、每轮 ≤3 问追问；信息可用后按 Phase 2 输出 v2 Markdown 给用户审、确认后保存并落快照；Phase 3 主动问用户要设计稿（图片/链接/跳过）；Phase 4 调 figma-interaction-doc-engine 写入模板；Phase 5 把本轮人工改过的表述沉淀进 style_own.md（先列清单确认）；Phase 6 增量维护模式库。每个 Phase 有明确的进入/完成条件，不跨 Phase。"

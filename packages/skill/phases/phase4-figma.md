@@ -20,7 +20,46 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
 
 ## 标准调用流程
 
-### 第一步：声明开始
+### 第一步：读项目配置 + preflight
+
+写 Figma 前先读两处项目配置，缺省即回退官方模板，不要阻塞：
+
+1. `<项目根>/.interaction-sop/template.json`（可选）— 项目指定的模板
+   ```json
+   { "template": { "fileKey": "…", "nodeId": "1:14" } }
+   ```
+2. `<项目根>/.interaction-sop/` 下本次生效的文风文件（按 `references/style-mod-schema.md` 的「文件选择顺序」确定，Phase 1 已选定）— 只为判断 `role_annotation.mode`
+
+**preflight（只用现有 Figma 只读工具，不写画布）**：
+
+- 模板地址：项目配置 > `~/.game-interaction-sop/template.json` > `config.local.json` 的 `figma` 段 > 官方默认
+  - **库引用模式**（配置里有 `template.componentKey`）：目标文件只要开着连接插件即可，无需包含模板；`target.fileKey` 填用户当前要写入的文件
+  - **同文件模式**（只有 `fileKey` + `nodeId`）：渲染文件必须就是模板所在文件，把该 key 写进 `target.fileKey`
+- Markdown 里有 `- @职能：` 条目时，确认 `roleBlock.componentSetId` 已配置，且该组件集在**同一个文件**里、角色变体齐全。缺配置就明确告诉用户，不要先渲染再报错
+- 用户在别的文件里做设计时，先让用户把连接插件切到目标文件
+
+**连不上 Figma 时，按这个顺序处理**（读取与写入都适用）：
+
+1. 先跑 `figma_list_open_files`。返回 `No files connected`、目标文件不在列表里，或渲染返回 `V2_BACKEND_UNAVAILABLE` / `V2_TARGET_FILE_UNREACHABLE`，都算连不上
+2. **优先让用户在目标文件里启动这个社区插件**，一次给全链接，不要只描述：
+
+   ```
+   请在目标文件（<文件名>）里启动这个插件：
+   https://www.figma.com/community/plugin/1695400514520991057
+   ```
+
+   关键点要一起说：**它可以在网页端启动，不需要安装 Figma 客户端**；启动后窗口保持打开，连接建立期间别关
+3. 该插件因版本/权限原因起不来，才回退到本地 Desktop Bridge（Figma 桌面端 → Plugins → Development → Figma Desktop Bridge）
+4. 两条都不通 → 停下来等用户，不改 Markdown、不降级贴图、不换文件硬写
+
+对用户复述一句（不要长篇）：
+
+```
+模板：<fileKey> / <nodeId>（项目配置 / 用户配置 / 官方默认）
+职能标记组件集：已配置 <id> / 未配置（Markdown 未使用 @职能）
+```
+
+### 第二步：声明开始
 
 ```
 开始 Phase 4：写入 Figma。
@@ -32,7 +71,7 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
 我现在调用 figma-interaction-doc-engine。
 ```
 
-### 第二步：调用引擎
+### 第三步：调用引擎
 
 引擎以 MCP Server `figma-interaction-doc-engine` 的形式提供，**直接调用它的 MCP 工具即可，不需要写任何胶水代码**。
 
@@ -62,14 +101,18 @@ Phase 4 只用得到两个工具：
   "markdown": "<同上>",
   "assetMap": {
     "01": { "type": "image", "src": "<图片路径或 base64>" },
-    "02": { "type": "figma_node", "fileKey": "<file key>", "nodeId": "<node id>" },
-    "03": { "type": "skip" },
+    "02": { "type": "figma_instance", "fileKey": "<file key>", "nodeId": "<母版或子版 node id>" },
+    "03": { "type": "figma_node", "fileKey": "<file key>", "nodeId": "<node id>" },
     "01/1/2": { "type": "figma_node", "fileKey": "<file key>", "nodeId": "<node id>",
                 "crop": { "x": 700, "y": 0, "width": 520, "height": 160 } }
   },
   "target": {
-    "fileKey": "UYCJok3MXTWITMfeJSqEF6",
+    "fileKey": "<模板所在文件 fileKey — preflight 解析结果>",
     "pageId": "<询问用户 / 缺省新建>"
+  },
+  "template": {
+    "fileKey": "<同 target.fileKey，可省略>",
+    "nodeId": "<模板节点 ID，默认 1:14>"
   }
 }
 ```
@@ -78,20 +121,26 @@ Phase 4 只用得到两个工具：
 
 - `markdown`（必填）— Markdown 全文，不是路径
 - `assetMap`（可选）— 两类 key：
-  - `"NN"` 章节主图，三种 `type`：
+  - `"NN"` 章节主图，四种 `type`：
     - `image` — 需要 `src`
-    - `figma_node` — 需要 `fileKey` + `nodeId`，可选 `crop`
+    - `figma_node` — 需要 `fileKey` + `nodeId`，可选 `crop`（栅格化成图片填充）
+    - `figma_instance` — 需要 `fileKey` + `nodeId`（源节点为 `COMPONENT` 或 `INSTANCE`）；引擎实例化/clone 后等比缩放居中并删除占位，文档里留真实子版
     - `skip` — 留占位
+    - **源节点是母版（COMPONENT / INSTANCE）时必须用 `figma_instance`**，不得用 `image` / `figma_node` 把母版降级成图；`COMPONENT_SET` 需先选定具体变体 nodeId
     - **缺省的章节按 `skip` 处理**，Phase 3 跳过的章节不写进去即可
   - `"NN/C/K"` 配图（第 NN 章第 C 簇第 K 张，K 跨 `####` 连续），只支持 `figma_node`（可选 `crop`）/ `skip`；不写键的配图保留"配图占位：xxx"。键怎么编、区域怎么定见 `phase3-asset.md`「配图资产」
 - `target`（可选）— `fileKey` / `pageId`
-  - `fileKey` 决定写进哪个文件。**不传就写进 Figma Desktop 当前活动的那个文件**，所以只要用户可能同时开着别的文件，就该显式传 `UYCJok3MXTWITMfeJSqEF6`
-  - 目标文件必须也开着 Desktop Bridge 插件；否则引擎返回 `V2_TARGET_FILE_UNREACHABLE`
-  - 目标文件里的 `1:14` 不是模板时，引擎返回 `V2_TEMPLATE_NODE_MISMATCH` 并且一个节点都不写
+  - `fileKey` 决定写进哪个文件。**不传就写进 Figma Desktop 当前活动的那个文件**，所以只要用户可能同时开着别的文件，就该显式传 preflight 解析出的模板文件 key
+  - 目标文件必须也开着连接插件（优先社区插件 `https://www.figma.com/community/plugin/1695400514520991057`，其次本地 Desktop Bridge）；否则引擎返回 `V2_TARGET_FILE_UNREACHABLE`
+  - 目标文件里的模板节点结构不对时，引擎返回 `V2_TEMPLATE_NODE_MISMATCH` 并且一个节点都不写
+- `template`（可选）— `fileKey` / `nodeId`，覆盖本次渲染使用的模板
+  - 优先级：本次入参 > 环境变量 `FIGMA_TEMPLATE_FILE_KEY` / `FIGMA_TEMPLATE_NODE_ID` > `~/.game-interaction-sop/template.json` > `config.local.json` 的 `figma` 段 > 官方默认
+  - 项目级配置写在 `<项目根>/.interaction-sop/template.json`，Phase 4 第一步读取后传进来
+  - 只换地址，不换结构：模板内部节点名必须与 `template-1-14.md` 一致
 
 **不要手写 `figma_execute` 脚本绕过这两个工具。** 所有 pitfall 保护（GROUP 爆炸防护 / FRAME-local 坐标换算 / 单点 probe / 角色 TEXT 删除 / 配图占位双向判定）都在引擎的 safety wrapper 里。绕过引擎等于把防护全卸掉。
 
-### 第三步：处理引擎返回
+### 第四步：处理引擎返回
 
 引擎返回三种结果：
 
@@ -125,11 +174,24 @@ Phase 4 只用得到两个工具：
 我现在回到 Phase 2 修正 Markdown，修完后重新写 Figma。
 ```
 
+若返回 `V2_ROLE_BLOCK_UNAVAILABLE`，说明 Markdown 有 `- @职能：` 条目但模板没配「职能标记」组件集，或组件集缺该角色变体。不要改 Markdown 绕过——先处理模板：
+
+```
+⚠️ 模板缺「职能标记」组件：
+- 缺的是：@策划 变体 / 整个组件集未配置
+- 需要在模板文件里放好 职能标记 COMPONENT_SET（变体名 职能标记=#策划 …）
+- 然后在 ~/.game-interaction-sop/template.json（或 config.local.json）填 roleBlock.componentSetId
+
+修好后我重跑 Phase 4。也可以临时把这几条改成普通 bullet（会丢职能归属）。
+```
+
 #### 结果 C：Figma API / 引擎运行时失败
 
 报告失败原因，告诉用户 Figma 文件状态（已部分写入 / 未写入），询问下一步：重试 / 撤销 / 人工介入。
 
-若返回 `V2_BACKEND_UNAVAILABLE`，说明 MCP Server 启动时没接上 Figma 后端——让用户检查 Figma Desktop Bridge 插件是否在目标文件里运行中，然后重启 MCP Server。
+若返回 `V2_BACKEND_UNAVAILABLE` 或 `V2_TARGET_FILE_UNREACHABLE`，先让用户在目标文件里启动社区插件
+`https://www.figma.com/community/plugin/1695400514520991057`（**网页端也能启动，不必装客户端**），
+再不行才回退本地 Desktop Bridge，最后才重启 MCP Server。不要在这之前反复重试或改 Markdown。
 
 ```
 ⚠️ Figma 写入失败：[错误]
@@ -199,20 +261,27 @@ Phase 4 只用得到两个工具：
 - 小范围微调 → 让用户在 Figma 里直接改（引擎不提供微调工具）；之后同步不会覆盖这些手改
 - 内容修改 → 改 Markdown，走上面的同步模式
 
+### 文风沉淀不在这里做
+
+Phase 4 结束时**不要**问"要不要沉淀文风"。Figma 里改过的表述，统一由 Phase 5 收口：
+
+- 问一句"你在 Figma 里改过表述吗？把最新文档链接/node 给我"，这一步归 Phase 5
+- 读文本 → 对比 → 提炼条目 → 列清单确认 → 写 `style_own.md`，细则见 `phase5-style-learn.md`
+
 ---
 
 ## SOP 完成
 
-用户验收通过后：
+Phase 4 交付完成后，主动进入 Phase 5（文风沉淀）。
 
 ```
-🎉 SOP 完成。
+🎉 交互文档已交付。
 
 产物：
 - v2 Markdown：[路径]
 - Figma 文档：[URL]
 
-如果后续需要调整，告诉我修改点，我会从对应 Phase 重入。
+下一步做文风沉淀：把这一轮你改过的表述存成你的表达习惯。
 ```
 
 ---

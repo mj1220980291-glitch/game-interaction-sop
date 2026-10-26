@@ -13,6 +13,8 @@ import type { DocIR, SemanticCluster } from '../ir.js';
 import type { AssetSpec } from '../render.js';
 import type { FigmaBackend, StampEntry } from '../figma-client.js';
 import { SECTION_CHILD_NAMES } from '../template-map.js';
+import { DEFAULT_VARIANT_PREFIX } from '../template-config.js';
+import { parseRoleBullet } from '../role-block.js';
 import { Tree, type TNode } from './tree.js';
 import {
   HEADER_KEYS,
@@ -39,6 +41,8 @@ export interface ExpectedItem {
   text: string;
   /** figure only: K in the `"NN/C/K"` asset key. */
   ordinal?: number;
+  /** role only: the 职能 the component variant is chosen by. */
+  role?: string;
 }
 
 /** A cluster's items in document order, as the renderer lays them out. */
@@ -50,7 +54,10 @@ export function expectedItems(cluster: SemanticCluster): ExpectedItem[] {
   for (const g of cluster.groups) {
     if (!flat && g.title !== null) out.push({ t: 'subtitle', text: g.title });
     for (const b of g.bullets) {
-      if (isImageBullet(b)) {
+      const role = parseRoleBullet(b);
+      if (role) {
+        out.push({ t: 'role', text: role.text, role: role.role });
+      } else if (isImageBullet(b)) {
         out.push({ t: 'figure', text: stripImageBulletPrefix(b), ordinal: ++ordinal });
       } else {
         out.push({ t: 'rule', text: normalizeBulletText(b) });
@@ -112,6 +119,7 @@ export function itemTypeOf(n: TNode): ItemType | undefined {
   if (n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText) return 'rule';
   if (n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle) return 'subtitle';
   if (n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder) return 'figure';
+  if (n.type === 'INSTANCE' && n.name.startsWith(DEFAULT_VARIANT_PREFIX)) return 'role';
   return undefined;
 }
 
@@ -321,7 +329,13 @@ export function buildCreateStamps(
       const want = expectedItems(cluster);
       cl.items.forEach((it, k) => {
         const exp = want[k]!;
-        const item: ItemStamp = { kind: 'item', iid: newId('i'), t: exp.t, text: exp.text };
+        const item: ItemStamp = {
+          kind: 'item',
+          iid: newId('i'),
+          t: exp.t,
+          text: exp.text,
+          ...(exp.role ? { role: exp.role } : {})
+        };
         let capture = false;
         if (exp.t === 'figure') {
           const asset = assetMap?.[`${section.index}/${ci + 1}/${exp.ordinal}`];

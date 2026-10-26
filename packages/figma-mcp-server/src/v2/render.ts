@@ -46,11 +46,21 @@ import {
   OVERVIEW_SLOTS,
   SECTION_TEMPLATE,
   SECTION_CHILD_NAMES,
-  TEMPLATE_NODE_ID,
-  TEMPLATE_FILE_KEY,
   DEFAULT_BUBBLE_GRID,
   ROLE_TEXT_ORDER
 } from './template-map.js';
+import {
+  resolveTemplateConfig,
+  DEFAULT_TEMPLATE,
+  type TemplateRef
+} from './template-config.js';
+import {
+  findRoleBlockBody,
+  loadRoleBlocks,
+  parseRoleBullet,
+  type RoleBlockRuntime
+} from './role-block.js';
+
 import {
   cloneNodeSafe,
   decideRoleKeepDelete,
@@ -136,7 +146,13 @@ export type AssetSpec =
       scale?: number;
     }
   /** Leave 主图占位 untouched; user will hand-drop an image later. */
-  | { type: 'skip' };
+  | { type: 'skip' }
+  /**
+   * Place a LIVE instance of a design master / pasted instance over 主图占位.
+   * Unlike `figma_node`, nothing is rasterized: the document keeps a real
+   * instance linked to its component, scaled into the placeholder.
+   */
+  | { type: 'figma_instance'; fileKey: string; nodeId: string };
 
 export interface RenderInput {
   markdown: string;
@@ -172,6 +188,11 @@ export interface RenderInput {
   scope?: string;
   /** Sync only: compute and report the plan without writing. */
   dryRun?: boolean;
+  /**
+   * Template to clone. Omitted, {@link resolveTemplateConfig} walks
+   * env → `~/.game-interaction-sop/template.json` → default.
+   */
+  template?: Partial<TemplateRef>;
 }
 
 export interface RenderResult {
@@ -230,6 +251,7 @@ export async function renderV2MarkdownToFigma(
   // Phase B — Render. Wrap in undo checkpoint + try/catch for one-shot rollback.
   const figures = makeFigureState(input.assetMap);
   const keyWarnings = findUnmatchedAssetKeys(parsed.ir, input.assetMap);
+  const roleWarnings: SoftWarning[] = [];
   await targetBackend.commitUndoCheckpoint('v2-render-start');
   let rootInstanceId: string | undefined;
   try {
@@ -238,7 +260,8 @@ export async function renderV2MarkdownToFigma(
       input,
       targetBackend,
       figures,
-      (id) => { rootInstanceId = id; }   // set as soon as root is created
+      (id) => { rootInstanceId = id; },   // set as soon as root is created
+      (w) => roleWarnings.push(w)
     );
   } catch (e) {
     const err = e as Error & { code?: string };
@@ -284,7 +307,7 @@ export async function renderV2MarkdownToFigma(
     mode: 'create',
     rootInstanceId,
     errors: [],
-    warnings: [...parsed.warnings, ...keyWarnings, ...figures.warnings, ...stampWarnings],
+    warnings: [...parsed.warnings, ...keyWarnings, ...figures.warnings, ...stampWarnings, ...roleWarnings],
     summary: {
       ...summarize(parsed.ir, input.assetMap),
       figuresPlaced: figures.placed
@@ -337,14 +360,22 @@ async function bindTargetFile(
   }
 
   const bound = backend.withFileKey(fileKey);
+  const template = resolveTemplateConfig(input.template);
+
+  // Library mode: the template lives in a published library, not in the target
+  // file. Nothing to probe — the node id would resolve to an unrelated node in
+  // whatever file happens to be open.
+  if (template.componentKey) return bound;
+
+  const templateNodeId = template.nodeId ?? DEFAULT_TEMPLATE.nodeId;
 
   let templateNode: NodeInfo;
   try {
-    templateNode = await bound.getNodeInfo(TEMPLATE_NODE_ID);
+    templateNode = await bound.getNodeInfo(templateNodeId);
   } catch (e) {
     throw Object.assign(
       new Error(
-        `cannot read template node ${TEMPLATE_NODE_ID} in file ${fileKey}: ` +
+        `cannot read template node ${templateNodeId} in file ${fileKey}: ` +
           `${(e as Error).message}. Is the Desktop Bridge plugin running in that file?`
       ),
       { code: 'V2_TARGET_FILE_UNREACHABLE' }
@@ -358,9 +389,9 @@ async function bindTargetFile(
   ) {
     throw Object.assign(
       new Error(
-        `node ${TEMPLATE_NODE_ID} in file ${fileKey} is a ${templateNode.type} ` +
-          `named "${templateNode.name}" with no children — that is not the 1:14 ` +
-          `template. Expected file: ${TEMPLATE_FILE_KEY}.`
+        `node ${templateNodeId} in file ${fileKey} is a ${templateNode.type} ` +
+          `named "${templateNode.name}" with no children — that is not the template. ` +
+          `Expected node ${templateNodeId} (see ~/.game-interaction-sop/template.json).`
       ),
       { code: 'V2_TEMPLATE_NODE_MISMATCH' }
     );
@@ -376,18 +407,48 @@ export async function renderInner(
   input: RenderInput,
   backend: FigmaBackend,
   figures: FigureState,
-  onRootCreated?: (id: string) => void
+  onRootCreated?: (id: string) => void,
+  report?: (w: SoftWarning) => void
 ): Promise<string> {
   // 1. Clone master template into target page.
-  const root = await tracedClone(
-    backend,
-    {
-      sourceId: TEMPLATE_NODE_ID,
+  const template = resolveTemplateConfig(input.template);
+  const seenWarnings = new Set<string>();
+  const warnRoleBlock = (message: string) => {
+    if (seenWarnings.has(message)) return;
+    seenWarnings.add(message);
+    report?.({ code: SOFT_WARNING_CODES.W_ROLE_BLOCK_MISSING, message });
+  };
+  const roleBlocks = await loadRoleBlocks(backend, template.roleBlock, warnRoleBlock);
+  assertRoleBlocksAvailable(ir, roleBlocks);
+  let root: NodeInfo;
+  if (template.componentKey) {
+    if (!backend.instantiateByKey) {
+      throw Object.assign(
+        new Error('当前 Figma 后端不支持库引用模式（instantiateByKey）'),
+        { code: 'V2_LIBRARY_UNSUPPORTED' }
+      );
+    }
+    root = await backend.instantiateByKey({
+      componentKey: template.componentKey,
       parentId: input.target?.pageId,
       name: ir.header.title
-    },
-    { callSite: 'template.root' }
-  );
+    });
+    // Figma refuses structural edits (cloning 说明块, appending bullets) inside
+    // an instance, and imported library instances are the strictest. Detach the
+    // root so the rest of the renderer can keep treating it as a plain frame.
+    // NOTE: detach replaces the node — the frame has a different id.
+    if (backend.detachInstance) root = await backend.detachInstance(root.id);
+  } else {
+    root = await tracedClone(
+      backend,
+      {
+        sourceId: template.nodeId ?? DEFAULT_TEMPLATE.nodeId,
+        parentId: input.target?.pageId,
+        name: ir.header.title
+      },
+      { callSite: 'template.root' }
+    );
+  }
   // Expose root.id immediately so the outer catch can delete it on failure.
   onRootCreated?.(root.id);
 
@@ -486,7 +547,14 @@ export async function renderInner(
     const sectionNode = sectionNodes[i];
     if (!section || !sectionNode) continue;
 
-    await renderSection(backend, sectionNode, section, input.assetMap?.[section.index], figures);
+    await renderSection(
+      backend,
+      sectionNode,
+      section,
+      input.assetMap?.[section.index],
+      figures,
+      roleBlocks
+    );
 
     if (input.assetMap?.[section.index]?.type === 'image') imagesPlaced++;
     else placeholdersUsed++;
@@ -495,8 +563,55 @@ export async function renderInner(
   return root.id;
 }
 
-// --- Section rendering ---------------------------------------------------
+function requireInstantiateByKey(
+  backend: FigmaBackend
+): NonNullable<FigmaBackend['instantiateByKey']> {
+  if (!backend.instantiateByKey) {
+    throw Object.assign(
+      new Error('当前 Figma 后端不支持按库 key 实例化组件（instantiateByKey）'),
+      { code: 'V2_LIBRARY_UNSUPPORTED' }
+    );
+  }
+  return backend.instantiateByKey.bind(backend);
+}
 
+function requireInstantiateComponent(
+  backend: FigmaBackend
+): NonNullable<FigmaBackend['instantiateComponent']> {
+  if (!backend.instantiateComponent) {
+    throw Object.assign(
+      new Error('当前 Figma 后端不支持组件实例化（instantiateComponent），无法渲染 @职能 条目'),
+      { code: 'V2_ROLE_BLOCK_UNAVAILABLE' }
+    );
+  }
+  return backend.instantiateComponent.bind(backend);
+}
+
+/**
+ * `- @职能：…` needs the 职能标记 component set. Without it the bullet would
+ * become a plain TEXT, the create-mode stamp would no longer line up with the
+ * canvas and the document could never be synced — so fail loudly instead.
+ */
+function assertRoleBlocksAvailable(
+  ir: DocIR,
+  roleBlocks: RoleBlockRuntime | undefined
+): void {
+  if (roleBlocks) return;
+  const hasRoleBullet = ir.sections.some((s) =>
+    s.clusters.some((c) => c.bullets.some((b) => parseRoleBullet(b) !== undefined))
+  );
+  if (!hasRoleBullet) return;
+  throw Object.assign(
+    new Error(
+      'Markdown 里有 `- @职能：…` 条目，但模板未配置「职能标记」组件集。' +
+        '在 ~/.game-interaction-sop/template.json（或 config.local.json）里填 roleBlock.componentSetId，' +
+        '并把组件集放进模板文件后重试。'
+    ),
+    { code: 'V2_ROLE_BLOCK_UNAVAILABLE' }
+  );
+}
+
+// --- Section rendering ---------------------------------------------------
 // TODO(v0.2-fix)  —  必修 bug 清单，详见 docs/figma-mcp-pitfalls.md
 //
 // 2026-05-13 第二次实盘（玩家等级系统）后补：
@@ -545,7 +660,8 @@ async function renderSection(
   sectionNode: NodeInfo,
   section: DocIR['sections'][number],
   asset: AssetSpec | undefined,
-  figures: FigureState
+  figures: FigureState,
+  roleBlocks: RoleBlockRuntime | undefined
 ): Promise<void> {
   // Re-index this section's named children.
   const named = await indexCloneByName(backend, sectionNode.id, [
@@ -648,7 +764,8 @@ async function renderSection(
       imageSeed,
       section.index,
       i,
-      figures
+      figures,
+      roleBlocks
     );
     if (bubble) bubbleNodes.push(bubble);
   }
@@ -846,7 +963,8 @@ async function fillCluster(
   imageSeed: ImageSeed,
   sectionIndex: string,
   clusterIndex: number,
-  figures: FigureState
+  figures: FigureState,
+  roleBlocks: RoleBlockRuntime | undefined
 ): Promise<NodeInfo | undefined> {
   // Re-index names inside this cluster block.
   // PR-1 (backend-scan-subtree-batch): use single-RTT scanSubtree instead of
@@ -929,14 +1047,16 @@ async function fillCluster(
       imageSeed,
       sectionIndex,
       clusterIndex,
-      figures
+      figures,
+      roleBlocks
     });
   } else {
     await fillGroupSlots(backend, clusterNode, cluster, {
       imageSeed,
       sectionIndex,
       clusterIndex,
-      figures
+      figures,
+      roleBlocks
     });
   }
 
@@ -989,6 +1109,7 @@ interface FillBlockContentParams {
   sectionIndex: string;
   clusterIndex: number;
   figures: FigureState;
+  roleBlocks: RoleBlockRuntime | undefined;
 }
 
 /**
@@ -1010,7 +1131,7 @@ async function fillBlockContent(
       n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText
   );
 
-  if (bullets.some(isImageBullet)) {
+  if (bullets.some(isImageBullet) || bullets.some((b) => parseRoleBullet(b) !== undefined)) {
     await fillBlockContentInline(backend, p, bulletTexts);
     return;
   }
@@ -1106,7 +1227,8 @@ async function fillBlockContentInline(
     protoBulletId: directBulletTexts[0]?.id,
     protoImageId: directImageGroups[0]?.id ?? imageSeed.id,
     ordinal: { next: 1 },
-    trace: { callSite: 'fillCluster.inlineImage', sectionIndex, clusterIndex }
+    trace: { callSite: 'fillCluster.inlineImage', sectionIndex, clusterIndex },
+    roleBlocks: p.roleBlocks
   });
 
   const originals = imageSeed.filterDeletes([
@@ -1156,6 +1278,7 @@ async function appendBulletsInOrder(
     protoImageId: string | undefined;
     ordinal: { next: number };
     trace: RenderTrace;
+    roleBlocks: RoleBlockRuntime | undefined;
   }
 ): Promise<AppendedBullets> {
   const out: AppendedBullets = { textUpdates: [], images: [] };
@@ -1182,6 +1305,39 @@ async function appendBulletsInOrder(
   };
 
   for (const bullet of p.bullets) {
+    const roleBullet = parseRoleBullet(bullet);
+    if (roleBullet) {
+      await flushRules();
+      const variantId = p.roleBlocks?.variants.get(roleBullet.role);
+      const variantKey = p.roleBlocks?.variantKeys?.get(roleBullet.role);
+      if (!p.roleBlocks || (!variantId && !variantKey)) {
+        throw Object.assign(
+          new Error(
+            `「职能标记」组件里没有 @${roleBullet.role} 对应的变体（期望名称："${p.roleBlocks?.config.variantPrefix ?? '职能标记='}#${roleBullet.role}"）`
+          ),
+          { code: 'V2_ROLE_BLOCK_UNAVAILABLE' }
+        );
+      }
+      const instanceName = `${p.roleBlocks.config.variantPrefix}${roleBullet.role}`;
+      const instance = variantKey
+        ? await requireInstantiateByKey(backend)({
+            componentKey: variantKey,
+            parentId: p.parentId,
+            name: instanceName
+          })
+        : await requireInstantiateComponent(backend)({
+            componentId: variantId!,
+            parentId: p.parentId,
+            name: instanceName
+          });
+      const bodyId = await findRoleBlockBody(
+        backend,
+        instance.id,
+        p.roleBlocks.config.labelTextName
+      );
+      if (bodyId) out.textUpdates.push({ nodeId: bodyId, characters: roleBullet.text });
+      continue;
+    }
     if (!isImageBullet(bullet)) {
       pending.push(bullet);
       continue;
@@ -1332,6 +1488,7 @@ async function fillGroupSlots(
     sectionIndex: string;
     clusterIndex: number;
     figures: FigureState;
+    roleBlocks: RoleBlockRuntime | undefined;
   }
 ): Promise<void> {
   const blockInfo = await backend.getNodeInfo(clusterNode.id);
@@ -1352,7 +1509,8 @@ async function fillGroupSlots(
       imageSeed: ctx.imageSeed,
       sectionIndex: ctx.sectionIndex,
       clusterIndex: ctx.clusterIndex,
-      figures: ctx.figures
+      figures: ctx.figures,
+      roleBlocks: ctx.roleBlocks
     });
     return;
   }
@@ -1405,7 +1563,8 @@ async function fillGroupSlots(
       protoBulletId: protoBullet?.id,
       protoImageId: protoImage?.id,
       ordinal,
-      trace: { callSite: 'fillGroupSlots.image', sectionIndex: ctx.sectionIndex, clusterIndex: ctx.clusterIndex }
+      trace: { callSite: 'fillGroupSlots.image', sectionIndex: ctx.sectionIndex, clusterIndex: ctx.clusterIndex },
+      roleBlocks: ctx.roleBlocks
     });
     textUpdates.push(...appended.textUpdates);
     images.push(...appended.images);
@@ -1576,6 +1735,14 @@ export async function applyAsset(
         console.warn(
           `[render.ts] backend lacks rasterizeNodeToImageFill; skipping figma_node asset for placeholder ${mainPlaceholder.id}`
         );
+      }
+      break;
+    case 'figma_instance':
+      if (backend.placeInstance) {
+        await backend.placeInstance({
+          sourceId: asset.nodeId,
+          placeholderId: mainPlaceholder.id
+        });
       }
       break;
     case 'skip':

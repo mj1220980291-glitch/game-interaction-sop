@@ -28,6 +28,7 @@ import {
 } from './plan.js';
 import { buildSnapshot } from './snapshot.js';
 import { SCRATCH_ROOT_NAME, type DocStamp } from './stamp.js';
+import type { TemplateRef } from '../template-config.js';
 import { Tree } from './tree.js';
 
 export type { ReconcileChange, ReconcileConflict, ReconcilePreserved } from './plan.js';
@@ -109,7 +110,7 @@ export async function reconcileV2(
     if (plan.scratchSections.length > 0) {
       const scratch = await renderScratch(backend, ir, plan, input.assetMap, tree.pageId, (id) => {
         scratchRootId = id;
-      });
+      }, input.template);
       scratchRootId = scratch.rootId;
       resolver = scratch.resolver;
       warnings.push(...scratch.warnings);
@@ -236,7 +237,8 @@ async function renderScratch(
   plan: Plan,
   assetMap: Record<string, AssetSpec> | undefined,
   pageId: string | undefined,
-  onRoot: (id: string) => void
+  onRoot: (id: string) => void,
+  template?: Partial<TemplateRef>
 ): Promise<{ rootId: string; resolver: Resolver; warnings: SoftWarning[] }> {
   const pos = new Map<number, number>();
   plan.scratchSections.forEach((s, p) => pos.set(s, p));
@@ -267,7 +269,7 @@ async function renderScratch(
   let rootId: string | undefined;
   rootId = await renderInner(
     scratchIr,
-    { markdown: '', assetMap: remapped, target: { pageId } },
+    { markdown: '', assetMap: remapped, target: { pageId }, template },
     backend,
     figures,
     (id) => {

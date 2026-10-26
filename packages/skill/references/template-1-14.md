@@ -14,6 +14,10 @@
 | 模板节点名 | `模板`（COMPONENT 类型） |
 | URL | `https://www.figma.com/design/UYCJok3MXTWITMfeJSqEF6/Agent%E8%8D%89%E7%A8%BF?node-id=1-14` |
 
+> **地址可配**：引擎按 `render_v2_markdown_to_figma` 的 `template` 入参 → 环境变量 `FIGMA_TEMPLATE_FILE_KEY` / `FIGMA_TEMPLATE_NODE_ID` / `FIGMA_TEMPLATE_COMPONENT_KEY` → `~/.game-interaction-sop/template.json` → `~/.game-interaction-sop/config.local.json` 的 `figma` 段 → 上表默认值 依次解析。**只有地址可配**：下面的节点名与槽位结构必须与官方模板一致。
+>
+> **库引用模式**：模板与「职能标记」发布到组件库后，配置 `template.componentKey` + `roleBlock.variantKeys`，引擎用 `importComponentByKeyAsync` 导入实例，**目标文件不需要先放模板**，只要该文件能访问这个库即可。
+
 ---
 
 ## 模板顶层结构
@@ -83,8 +87,60 @@
 | `@角色1 @角色2 ...` 行 | 角色 FRAME 内对应 TEXT 节点（保留命中项，删除其余） |
 | 该簇下的 bullet | 说明段 TEXT |
 | `- 配图：xxx` bullet（可选，可多条） | 每条原位克隆一个配图占位，紧跟其前一条规则，占位文案写 `配图占位：xxx` |
+| `- @策划：xxx` bullet（可选，可多条） | 原位克隆「职能标记」对应角色变体实例，正文写进变体的正文 TEXT |
 
 > 子节点 ID 待引擎首次扫描"界面说明1 (1:44)"时再补全到本表。届时本表追加`小标题块`槽位 ID 段。
+
+---
+
+## 「职能标记」组件集（可选，独立于 1:14）
+
+Markdown 里出现 `- @策划：…` 条目时，引擎从**同一文件**的组件集取变体实例化。它不在 `1:14` 模板子树内，而是模板文件里的另一个节点：
+
+```
+职能标记 (COMPONENT_SET，node id 由 roleBlock.componentSetId 指定)
+├─ 职能标记=#策划  (COMPONENT)
+│   ├─ 文本        (TEXT，标签，引擎不写)
+│   └─ [正文]      (TEXT，引擎写入 bullet 正文)
+├─ 职能标记=#程序
+├─ 职能标记=#GUI
+├─ 职能标记=#动效
+├─ 职能标记=#拼接
+└─ …（缺哪个角色变体，就不能用该角色的 @职能 条目）
+```
+
+配置示例（`~/.game-interaction-sop/template.json`）：
+
+**库引用模式（推荐）**
+
+```json
+{
+  "template": { "componentKey": "<模板组件的发布 key>" },
+  "roleBlock": {
+    "variantKeys": {
+      "程序": "<key>", "GUI": "<key>", "拼接": "<key>",
+      "美术": "<key>", "动效": "<key>", "音频": "<key>", "策划": "<key>"
+    }
+  }
+}
+```
+
+**同文件模式（兜底）**
+
+```json
+{
+  "template": { "fileKey": "…", "nodeId": "1:14" },
+  "roleBlock": {
+    "componentSetId": "1:2",
+    "variantPrefix": "职能标记=",
+    "labelTextName": "文本"
+  }
+}
+```
+
+- 变体名后缀允许带 `#`（`职能标记=#策划`）或不带（`职能标记=策划`）
+- 组件集读不到 / 缺对应角色变体 → 引擎报 `V2_ROLE_BLOCK_UNAVAILABLE`，不降级
+- 组件集必须与模板在同一个 fileKey 内（引擎只能访问目标文件）
 
 ---
 

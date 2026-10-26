@@ -149,6 +149,52 @@ export interface FigmaBackend {
     name?: string;
   }): Promise<NodeInfo>;
 
+  /**
+   * Instantiate a COMPONENT under `parentId` via `createInstance()`.
+   *
+   * `cloneNode` cannot be used for component variants: `clone()` inserts the
+   * new node *inside the component set* first, which Figma turns into a
+   * COMPONENT, and the follow-up move fails with "component inside a
+   * component". `createInstance()` produces an INSTANCE directly.
+   *
+   * Optional: older backends (and test doubles) need not implement it; the
+   * renderer only requires it when the markdown uses `- @职能：` bullets.
+   */
+  instantiateComponent?(p: {
+    componentId: string;
+    parentId: string;
+    /** Renames the instance — role blocks rely on the variant name as identity. */
+    name?: string;
+  }): Promise<NodeInfo>;
+
+  /**
+   * Instantiate a *published* component by its library key, importing it into
+   * the current file first. This is what makes cross-file rendering possible:
+   * the target file no longer has to contain the template / 职能标记 set.
+   */
+  instantiateByKey?(p: {
+    componentKey: string;
+    parentId?: string;
+    name?: string;
+  }): Promise<NodeInfo>;
+
+  /**
+   * Turn an INSTANCE into a plain frame so its structure can be edited.
+   * Figma refuses to append new children anywhere inside an instance.
+   *
+   * Returns the NEW frame node: `detachInstance()` replaces the instance and
+   * the frame gets a different id, so callers must use the returned node.
+   */
+  detachInstance?(nodeId: string): Promise<NodeInfo>;
+
+  /**
+   * Place a live instance over a placeholder: instantiate the source (COMPONENT)
+   * or clone it (INSTANCE), append under the placeholder's parent, scale it to
+   * fit, remove the placeholder rectangle. Used for `figma_instance` assets so
+   * the document keeps a real pasted sub-instance instead of a raster image.
+   */
+  placeInstance?(p: { sourceId: string; placeholderId: string }): Promise<NodeInfo>;
+
   /** Move a node. Coords are interpreted by parent type (see safety wrapper). */
   moveNode(nodeId: string, x: number, y: number): Promise<void>;
 

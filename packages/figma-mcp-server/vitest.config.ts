@@ -6,6 +6,10 @@ export default defineConfig({
     exclude: ['node_modules', 'dist', 'e2e'],
     environment: 'node',
     globals: false,
+    env: {
+      // Tests must not inherit a developer's ~/.game-interaction-sop/template.json.
+      GISOP_TEMPLATE_CONFIG: 'off'
+    },
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'html', 'lcov'],

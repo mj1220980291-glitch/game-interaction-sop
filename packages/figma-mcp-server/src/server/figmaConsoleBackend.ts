@@ -9,8 +9,33 @@
  */
 
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { extname } from 'node:path';
 import type { FigmaBackend, NodeInfo, FigmaNodeType } from '../v2/figma-client.js';
 import { SCRATCH_ROOT_NAME, STAMP_KEY, STAMP_NAMESPACE } from '../v2/reconcile/stamp.js';
+
+// ---- image sources -------------------------------------------------------
+
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif'
+};
+
+/**
+ * The plugin sandbox cannot fetch `file://` URLs (nor your localhost), so a
+ * local image path must be inlined as a data URI before it reaches
+ * `figma_execute`. Remote URLs and data URIs pass through untouched.
+ */
+function toFetchableImageSrc(src: string): string {
+  if (/^(https?|data|blob):/i.test(src)) return src;
+  const path = src.replace(/^file:\/\//i, '');
+  if (!existsSync(path)) return src;
+  const mime = IMAGE_MIME[extname(path).toLowerCase()] ?? 'image/png';
+  return `data:${mime};base64,${readFileSync(path).toString('base64')}`;
+}
 
 // ---- low-level execute helper -------------------------------------------
 
@@ -281,6 +306,73 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return (r ?? []).map(mapNode);
     },
 
+    async placeInstance({ sourceId, placeholderId }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
+        if (!src) throw new Error('placeInstance: source not found: ' + ${JSON.stringify(sourceId)});
+        const ph = await figma.getNodeByIdAsync(${JSON.stringify(placeholderId)});
+        if (!ph) throw new Error('placeInstance: placeholder not found');
+        const parent = ph.parent;
+        if (!parent) throw new Error('placeInstance: placeholder has no parent');
+        const inst = src.type === 'COMPONENT' ? src.createInstance() : src.clone();
+        parent.appendChild(inst);
+        const px = ph.x, py = ph.y, pw = ph.width, phh = ph.height;
+        const s = Math.min(pw / inst.width, phh / inst.height);
+        if (isFinite(s) && s > 0 && s !== 1) inst.resize(Math.round(inst.width * s), Math.round(inst.height * s));
+        inst.x = px + Math.round((pw - inst.width) / 2);
+        inst.y = py + Math.round((phh - inst.height) / 2);
+        ph.remove();
+        return serNode(inst);
+      `, 30000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async detachInstance(nodeId) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) throw new Error('detachInstance: node not found');
+        if (n.type !== 'INSTANCE') return serNode(n);
+        const frame = n.detachInstance();
+        return serNode(frame);
+      `, 15000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async instantiateByKey({ componentKey, parentId, name }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const comp = await figma.importComponentByKeyAsync(${JSON.stringify(componentKey)});
+        if (!comp) throw new Error('instantiateByKey: component not found for key ' + ${JSON.stringify(componentKey)});
+        const inst = comp.createInstance();
+        ${name != null ? `inst.name = ${JSON.stringify(name)};` : ''}
+        ${parentId != null ? `
+          const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+          if (!parent) throw new Error('instantiateByKey: parent not found: ' + ${JSON.stringify(parentId)});
+          parent.appendChild(inst);
+        ` : ''}
+        return serNode(inst);
+      `, 30000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async instantiateComponent({ componentId, parentId, name }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const src = await figma.getNodeByIdAsync(${JSON.stringify(componentId)});
+        if (!src) throw new Error('instantiateComponent: component not found: ' + ${JSON.stringify(componentId)});
+        if (src.type !== 'COMPONENT') throw new Error('instantiateComponent: not a COMPONENT: ' + src.type);
+        const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+        if (!parent) throw new Error('instantiateComponent: parent not found: ' + ${JSON.stringify(parentId)});
+        const inst = src.createInstance();
+        ${name != null ? `inst.name = ${JSON.stringify(name)};` : ''}
+        parent.appendChild(inst);
+        return serNode(inst);
+      `, 20000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
     async cloneNode({ sourceId, parentId, x, y, name }) {
       const r = await run(`
         ${SERIALIZE_NODE_FN}
@@ -386,11 +478,12 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     },
 
     async setImageFill({ nodeId, src }) {
-      // src is a URL or base64 — create image from URL via fetch
+      // src is a URL, data URI, or a local path (inlined as a data URI here).
+      const fetchable = toFetchableImageSrc(src);
       await run(`
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         if (!n) throw new Error('setImageFill: node not found');
-        const resp = await fetch(${JSON.stringify(src)});
+        const resp = await fetch(${JSON.stringify(fetchable)});
         const buf = await resp.arrayBuffer();
         const image = figma.createImage(new Uint8Array(buf));
         n.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];

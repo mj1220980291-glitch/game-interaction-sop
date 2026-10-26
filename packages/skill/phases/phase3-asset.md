@@ -64,6 +64,20 @@ Markdown 已保存。下一步我要把它写入 Figma。
 ### 响应 2：发了 Figma 链接
 
 - 解析出 `fileKey` 和 `node-id`
+- **读不到节点时**（工具返回 `No files connected` / 文件未连接）：先让用户在目标文件里启动社区插件
+  `https://www.figma.com/community/plugin/1695400514520991057`（**网页端也能启动，不必装客户端**），窗口保持打开即可重试；仍不通再回退本地 Desktop Bridge，最后才让用户改发图片
+- **先查节点类型**（`figma_get_file_for_plugin` / `figma_get_component`，只看 `type` 与 bounds），再决定 asset 类型：
+
+  | 源节点类型 | asset 类型 | 说明 |
+  |---|---|---|
+  | `COMPONENT`（母版） | `figma_instance` | 引擎 `createInstance`，文档里留的是**子版实例** |
+  | `INSTANCE`（已有粘贴子版） | `figma_instance` | 引擎 clone 一份新子版 |
+  | `COMPONENT_SET`（多变体母版集） | `figma_instance`（指向具体变体） | 必须问用户要哪个变体，把该 variant 的 nodeId 传进去，**不能直接传组件集 id** |
+  | `FRAME` / `GROUP` / 其他图层 | `figma_node`（栅格化） | 非母版的普通画板 |
+  | 用户给本地图片 / 截图 | `image` | 仅图片走这条 |
+
+- **硬规则：母版不得贴成图**。源节点是 `COMPONENT` / `INSTANCE` / `COMPONENT_SET` 时，主图一律 `figma_instance`；`image` / `figma_node` 会把母版降级成一张栅格图，后续无法改实例覆盖。只有用户明确说"就贴图"才允许破例，并在复述里写一句"按你要求贴成图片"
+- 源节点必须在**渲染目标文件**内（引擎插件只能访问当前文件）；不在的，让用户把母版移入目标文件或改用 `image`
 - 询问：这个 node 对应哪个/哪些 `## NN.` 章节？
 
 ### 响应 3：跳过
@@ -125,7 +139,7 @@ Markdown 含 `配图：` bullet、且用户给了 Figma 设计稿时，主图确
 {
   "asset_map": {
     "01": { "type": "image", "src": "..." },
-    "02": { "type": "figma_node", "fileKey": "...", "nodeId": "..." },
+    "02": { "type": "figma_instance", "fileKey": "...", "nodeId": "523:7289" },
     "03": { "type": "skip" },
     "01/1/1": { "type": "figma_node", "fileKey": "...", "nodeId": "588:6399",
                 "crop": { "x": 700, "y": 0, "width": 520, "height": 160 } },
@@ -136,6 +150,9 @@ Markdown 含 `配图：` bullet、且用户给了 Figma 设计稿时，主图确
 ```
 
 - `"NN"`：章节主图（可选 `crop`，主图占位尺寸不变）
+  - `image` — 本地路径或 URL（引擎转 data URI 后写入）
+  - `figma_node` — 源节点栅格化成图片填充
+  - `figma_instance` — 放真实实例（母版/粘贴子版），等比缩放居中并删除占位；设计稿在本文件时优先用它
 - `"NN/C/K"`：配图，只支持 `figma_node` / `skip`
 
 ---
@@ -165,6 +182,8 @@ Markdown 含 `配图：` bullet、且用户给了 Figma 设计稿时，主图确
 - ❌ 不问用户、自己决定全部章节共用一张图
 - ❌ 用户说跳过却仍然反复追问
 - ❌ 对用户提供的 Figma 节点走 `reparent` 路径贴图（会触发 pitfalls.md 陷阱 1 坐标爆炸；必须走 `rasterizeNodeToImageFill`）
+- ❌ 把母版（COMPONENT / INSTANCE / COMPONENT_SET）当图片贴：主图必须 `figma_instance`，贴图会让文档失去可改的实例
+- ❌ 直接把 `COMPONENT_SET` 的 id 传给 `figma_instance`（必须先选定具体变体节点）
 - ❌ 给全局规范章节索要主图（应直接识别关键词并跳过）
 - ❌ 没经用户确认就把 AI 定位的配图区域写进 `asset_map`
 - ❌ 找不到源画面时猜一个区域填上（应不写键、保留占位）

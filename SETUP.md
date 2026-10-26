@@ -112,9 +112,18 @@ Windows 路径示例：`C:\\Users\\yourname\\game-interaction-sop\\packages\\fig
 
 ---
 
-### 步骤 4：安装 Figma Desktop Bridge 插件（一次性）
+### 步骤 4：在目标文件里启动 Figma 连接插件（每次使用前）
 
-引擎通过 figma-console-mcp 操作 Figma，需要先在 Figma 桌面端安装并运行 bridge 插件。
+引擎通过 figma-console-mcp 操作 Figma，需要目标文件里有连接插件在运行。
+
+**首选：社区插件（网页端即可，不必装 Figma 客户端）**
+
+1. 在 Figma 里打开目标文件（桌面端或浏览器都行）
+2. 打开插件页面并运行到目标文件：
+   <https://www.figma.com/community/plugin/1695400514520991057>
+3. 插件窗口保持打开，每次使用 SOP 前确认它还在该文件里运行
+
+**回退：本地 Desktop Bridge（仅桌面端，社区插件起不来时才用）**
 
 1. 运行以下命令查看插件 manifest 路径：
 
@@ -133,7 +142,7 @@ Windows 路径示例：`C:\\Users\\yourname\\game-interaction-sop\\packages\\fig
 
 3. 选择上一步打印的 `manifest.json` 文件
 
-4. 每次使用 SOP 前，在目标 Figma 文件里运行这个插件并保持窗口打开
+4. 在目标 Figma 文件里运行这个插件并保持窗口打开
 
 ---
 
@@ -233,9 +242,11 @@ Phase 2 — v2 Markdown    生成并保存结构化交互文档
      ↓
 Phase 3 — 索要设计稿     收集截图 / Figma 链接 / 或跳过
      ↓
-Phase 4 — 写入 Figma     调用引擎，渲染到模板 1:14
+Phase 4 — 写入 Figma     读模板配置 preflight，调用引擎渲染（气泡 + 说明块 + 配图）
      ↓
-Phase 5 — 模式库维护     把本次成果增量沉淀回 `.interaction-sop/`
+Phase 5 — 文风沉淀       快照 diff / Figma 表述读回 → 列清单确认 → 写入本次生效的文风
+     ↓
+Phase 6 — 模式库维护     把本次成果增量沉淀回 `.interaction-sop/`
 ```
 
 ---
@@ -260,7 +271,7 @@ cd packages/figma-mcp-server && npm install
 1. `figma-interaction-doc-engine` MCP Server 是否显示 ✅ 已连接
 2. 环境变量 `FIGMA_BACKEND=figma-console` 是否配置（缺了必然 `V2_BACKEND_UNAVAILABLE`）
 3. `FIGMA_ACCESS_TOKEN` 是否正确设置
-4. Figma Desktop Bridge 插件是否在目标文件里运行中（插件窗口需保持打开）
+4. 目标文件里是否有连接插件在运行：优先社区插件 <https://www.figma.com/community/plugin/1695400514520991057>（网页端也可）；起不来再看本地 Desktop Bridge（插件窗口需保持打开）
 5. 目标 Figma 文件的 node `1:14` 是否可访问（权限是否足够）
 
 ### Q4. 我想修改 skill 内容？

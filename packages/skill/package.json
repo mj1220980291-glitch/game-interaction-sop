@@ -1,6 +1,6 @@
 {
   "name": "@game-interaction-sop/skill",
-  "version": "0.2.0",
+  "version": "2.2.1",
   "description": "game-interaction-sop skill bundle (SKILL.md + phases + references). Distributed as Markdown assets; use the root-level install script to copy into your AI agent's skills directory.",
   "private": true,
   "files": [

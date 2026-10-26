@@ -163,7 +163,7 @@
 
 ### Requirement: skill 仓库与项目仓库职责严格分离
 
-skill 仓库 SHALL 仅携带 schema 定义文件（`pattern-schema.md` / `index-schema.md` / `deviation-schema.md`）与流程协议（`phase0-recall.md` / `phase5-extract.md`），SHALL NOT 携带任何具体模式实例或项目数据。
+skill 仓库 SHALL 仅携带 schema 定义文件（`pattern-schema.md` / `index-schema.md` / `deviation-schema.md`）与流程协议（`phase0-recall.md` / `phase6-extract.md`），SHALL NOT 携带任何具体模式实例或项目数据。
 
 项目仓库 SHALL 在 `.interaction-sop/` 目录下存放自有模式库内容，目录结构由 skill 协议约定。skill 检索时 SHALL 不读取 `.interaction-sop/index.md` 之外的"魔法路径"。
 

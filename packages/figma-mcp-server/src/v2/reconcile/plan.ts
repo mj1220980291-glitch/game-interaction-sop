@@ -600,7 +600,13 @@ class Planner {
       oc.items,
       (it) => `${it.t}:${it.W}`,
       want.map((w) => `${w.t}:${w.text}`),
-      (o, ni) => oc.items[o]!.t === want[ni]!.t
+      (o, ni) => {
+        const old = oc.items[o]!;
+        const next = want[ni]!;
+        if (old.t !== next.t) return false;
+        if (next.t !== 'role') return true;
+        return (old.stamp?.role ?? '') === (next.role ?? '');
+      }
     );
 
     type Entry = { id: string | ScratchRef; t: ExpectedItem['t']; text: string; oldIndex?: number };
@@ -638,10 +644,11 @@ class Planner {
         this.change({ path, action: 'move' });
         dirty = true;
       }
+      const textNode = it.t === 'role' ? (it.bodyNode ?? it.node) : it.node;
       const newW =
         it.t === 'figure'
           ? this.figure(path, it, w, `${sec.index}/${k + 1}/${ordinal}`, oc, seqOps)
-          : this.text(path, it.node, it.W, w.text, seqOps, it.t === 'rule' ? stateBoldLength(w.text) : undefined);
+          : this.text(path, textNode, it.W, w.text, seqOps, it.t === 'rule' ? stateBoldLength(w.text) : undefined);
       if (newW !== it.W) {
         dirty = true;
         const st = it.stamp!;
@@ -764,6 +771,7 @@ class Planner {
 
   private itemClean(it: SnapItem): boolean {
     if (!it.node) return true;
+    if (it.t === 'role') return (it.bodyNode?.characters ?? '') === it.W;
     if (it.t !== 'figure') return (it.node.characters ?? '') === it.W;
     const tree = this.snap.tree;
     if (tree.subtreeHash(it.node.id) !== (it.stamp?.imageHash ?? null)) return false;

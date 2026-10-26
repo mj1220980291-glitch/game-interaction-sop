@@ -86,8 +86,10 @@ verbatim (`figma_execute`, `figma_capture_screenshot`, `figma_get_selection`,
 
 `render_v2_markdown_to_figma` returns `V2_BACKEND_UNAVAILABLE` if the server
 was constructed without a `v2Backend` — in practice this means the
-figma-console child failed to start, or the Figma Desktop Bridge plugin is not
-running in the target file.
+figma-console child failed to start, or no Figma connection plugin is running
+in the target file. Preferred connection plugin (works in the browser):
+<https://www.figma.com/community/plugin/1695400514520991057>; the local
+Desktop Bridge plugin is the fallback.
 
 ---
 
@@ -135,7 +137,9 @@ only **one** Figma-related MCP server should be configured in your MCP host
 3. Keep only `figma-interaction-doc-engine` configured, pointing at this
    package's `dist/server/index.js` with `FIGMA_BACKEND=figma-console`.
 4. Restart the host so it spawns a fresh engine process.
-5. Reload the Figma Desktop Bridge plugin in Figma Desktop.
+5. Reconnect the Figma plugin in the target file — community plugin first
+   (<https://www.figma.com/community/plugin/1695400514520991057>, works in the
+   browser), Desktop Bridge only as fallback.
 
 ### Why
 
@@ -148,7 +152,7 @@ Hosts previously typically configured **two** MCP servers exposing Figma tools:
 
 But the engine internally also spawns its own `figma-console-mcp` child to
 power v2 rendering. The `figma-console-mcp` package binds a unique WebSocket
-port per process, and the **Figma Desktop Bridge plugin can only connect to
+port per process, and the **Figma connection plugin can only connect to
 one of them** — leading to silent "Cannot connect to Figma Desktop" errors
 whenever the wrong instance won the port race.
 

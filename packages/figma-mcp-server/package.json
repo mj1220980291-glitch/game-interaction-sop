@@ -1,6 +1,6 @@
 {
   "name": "figma-interaction-doc-engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Deterministic engine that turns v2 interaction-doc Markdown into Figma documents via figma-console-mcp.",
   "type": "module",
   "private": true,

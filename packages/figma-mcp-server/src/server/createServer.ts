@@ -132,6 +132,16 @@ const V2_ASSET_SPEC_JSON = {
     {
       type: 'object',
       properties: {
+        type: { const: 'figma_instance' },
+        fileKey: { type: 'string', minLength: 1 },
+        nodeId: { type: 'string', minLength: 1 }
+      },
+      required: ['type', 'fileKey', 'nodeId'],
+      additionalProperties: false
+    },
+    {
+      type: 'object',
+      properties: {
         type: { const: 'skip' }
       },
       required: ['type'],
@@ -158,7 +168,16 @@ const V2_RENDER_INPUT_SCHEMA = {
       additionalProperties: false
     },
     scope: { type: 'string', pattern: '^\\d{2}(/\\d+)?$' },
-    dryRun: { type: 'boolean' }
+    dryRun: { type: 'boolean' },
+    template: {
+      type: 'object',
+      properties: {
+        fileKey: { type: 'string', minLength: 1 },
+        nodeId: { type: 'string', minLength: 1 },
+        componentKey: { type: 'string', minLength: 1 }
+      },
+      additionalProperties: false
+    }
   },
   required: ['markdown'],
   additionalProperties: false
@@ -195,7 +214,9 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
     tool: {
       name: 'render_v2_markdown_to_figma',
       description:
-        '把 v2 Markdown 写入 Figma 模板 1:14。需要在 createServer 时传入 v2Backend。' +
+        '把 v2 Markdown 写入 Figma 模板。需要在 createServer 时传入 v2Backend。' +
+        'template 可选：{fileKey,nodeId} 覆盖模板地址（优先级：入参 > FIGMA_TEMPLATE_FILE_KEY/NODE_ID > ~/.game-interaction-sop/template.json > 官方默认）。' +
+        'Markdown 里的 `- @策划：…` 条目会渲染成「职能标记」组件实例，组件集由配置 roleBlock.componentSetId 指定，缺失时报 V2_ROLE_BLOCK_UNAVAILABLE。' +
         'assetMap 两类键：' +
         '① "NN" = 第 NN 章主图，值为 image / figma_node / skip，缺省按 skip；' +
         '② "NN/C/K" = 第 NN 章第 C 簇的第 K 张配图（C、K 从 1 起；K 按该簇全部「配图：」bullet 的文档顺序计，跨 #### 连续不重置），值为 figma_node / skip。' +
@@ -236,7 +257,8 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
             assetMap,
             target,
             scope: args?.scope as string | undefined,
-            dryRun: args?.dryRun as boolean | undefined
+            dryRun: args?.dryRun as boolean | undefined,
+            template: args?.template as { fileKey?: string; nodeId?: string } | undefined
           },
           opts.v2Backend
         );

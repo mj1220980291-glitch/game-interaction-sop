@@ -11,6 +11,7 @@
 
 import { SOFT_WARNING_CODES, type SoftWarning } from '../ir.js';
 import { SECTION_CHILD_NAMES } from '../template-map.js';
+import { DEFAULT_LABEL_TEXT_NAME } from '../template-config.js';
 import { Tree, type TNode } from './tree.js';
 import {
   HEADER_KEYS,
@@ -36,6 +37,8 @@ export interface SnapItem {
   stamp?: ItemStamp;
   /** Present but missing from the manifest: the manifest has to be rewritten. */
   orphan?: boolean;
+  /** role only: the TEXT inside the 职能标记 instance that holds the body. */
+  bodyNode?: TNode;
 }
 
 export interface SnapCluster {
@@ -265,7 +268,15 @@ function snapCluster(tree: Tree, node: TNode, stamp: ClusterStamp, accept: Accep
     const ok = s?.kind === 'item' ? accept(s.iid, stamp.cid, c) : false;
     if (s?.kind === 'item' && ok) {
       if (present.length === 0) headAnchorId = lastStructural;
-      present.push({ iid: s.iid, t: s.t, W: s.text, node: c, stamp: s, orphan: ok === 'orphan' });
+      present.push({
+        iid: s.iid,
+        t: s.t,
+        W: s.text,
+        node: c,
+        stamp: s,
+        orphan: ok === 'orphan',
+        ...(s.t === 'role' ? { bodyNode: roleBodyNode(tree, c) } : {})
+      });
     } else if (s && s.kind === 'slot') {
       lastStructural = c.id;
     } else {
@@ -291,6 +302,17 @@ function snapCluster(tree: Tree, node: TNode, stamp: ClusterStamp, accept: Accep
     foreign,
     headAnchorId
   };
+}
+
+/**
+ * Body TEXT of a 职能标记 instance: the first TEXT that is not the variant
+ * label, else the first TEXT it has.
+ */
+function roleBodyNode(tree: Tree, instance: TNode): TNode | undefined {
+  return tree.find(
+    instance.id,
+    (n) => n.type === 'TEXT' && n.name !== DEFAULT_LABEL_TEXT_NAME
+  ) ?? tree.find(instance.id, (n) => n.type === 'TEXT');
 }
 
 export function roleTexts(tree: Tree, roleFrame: TNode): string[] {

@@ -53,7 +53,7 @@ project_glossary:                  # 项目术语表，Agent 自动维护
 ```
 
 **说明**：
-- `project_glossary` 由 Agent 在 Phase 5 提取与增量维护时自动更新，不要求人工填写
+- `project_glossary` 由 Agent 在 Phase 6 提取与增量维护时自动更新，不要求人工填写
 - `aliases` 为空时写 `[]`，不要省略字段
 - `docs_archive` 使用相对项目根的路径（不使用绝对路径）
 

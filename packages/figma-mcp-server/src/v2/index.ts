@@ -37,3 +37,14 @@ export {
   ROLE_COLORS,
   ROLE_TEXT_ORDER
 } from './template-map.js';
+export {
+  resolveTemplateConfig,
+  isDefaultTemplate,
+  DEFAULT_TEMPLATE,
+  DEFAULT_VARIANT_PREFIX,
+  DEFAULT_LABEL_TEXT_NAME,
+  type TemplateRef,
+  type TemplateConfig,
+  type RoleBlockConfig
+} from './template-config.js';
+export { parseRoleBullet, type RoleBullet } from './role-block.js';

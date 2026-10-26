@@ -19,7 +19,7 @@ export const STAMP_VERSION = 1;
 /** Name given to the throwaway doc that supplies prototypes during a sync. */
 export const SCRATCH_ROOT_NAME = '__gisop_scratch__';
 
-export type ItemType = 'rule' | 'figure' | 'subtitle';
+export type ItemType = 'rule' | 'figure' | 'subtitle' | 'role';
 
 export const HEADER_KEYS = ['title', 'owner', 'group', 'ticketLink', 'lastUpdate'] as const;
 export type HeaderKey = (typeof HEADER_KEYS)[number];
@@ -66,6 +66,8 @@ export interface ItemStamp {
   iid: string;
   t: ItemType;
   text: string;
+  /** role only: the 职能 the block was rendered for. */
+  role?: string;
   /** figure only: the asset last applied by the engine. */
   asset?: AssetSpec;
   /** figure only: image hash right after the engine last wrote it. */

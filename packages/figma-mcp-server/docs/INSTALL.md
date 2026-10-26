@@ -22,7 +22,7 @@ figma-interaction-doc-engine        <-- 本工具，注册为 MCP Server
 figma_execute (来自引擎拉起的 figma-console-mcp 子进程)
    │
    ▼
-Figma 桌面端 (Desktop Bridge 插件)
+Figma（连接插件：优先社区插件，回退 Desktop Bridge）
 ```
 
 引擎对外暴露两个原生工具，外加从子进程透传的全部 `figma_*` 工具：
@@ -78,7 +78,7 @@ stderr 会打印一行 banner：
 
 > **只配置这一个 MCP Server。** `figma-console-mcp` 由引擎自动管理，
 > 若你的 host 里还留着独立的 `figma-console` 条目，务必删除——两个实例
-> 会争抢 WebSocket 端口，导致 Desktop Bridge 插件随机连错。
+> 会争抢 WebSocket 端口，导致连接插件随机连错。
 > 详见 [`../README.md`](../README.md) 的 "Configuration migration" 一节。
 
 ---
@@ -90,9 +90,11 @@ stderr 会打印一行 banner：
 `render_v2_markdown_to_figma` 返回此错误码，说明引擎启动时没接上 Figma 后端。
 按顺序排查：
 
-1. Figma 桌面端是否打开了目标文件
+1. Figma 是否打开了目标文件
 2. 环境变量 `FIGMA_BACKEND` 是否为 `figma-console`（缺失时引擎根本不拉子进程）
-3. Desktop Bridge 插件是否在该文件里**运行中**（插件窗口需保持打开）
+3. 目标文件里是否有连接插件在**运行中**（插件窗口需保持打开）：优先社区插件
+   <https://www.figma.com/community/plugin/1695400514520991057>（网页端即可，不必装客户端）；
+   起不来再回退本地 Desktop Bridge
 4. 环境变量 `FIGMA_ACCESS_TOKEN` 是否配置
 5. host 的 MCP 日志里 stderr banner 的 `proxy:` 数量是否为 0
 6. 是否存在第二个 `figma-console-mcp` 实例（见上文）
@@ -120,7 +122,8 @@ netstat -ano | findstr ":922"
 taskkill /F /T /PID <占用 9223 的 pid>
 ```
 
-然后重跑一次 Desktop Bridge 插件。
+然后在目标文件里重新连接插件（优先社区插件
+<https://www.figma.com/community/plugin/1695400514520991057>，回退 Desktop Bridge）。
 
 ### Markdown 校验不通过
 
