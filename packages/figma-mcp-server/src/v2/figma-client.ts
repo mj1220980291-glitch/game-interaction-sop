@@ -364,6 +364,14 @@ export interface FigmaBackend {
     part: 'chapter' | 'cluster';
   }): Promise<NodeInfo>;
 
+  /**
+   * 章节部件「造壳」：新建同尺寸外框 → 只克隆图区子树 → 用同属性空框做说明栏。
+   *
+   * 为什么不克隆整块：章节母版 7000+ 节点，单次调用会超过 Bridge 的 10 秒
+   * 传输上限，无论后端 timeout 设多大都一样。
+   */
+  buildChapterShell?(p: { sourceId: string; parentId?: string; name?: string }): Promise<NodeInfo>;
+
   /** Set TEXT.characters. Loads font automatically. */
   setTextContent(nodeId: string, characters: string): Promise<void>;
 

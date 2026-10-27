@@ -151,19 +151,25 @@ export async function buildParts(input: BuildPartsInput): Promise<BuildPartsResu
   const built: BuiltPart[] = [];
   for (const step of plan.steps) {
     // 章节 / 簇优先走「克隆即掏空」：整块克隆 7000+ 节点再分多次 RPC 删，
-    // 插件会被占住导致连接超时（真机实测）。一次 exec 内完成克隆与清空。
+    // 插件会被占住导致连接超时（真机实测）。章节更进一步：直接造壳，
+    // 只搬图区，说明栏用同属性空框（单次调用降到 1 秒级）。
     const slimmable = step.part === 'chapter' || step.part === 'cluster';
     let node: NodeInfo =
-      slimmable && backend.cloneSlimPart
-        ? await backend.cloneSlimPart({
-            sourceId: step.stagedNodeId,
-            parentId: pageId,
-            part: step.part as 'chapter' | 'cluster'
-          })
-        : await backend.cloneNode({
+      step.part === 'chapter' && backend.buildChapterShell
+        ? await backend.buildChapterShell({
             sourceId: step.stagedNodeId,
             parentId: pageId
-          });
+          })
+        : slimmable && backend.cloneSlimPart
+          ? await backend.cloneSlimPart({
+              sourceId: step.stagedNodeId,
+              parentId: pageId,
+              part: step.part as 'chapter' | 'cluster'
+            })
+          : await backend.cloneNode({
+              sourceId: step.stagedNodeId,
+              parentId: pageId
+            });
     // 粘进来的若是实例，结构无法编辑，先拆一层（嵌套零件由 adopt 步骤继续处理）。
     if (node.type === 'INSTANCE') {
       requireBackend(backend, 'detachInstance');

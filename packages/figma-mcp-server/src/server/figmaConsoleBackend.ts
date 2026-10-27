@@ -824,6 +824,59 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return mapNode(r);
     },
 
+    async buildChapterShell({ sourceId, parentId, name }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
+        if (!src) throw new Error('buildChapterShell: source not found: ' + ${JSON.stringify(sourceId)});
+        const parent = ${parentId ? `await figma.getNodeByIdAsync(${JSON.stringify(parentId)})` : 'figma.currentPage'};
+        if (!parent) throw new Error('buildChapterShell: parent not found');
+
+        const root = figma.createFrame();
+        root.name = ${JSON.stringify(name ?? '章节')};
+        root.fills = [];
+        root.clipsContent = false;
+        root.resize(Math.max(src.width, 1), Math.max(src.height, 1));
+        parent.appendChild(root);
+        root.x = src.x;
+        root.y = src.y;
+
+        // 图区 = 子节点里「文本最少、宽度最大」的那个；说明栏 = 文本最多的那个。
+        let graphic = null, column = null, gBest = -1, cBest = -1;
+        for (const c of src.children) {
+          const t = c.findAll((x) => x.type === 'TEXT').length;
+          const w = c.width ?? 0;
+          if (w > gBest && t < 5) { gBest = w; graphic = c; }
+          if (t > cBest) { cBest = t; column = c; }
+        }
+
+        if (graphic) {
+          const g = graphic.clone();
+          root.appendChild(g);
+          g.x = graphic.x;
+          g.y = graphic.y;
+        }
+
+        if (column) {
+          const col = figma.createFrame();
+          col.name = 'Text';
+          col.resize(Math.max(column.width, 1), Math.max(column.height, 1));
+          root.appendChild(col);
+          col.x = column.x;
+          col.y = column.y;
+          // 复制布局与外观属性（说明栏靠它们维持排版）
+          for (const key of ['layoutMode','itemSpacing','paddingLeft','paddingRight','paddingTop','paddingBottom','primaryAxisSizingMode','counterAxisSizingMode','cornerRadius','clipsContent']) {
+            if (column[key] !== undefined && key in col) { try { col[key] = column[key]; } catch (e) {} }
+          }
+          try { col.fills = column.fills; } catch (e) {}
+          try { col.strokes = column.strokes; } catch (e) {}
+        }
+
+        return serNode(root);
+      `, 30000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
     async moveNode(nodeId, x, y) {
       await run(`
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
