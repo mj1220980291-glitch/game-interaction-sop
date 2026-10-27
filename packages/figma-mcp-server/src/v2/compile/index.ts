@@ -82,6 +82,18 @@ export async function compileTemplate(input: CompileInput): Promise<CompileRepor
   return compilePhase(input);
 }
 
+/** 给编译各阶段加前缀：真机出错时能直接看出卡在哪一步。 */
+async function stage<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    const err = e as Error & { code?: string };
+    throw Object.assign(new Error(`[${name}] ${err.message}`), {
+      ...(err.code ? { code: err.code } : {})
+    });
+  }
+}
+
 async function verifyPhase(input: CompileInput): Promise<CompileReport> {
   const keys = input.components ?? {};
   const verified = await verifyPublished({ backend: input.backend, keys });
@@ -234,22 +246,26 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     await backend.commitUndoCheckpoint('template-compile');
   }
 
-  const built = await buildParts({
-    project,
-    staged,
-    pageId: input.library.pageId,
-    backend
-  });
+  const built = await stage('buildParts', () =>
+    buildParts({
+      project,
+      staged,
+      pageId: input.library.pageId,
+      backend
+    })
+  );
   pushGaps(built.gaps);
 
   // 字体归一化：只换字体族，字号 / 行距 / 字色一律不动。
   if (backend.normalizeFontsInSubtree) {
     for (const part of built.built) {
-      const r = await backend.normalizeFontsInSubtree({
-        rootId: part.componentId,
-        family: COMPILE_FONT_FAMILY,
-        weightMap: buildWeightMap()
-      });
+      const r = await stage(`font.${part.part}`, () =>
+        backend.normalizeFontsInSubtree!({
+          rootId: part.componentId,
+          family: COMPILE_FONT_FAMILY,
+          weightMap: buildWeightMap()
+        })
+      );
       if (r.unmapped.length > 0) {
         gaps.push({
           what: `「${part.name}」有 ${r.unmapped.length} 处字重做了就近映射`,
@@ -263,46 +279,56 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   // 标号容器：散落标号的模板补一个 1:14 形态的空容器。
   const chapter = built.built.find((p) => p.part === 'chapter');
   if (chapter) {
-    const badge = await ensureBadgeContainer({
-      backend,
-      chapterComponentId: chapter.componentId,
-      // 源模板本来就带标号容器（badgeSlot=container，如 1:14）时不要补第二个。
-      alreadyHasContainer: source.badgeSlot === 'container',
-      ...(input.badgeContainerSourceId ? { containerSourceId: input.badgeContainerSourceId } : {})
-    });
+    const badge = await stage('badge.container', () =>
+      ensureBadgeContainer({
+        backend,
+        chapterComponentId: chapter.componentId,
+        // 源模板本来就带标号容器（badgeSlot=container，如 1:14）时不要补第二个。
+        alreadyHasContainer: source.badgeSlot === 'container',
+        ...(input.badgeContainerSourceId ? { containerSourceId: input.badgeContainerSourceId } : {})
+      })
+    );
     gaps.push(...badge.gaps);
 
     // 收口母版：容器里只留一个隐藏的 `标号/母版`，渲染期克隆它生成标号。
-    const master = await ensureBadgeMaster({
-      backend,
-      chapterComponentId: chapter.componentId,
-      ...(badge.containerId ? { containerId: badge.containerId } : {})
-    });
+    const master = await stage('badge.master', () =>
+      ensureBadgeMaster({
+        backend,
+        chapterComponentId: chapter.componentId,
+        ...(badge.containerId ? { containerId: badge.containerId } : {})
+      })
+    );
     gaps.push(...master.gaps);
   }
 
-  const adopted = await adoptNestedParts({
-    backend,
-    parts: built.built,
-    partsPageId: input.partsPageId,
-    project
-  });
+  const adopted = await stage('adopt', () =>
+    adoptNestedParts({
+      backend,
+      parts: built.built,
+      partsPageId: input.partsPageId ?? input.library.pageId,
+      project
+    })
+  );
   gaps.push(...adopted.gaps);
 
   // 槽位命名归一化：渲染只按统一名取值，名字在这里一次改好（已是统一名则零改动）。
-  const normalized = await normalizeSlotNames({
-    backend,
-    parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId })),
-    capabilities: source
-  });
+  const normalized = await stage('normalize', () =>
+    normalizeSlotNames({
+      backend,
+      parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId })),
+      capabilities: source
+    })
+  );
   pushGaps(normalized.gaps);
 
   // 空壳化：把克隆母版带进来的原稿簇 / 多余内容行删掉，只留样式载体。
   // 不做的后果是真机渲染时插件在大树里扫描删除，直接断连（蛋仔 7235 节点）。
-  const slim = await slimParts({
-    backend,
-    parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId }))
-  });
+  const slim = await stage('slim', () =>
+    slimParts({
+      backend,
+      parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId }))
+    })
+  );
   pushGaps(slim.gaps);
 
   // 产物能力重算：配置必须描述产物，而不是源模板。
