@@ -19,7 +19,7 @@ import { ensureBadgeContainer } from './badge-container.js';
 import { buildTemplatePack, verifyPublished, type ComponentKeys } from './backfill.js';
 import type { CompileGap } from './errors.js';
 import { buildWeightMap, COMPILE_FONT_FAMILY } from './font-normalize.js';
-import { buildParts, planParts, type PartName } from './parts.js';
+import { buildParts, PART_LABELS, planParts, type PartName } from './parts.js';
 import { preflight } from './preflight.js';
 import { deriveCapabilities, type CapabilityDiff } from './verify-capabilities.js';
 import { COMPILE_CODES, compileError } from './errors.js';
@@ -73,7 +73,8 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
     project: input.project,
     source: {
       fileKey: input.source.fileKey ?? '',
-      nodeIds: [input.source.nodeId]
+      nodeIds: [input.source.nodeId],
+      ...(input.expectedFingerprint ? { fingerprint: input.expectedFingerprint } : {})
     },
     components: verified,
     capabilities: input.capabilities ?? { ...DEFAULT_CAPABILITIES },
@@ -84,7 +85,7 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
     project: input.project,
     parts: (Object.keys(verified) as PartName[]).map((p) => ({
       part: p,
-      name: `${input.project} / ${p}`,
+      name: `${input.project} / ${PART_LABELS[p]}`,
       componentId: null,
       key: verified[p] ?? null
     })),
