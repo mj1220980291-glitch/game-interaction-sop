@@ -2,7 +2,9 @@
 
 ## 一句话现状
 
-「模板契约 + 只读探针」已实现、真机验收、归档。引擎现在能体检任意项目模板并回答「能不能接、缺什么、按哪套能力渲染」，**但还不能编译出可渲染模板**——那是下一个变更。
+两个变更已完成并归档：**模板契约 + 只读探针**、**编译到组件库**。引擎现在能把任意 `ready` 的项目模板编译成我们库里 4 个原子组件并登记 key；**但渲染还走旧路径**（整份克隆），多部件渲染是下一个变更。
+
+已真机接入两套模板：`~/.game-interaction-sop/templates/蛋仔派对.json`、`官方1.14.json`。
 
 ---
 
@@ -92,25 +94,47 @@ git add -A && git commit -m "feat(template): contract v1 + read-only template pr
 
 ---
 
-## 下一个变更：`template-compile-to-library`
+## 下一个变更：`engine-multi-part-template-render`
 
-把探针草案变成可用模板：
+渲染改成「导入 4 部件 → detach → append」，落地 8 项能力（含 `clusterGroups` / `hiddenPool` 两个填充算法的函数级分叉）。
+
+开工前必须处理的三条已知债务：
+
+1. **部件带着原稿内容**：编译是克隆母版，章节部件里仍有该项目当时的文案、截图实例与全部簇，渲染填充前必须清空
+2. **标号摆位**：容器已统一（`badgeSlot=container`），但标号落点没算，渲染要做
+3. **`md-contract.md`** 仍未生成（契约里只定义字段集与「模板结构为准」）
+
+编译侧遗留（不阻塞渲染）：
+
+- `1:14` 的部件仍依赖草稿里的组件（该模板无可收编的实例），所以 verify 只能在沙盒里跑
+- 收编独立性（删源组件后不塌）未实测，已缓办
+
+---
+
+## 编译阶段落点（第二个变更）
 
 ```
-读项目模板 + 2~3 份文档样本
-  → 在我们自己的模板库文件里生成 4 个原子组件（克隆 + 打锚点）
-  → 发布 → 取 4 个 componentKey
-  → 写项目模板包 .interaction-sop/template.json（components 回填）
+src/v2/compile/index.ts        compileTemplate(compile|verify) 编排；含两页自动排版
+src/v2/compile/parts.ts        planParts / buildParts（克隆→变组件→可见→锚点）
+src/v2/compile/intake.ts       进门检查（齐全 / 类型 / 尺寸对探针 / 标号容器）
+src/v2/compile/adopt.ts        adoptNestedParts（跨部件去重、变体集重组、内容闸门）
+src/v2/compile/font-normalize.ts  Noto Sans SC 三档 + 字重映射
+src/v2/compile/badge-container.ts 从 1:14 气泡克隆空容器
+src/v2/compile/anchor.ts       三档锚点降级 + anchors 只写降级项
+src/v2/compile/verify-capabilities.ts 产物能力重算（判不出的保留源值并记缺口）
+src/v2/compile/preflight.ts    四条前置校验
+src/v2/compile/backfill.ts     真 import 冒烟 + template.json 组装自检
+src/v2/compile/errors.ts       8 个错误码
 ```
 
-**前置未知项**（要先定）：
+后端新增能力（`figmaConsoleBackend.ts`）：`createComponentFromNode`（GROUP 先套 FRAME）、
+`combineAsVariants`、`setPluginData`、`renameNode`、`readComponentKey`、`importComponentByKey`、
+`normalizeFontsInSubtree`、`adoptInstances`（`getMainComponentAsync`）、`createInvisibleAnchor`、
+`setNodeVisible`、`arrangePageChildren`。
 
-1. 模板库文件归谁、放哪个 Figma 文件；发布库需要团队/组织权限
-2. 嵌套实例依赖：`标签`（职能图例）/`num`（三角）本身是别的组件实例，发布后源组件不可访问会变占位
-3. 字体：`U5Font` 等项目字体要先装，否则字重回退
-4. 锚点方式：plugin data 优先，改名/不可见 FRAME 兜底（探针阶段只读，未打标）
+SOP：`packages/skill/references/template-compile.md`。
 
-之后才是第三个变更 `engine-multi-part-template-render`（渲染改为 4 部件 import→detach→append，落地 8 项能力，含 `clusterGroups` / `hiddenPool` 两个填充算法的函数级分叉）。
+测试 304 例，全部通过。
 
 ---
 
