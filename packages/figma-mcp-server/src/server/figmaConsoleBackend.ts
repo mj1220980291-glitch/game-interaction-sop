@@ -841,13 +841,16 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         root.x = src.x;
         root.y = src.y;
 
-        // 图区 = 子节点里「文本最少、宽度最大」的那个；说明栏 = 文本最多的那个。
+        // 说明栏 = 子节点里文本最多的那个；图区 = 另一个最宽的。
         let graphic = null, column = null, gBest = -1, cBest = -1;
         for (const c of src.children) {
           const t = c.findAll((x) => x.type === 'TEXT').length;
-          const w = c.width ?? 0;
-          if (w > gBest && t < 5) { gBest = w; graphic = c; }
           if (t > cBest) { cBest = t; column = c; }
+        }
+        for (const c of src.children) {
+          if (c === column) continue;
+          const w = c.width ?? 0;
+          if (w > gBest) { gBest = w; graphic = c; }
         }
 
         if (graphic) {
