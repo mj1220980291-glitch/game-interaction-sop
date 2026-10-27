@@ -105,10 +105,15 @@
 }
 ```
 
-`verify` 会逐个真 `import` 一遍（**必须在非库文件里**跑，同文件取自己永远成功），再把
+`verify` 会逐个真 `import` 一遍，再把
 `~/.game-interaction-sop/templates/<项目名>.json` 的内容返回在 `templateJson` 里，直接落盘即可。
 
-之后渲染（旧路径）读取该文件即用；缺该文件时完全回落旧行为。
+**冒烟必须在「SOP 校验沙盒」里跑**（一个空文件，`verifyFileKey` 传它）：
+
+- 在**源项目文件**里跑可能挂死——部件若仍依赖源文件里的组件（未收编），import 会成环，实测 30s 超时
+- 在**库文件本身**里跑永远成功，测不出「到底发布没有」
+
+落盘后渲染（旧路径）读取该文件即用；缺该文件时完全回落旧行为。
 
 ---
 
@@ -125,7 +130,7 @@
 | 现象 | 原因 / 处理 |
 |---|---|
 | `V2_COMPILE_NOT_PUBLISHED` | 真的没发布，或发了但 key 变了。去 Assets 重发一次 |
-| `V2_COMPILE_VERIFY_UNAVAILABLE` | 源文件没连插件——verify 要在**源项目文件**里跑，不能是库文件 |
+| `V2_COMPILE_VERIFY_UNAVAILABLE` | 冒烟跑不了：插件没开 / 在源文件里 import 成环超时。改用**沙盒文件**（`verifyFileKey`） |
 | `V2_COMPILE_STAGED_PART_MISMATCH` | 粘错项目 / 漏粘 / 粘了张截图。按提示重粘 |
 | `V2_COMPILE_UNPUBLISHABLE_NAME` | 名字以 `_` / `.` 开头（Figma 不发布），或项目名含 `: / \ * ? " < > |`（配置文件名写不出来，`1:14` 这类要写成 `官方1.14`） |
 | `V2_COMPILE_SOURCE_DRIFT` | 源模板结构变了，先重跑探针 |

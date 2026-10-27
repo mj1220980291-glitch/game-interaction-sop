@@ -373,6 +373,12 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
             type: 'object',
             description: '探针给出的母版名与尺寸，用于进门检查；缺省则跳过尺寸核对'
           },
+          verifyFileKey: {
+            type: 'string',
+            description:
+              'phase=verify 时在哪个文件里做 import 冒烟。建议固定用一个空沙盒文件：' +
+              '在源项目文件里跑可能因组件依赖成环而挂死；在库文件本身跑则永远成功、测不出问题'
+          },
           badgeContainerSourceId: { type: 'string', description: '散落标号模板用来补容器的 1:14 气泡节点 id' },
           components: {
             type: 'object',
@@ -412,8 +418,12 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
           typeof (args?.source as { fileKey?: string })?.fileKey === 'string'
             ? (args!.source as { fileKey: string }).fileKey
             : undefined;
+        const verifyFileKey =
+          typeof args?.verifyFileKey === 'string' ? args.verifyFileKey : undefined;
         const targetFileKey =
-          phase === 'verify' ? (sourceFileKey ?? library.fileKey) : library.fileKey;
+          phase === 'verify'
+            ? (verifyFileKey ?? sourceFileKey ?? library.fileKey)
+            : library.fileKey;
         const bound =
           typeof opts.v2Backend.withFileKey === 'function'
             ? opts.v2Backend.withFileKey(targetFileKey)
