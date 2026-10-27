@@ -841,11 +841,12 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         root.x = src.x;
         root.y = src.y;
 
-        // 说明栏 = 子节点里文本最多的那个；图区 = 另一个最宽的。
+        // 说明栏 = 最高的那个子节点（横跨整章）；图区 = 另一个最宽的。
+        // 不用「统计文本数」：那要遍历整棵 7000 节点子树，单次调用会超 10 秒。
         let graphic = null, column = null, gBest = -1, cBest = -1;
         for (const c of src.children) {
-          const t = c.findAll((x) => x.type === 'TEXT').length;
-          if (t > cBest) { cBest = t; column = c; }
+          const h = c.height ?? 0;
+          if (h > cBest) { cBest = h; column = c; }
         }
         for (const c of src.children) {
           if (c === column) continue;
@@ -854,10 +855,15 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         }
 
         if (graphic) {
-          const g = graphic.clone();
+          // 图区不搬原稿：每份文档都要换成自己的图，搬过来只会拖慢编译。
+          // 直接按图区尺寸放一个空矩形，渲染时往它上面贴图。
+          const g = figma.createRectangle();
+          g.name = '主图占位';
+          g.resize(Math.max(graphic.width, 1), Math.max(graphic.height, 1));
           root.appendChild(g);
           g.x = graphic.x;
           g.y = graphic.y;
+          g.fills = [];
         }
 
         if (column) {
