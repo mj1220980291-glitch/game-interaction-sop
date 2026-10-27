@@ -52,6 +52,8 @@ export interface PartsRenderInput {
   assetMap?: Record<string, AssetSpec>;
   pageId?: string;
   backend: FigmaBackend;
+  /** 根帧一建好就回报，失败时外层才能删干净。 */
+  onRootCreated?: (id: string) => void;
 }
 
 export interface PartsRenderResult {
@@ -138,6 +140,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
   );
 
   const parts: NodeInfo[] = [top, ...chapters, ...(footer ? [footer] : [])];
+  input.onRootCreated?.(root.id);
   await stage('reparent', async () => {
     for (const part of parts) {
       await backend.reparentNode({ nodeId: part.id, newParentId: root.id });

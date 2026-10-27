@@ -443,9 +443,9 @@ export async function renderInner(
       pack: packHit.pack,
       ...(input.assetMap ? { assetMap: input.assetMap } : {}),
       ...(input.target?.pageId ? { pageId: input.target.pageId } : {}),
-      backend
+      backend,
+      ...(onRootCreated ? { onRootCreated } : {})
     });
-    onRootCreated?.(partsResult.rootId);
     for (const w of partsResult.warnings) report?.(w);
     figures.placed += partsResult.summary.figuresPlaced;
     return partsResult.rootId;
