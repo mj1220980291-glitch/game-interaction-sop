@@ -143,7 +143,8 @@ function serNode(n) {
     // \`@角色\` tags, which never sit past the first few hundred chars). Keeping
     // whole paragraphs made 14k-node documents exceed the 25s scan budget.
     characters: chars === null ? null : chars.slice(0, 400),
-    visible: typeof n.visible === 'boolean' ? n.visible : true
+    visible: typeof n.visible === 'boolean' ? n.visible : true,
+    layoutMode: ('layoutMode' in n) ? n.layoutMode : null
   };
 }
 `;
@@ -203,7 +204,11 @@ function mapNode(raw: Record<string, unknown>): NodeInfo {
     parentType: raw['parentType'] != null ? toNodeType(String(raw['parentType'])) : undefined,
     childIds: Array.isArray(raw['childIds']) ? (raw['childIds'] as string[]) : undefined,
     characters: raw['characters'] != null ? String(raw['characters']) : undefined,
-    visible: typeof raw['visible'] === 'boolean' ? (raw['visible'] as boolean) : undefined
+    visible: typeof raw['visible'] === 'boolean' ? (raw['visible'] as boolean) : undefined,
+    layoutMode:
+      raw['layoutMode'] === 'HORIZONTAL' || raw['layoutMode'] === 'VERTICAL' || raw['layoutMode'] === 'NONE'
+        ? (raw['layoutMode'] as NodeInfo['layoutMode'])
+        : undefined
   };
 }
 
@@ -499,6 +504,37 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         if (typeof n.resize === 'function') n.resize(${width}, ${height});
         return null;
       `, 15000);
+    },
+
+    async setAutoLayout({ nodeId, mode, itemSpacing, padding, hugHeight, absoluteChildIds }) {
+      const p = padding ?? {};
+      await run(`
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) throw new Error('setAutoLayout: node not found: ' + ${JSON.stringify(nodeId)});
+        if (!('layoutMode' in n)) throw new Error('setAutoLayout: node has no layout: ' + n.type);
+
+        n.paddingTop = ${p.top ?? 0};
+        n.paddingRight = ${p.right ?? 0};
+        n.paddingBottom = ${p.bottom ?? 0};
+        n.paddingLeft = ${p.left ?? 0};
+        n.itemSpacing = ${itemSpacing};
+        n.primaryAxisAlignItems = 'MIN';
+        n.counterAxisAlignItems = 'MIN';
+
+        for (const id of ${JSON.stringify(absoluteChildIds ?? [])}) {
+          const c = await figma.getNodeByIdAsync(id);
+          if (c && 'layoutPositioning' in c) c.layoutPositioning = 'ABSOLUTE';
+        }
+
+        // 顺序很重要：先设绝对定位，再开自动布局；反过来 Figma 会先把
+        // 舞台当作普通子级排一遍，位置已经错了。
+        n.layoutMode = ${JSON.stringify(mode)};
+        n.primaryAxisSizingMode = 'FIXED';
+        n.counterAxisSizingMode = 'FIXED';
+        ${hugHeight ? `n.layoutSizingVertical = 'HUG';` : `n.layoutSizingVertical = 'FIXED';`}
+        n.layoutSizingHorizontal = 'FIXED';
+        return null;
+      `, 20000);
     },
 
     async clearFills(nodeIds) {

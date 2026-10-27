@@ -17,6 +17,7 @@ import { DEFAULT_CAPABILITIES, type Capabilities, type TemplatePack } from '../t
 import { adoptNestedParts, type AdoptOutcome } from './adopt.js';
 import { normalizeSlotNames, type SlotRename } from './normalize-slots.js';
 import { slimParts } from './slim-parts.js';
+import { applyAdaptiveLayout, type AdaptiveApplied } from './adaptive-layout.js';
 import { buildMdContract, MD_CONTRACT_RELATIVE_PATH, type MdContract } from './md-contract.js';
 import { loadTemplatePack } from '../template-config.js';
 import { intake, type IntakeCheck } from './intake.js';
@@ -64,6 +65,8 @@ export interface CompileReport {
   renamed?: SlotRename[];
   /** 空壳化删掉的节点数。 */
   slimmed?: number;
+  /** 加上了自适应外壳的部件（幂等：已是自动布局的为空）。 */
+  adaptive?: AdaptiveApplied[];
   capabilities: Capabilities;
   diffs: CapabilityDiff[];
   anchors: TemplatePack['anchors'];
@@ -331,6 +334,15 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   );
   pushGaps(slim.gaps);
 
+  // 自适应外壳：把根框接回 HUG 链，渲染期就不用再量一遍子级压高度。
+  const adaptive = await stage('adaptive', () =>
+    applyAdaptiveLayout({
+      backend,
+      parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId }))
+    })
+  );
+  pushGaps(adaptive.gaps);
+
   // 产物能力重算：配置必须描述产物，而不是源模板。
   const treeOf = async (part: PartName): Promise<ProbeTree | undefined> => {
     const hit = built.built.find((b) => b.part === part);
@@ -366,6 +378,7 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     sets: adopted.sets,
     renamed: normalized.renamed,
     slimmed: slim.deleted,
+    adaptive: adaptive.applied,
     capabilities: verdict.capabilities,
     diffs: verdict.diffs,
     anchors: {},

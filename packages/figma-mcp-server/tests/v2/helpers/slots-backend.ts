@@ -101,7 +101,15 @@ export function n(
   name: string,
   type: NodeInfo['type'],
   children: string[] = [],
-  opts: { text?: string; w?: number; h?: number; visible?: boolean } = {}
+  opts: {
+    text?: string;
+    w?: number;
+    h?: number;
+    x?: number;
+    y?: number;
+    visible?: boolean;
+    layoutMode?: NodeInfo['layoutMode'];
+  } = {}
 ): NodeInfo {
   return {
     id,
@@ -110,8 +118,16 @@ export function n(
     childIds: children,
     visible: opts.visible !== false,
     ...(opts.text !== undefined ? { characters: opts.text } : {}),
-    ...(opts.w !== undefined || opts.h !== undefined
-      ? { absoluteBoundingBox: { x: 0, y: 0, width: opts.w ?? 100, height: opts.h ?? 100 } }
+    ...(opts.layoutMode !== undefined ? { layoutMode: opts.layoutMode } : {}),
+    ...(opts.w !== undefined || opts.h !== undefined || opts.x !== undefined || opts.y !== undefined
+      ? {
+          absoluteBoundingBox: {
+            x: opts.x ?? 0,
+            y: opts.y ?? 0,
+            width: opts.w ?? 100,
+            height: opts.h ?? 100
+          }
+        }
       : {})
   };
 }

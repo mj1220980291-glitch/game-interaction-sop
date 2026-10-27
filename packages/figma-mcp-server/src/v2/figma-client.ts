@@ -61,6 +61,14 @@ export interface NodeInfo {
    * backends and test doubles) — callers must treat undefined as visible.
    */
   visible?: boolean;
+  /**
+   * `node.layoutMode`. Undefined when the backend could not report it — callers
+   * must treat undefined as "unknown", never as `'NONE'`.
+   *
+   * 渲染用它判断部件是否自带自适应：带了就别再手工设高（auto layout 的
+   * HUG 高是算出来的，写回去只会打架）。
+   */
+  layoutMode?: 'NONE' | 'HORIZONTAL' | 'VERTICAL';
 }
 
 /**
@@ -346,6 +354,29 @@ export interface FigmaBackend {
 
   /** 改节点尺寸。多部件渲染第二遍布局要把根帧撑到内容总高。 */
   resizeNode?(nodeId: string, width: number, height: number): Promise<void>;
+
+  /**
+   * 把一个容器设成自动布局（只有高度方向 HUG）。
+   *
+   * 为什么不直接改 `layoutMode`：设成自动布局那一刻，Figma 会立刻按默认
+   * 间距重排子级，原来手工摆好的坐标全丢。所以这里同时收下 `padding` 与
+   * `itemSpacing`，让调用方把「子级现在的位置」翻译成自动布局参数：
+   *
+   *   paddingTop = min(子级.y)            → 首个子级不动
+   *   itemSpacing = 后一个.x − 前一个右边  → 水平间距不动
+   *
+   * `absoluteChildIds` 里的子级改成绝对定位，完全脱离排版（叠在舞台上的
+   * 气泡就是这种）。宽度不动，只让高度 HUG。
+   */
+  setAutoLayout?(p: {
+    nodeId: string;
+    mode: 'HORIZONTAL' | 'VERTICAL';
+    itemSpacing: number;
+    padding?: { top?: number; right?: number; bottom?: number; left?: number };
+    /** true = 高度跟着子级走；宽度始终固定（跨模板宽度不一致，不猜）。 */
+    hugHeight?: boolean;
+    absoluteChildIds?: string[];
+  }): Promise<void>;
 
   /** 清空填充（图片 / 纯色）。部件原稿里的截图必须在填充前清掉。 */
   clearFills?(nodeIds: string[]): Promise<void>;

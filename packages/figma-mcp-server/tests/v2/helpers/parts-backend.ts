@@ -24,6 +24,7 @@ export interface PNode {
   x: number;
   y: number;
   fills?: string[];
+  layoutMode?: NodeInfo['layoutMode'];
 }
 
 export interface PartsBackend {
@@ -47,6 +48,7 @@ export interface PNodeSpec {
   width?: number;
   height?: number;
   fills?: string[];
+  layoutMode?: NodeInfo['layoutMode'];
 }
 
 export function buildNodes(rootId: string, spec: PNodeSpec): Map<string, PNode> {
@@ -64,7 +66,8 @@ export function buildNodes(rootId: string, spec: PNodeSpec): Map<string, PNode> 
       height: s.height ?? 100,
       x: 0,
       y: 0,
-      ...(s.fills ? { fills: s.fills } : {})
+      ...(s.fills ? { fills: s.fills } : {}),
+      ...(s.layoutMode ? { layoutMode: s.layoutMode } : {})
     });
     for (const child of s.children ?? []) visit(child, s.id);
   };
@@ -144,6 +147,7 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
       visible: n.visible !== false,
       ...(n.characters !== undefined ? { characters: n.characters } : {}),
       ...(n.children.length > 0 ? { childIds: [...n.children] } : {}),
+      ...(n.layoutMode ? { layoutMode: n.layoutMode } : {}),
       absoluteBoundingBox: { x: n.x, y: n.y, width: n.width, height: n.height }
     };
   };
@@ -161,7 +165,8 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
       height: spec.height ?? 100,
       x: 0,
       y: 0,
-      ...(spec.fills ? { fills: [...spec.fills] } : {})
+      ...(spec.fills ? { fills: [...spec.fills] } : {}),
+      ...(spec.layoutMode ? { layoutMode: spec.layoutMode } : {})
     };
     nodes.set(copy.id, copy);
     if (parentId) nodes.get(parentId)?.children.push(copy.id);

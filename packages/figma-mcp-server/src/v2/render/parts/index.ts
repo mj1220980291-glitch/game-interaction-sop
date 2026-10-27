@@ -130,14 +130,26 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
 
   const topInfo = await backend.getNodeInfo(top.id);
   const width = topInfo.absoluteBoundingBox?.width ?? 1920;
-  const root = await stage('root.create', () =>
-    backend.createFrame!({
+  // 根帧也接上自适应：部件 append 进来就自动纵向排、根帧高度跟着长，
+  // 不用再手工累加 y 然后一次性设总高（那个数一错就整篇错位）。
+  const autoLayout = typeof backend.setAutoLayout === 'function';
+  const root = await stage('root.create', async () => {
+    const frame = await backend.createFrame!({
       ...(input.pageId ? { parentId: input.pageId } : {}),
       name: ir.header.title,
       width,
       height: 1
-    })
-  );
+    });
+    if (autoLayout) {
+      await backend.setAutoLayout!({
+        nodeId: frame.id,
+        mode: 'VERTICAL',
+        itemSpacing: PARTS_GAP,
+        hugHeight: true
+      });
+    }
+    return frame;
+  });
 
   const parts: NodeInfo[] = [top, ...chapters, ...(footer ? [footer] : [])];
   input.onRootCreated?.(root.id);
@@ -167,7 +179,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     else placeholdersUsed += 1;
   }
 
-  await stage('layout', () => layout(root, parts, backend));
+  await stage('layout', () => layout(root, parts, backend, autoLayout));
 
   return {
     rootId: root.id,
@@ -200,7 +212,23 @@ async function instantiate(
   return node;
 }
 
-async function layout(root: NodeInfo, parts: NodeInfo[], backend: FigmaBackend): Promise<void> {
+async function layout(
+  root: NodeInfo,
+  parts: NodeInfo[],
+  backend: FigmaBackend,
+  autoLayout: boolean
+): Promise<void> {
+  if (autoLayout) {
+    // 纵向位置与总高都由自动布局算，这里只把宽度撑到最宽的那个部件
+    // （顶部 2198 / 章节 2209 / 结尾 2198 各不相同）。
+    let width = 0;
+    for (const part of parts) {
+      const info = await backend.getNodeInfo(part.id);
+      width = Math.max(width, info.absoluteBoundingBox?.width ?? 0);
+    }
+    if (width > 0) await backend.resizeNode!(root.id, width, 1);
+    return;
+  }
   let y = 0;
   let width = 0;
   for (const part of parts) {
@@ -414,9 +442,11 @@ async function fillChapter(
 
   // 章节高度贴合内容：模板原高常常远大于本次内容（蛋仔 6240 vs 内容 250），
   // 留着就是一大片空白。宽度不动，只收高度。
+  // 部件自带自适应（编译期接上了 HUG 链）时高度是算出来的，写回去会打架，跳过。
   await stage('chapter.fit', async () => {
     if (typeof backend.resizeNode !== 'function') return;
     const info = await backend.getNodeInfo(chapter.id);
+    if (info.layoutMode === 'HORIZONTAL' || info.layoutMode === 'VERTICAL') return;
     const top = info.absoluteBoundingBox?.y ?? 0;
     let bottom = 0;
     for (const childId of info.childIds ?? []) {
