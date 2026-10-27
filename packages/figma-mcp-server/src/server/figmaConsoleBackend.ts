@@ -381,7 +381,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         const comp = figma.createComponentFromNode(target);
         ${name != null ? `comp.name = ${JSON.stringify(name)};` : ''}
         return serNode(comp);
-      `, 20000) as Record<string, unknown>;
+      `, 60000) as Record<string, unknown>;
       return mapNode(r);
     },
 
@@ -787,7 +787,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         ${x != null ? `clone.x = ${x};` : ''}
         ${y != null ? `clone.y = ${y};` : ''}
         return serNode(clone);
-      `, 20000) as Record<string, unknown>;
+      `, 60000) as Record<string, unknown>;
       return mapNode(r);
     },
 
