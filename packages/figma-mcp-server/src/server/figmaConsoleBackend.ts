@@ -769,8 +769,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return mapNode(r);
     },
 
-    async cloneNode({ sourceId, parentId, x, y, name }) {
-      const r = await run(`
+    async cloneNode({ sourceId, parentId, x, y, name }) {      const r = await run(`
         ${SERIALIZE_NODE_FN}
         const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
         if (!src) {
@@ -788,6 +787,40 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         ${y != null ? `clone.y = ${y};` : ''}
         return serNode(clone);
       `, 60000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async cloneSlimPart({ sourceId, parentId, name, part }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
+        if (!src) throw new Error('cloneSlimPart: source not found: ' + ${JSON.stringify(sourceId)});
+        const clone = src.clone();
+        ${parentId ? `
+          const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+          if (!parent) throw new Error('cloneSlimPart: parent not found: ' + ${JSON.stringify(parentId)});
+          parent.appendChild(clone);
+        ` : ''}
+        ${name ? `clone.name = ${JSON.stringify(name)};` : ''}
+
+        // 克隆与清空放在同一次 exec：中间不留 RPC 间隙，插件不会被连接层判死。
+        const part = ${JSON.stringify(part)};
+        if (part === 'chapter') {
+          let col = null;
+          let best = -1;
+          for (const c of clone.children) {
+            const n = c.findAll((x) => x.type === 'TEXT').length;
+            if (n > best) { best = n; col = c; }
+          }
+          if (col) for (const c of [...col.children]) c.remove();
+        } else if (part === 'cluster') {
+          const bullets = clone.findAll((x) => x.name === '正文/规则' && x.visible);
+          for (const b of bullets.slice(1)) b.remove();
+          const groups = clone.findAll((x) => x.name === '#Title' && x.visible);
+          for (const g of groups.slice(1)) g.remove();
+        }
+        return serNode(clone);
+      `, 90000) as Record<string, unknown>;
       return mapNode(r);
     },
 

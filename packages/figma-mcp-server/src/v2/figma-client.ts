@@ -350,6 +350,20 @@ export interface FigmaBackend {
   /** 清空填充（图片 / 纯色）。部件原稿里的截图必须在填充前清掉。 */
   clearFills?(nodeIds: string[]): Promise<void>;
 
+  /**
+   * 克隆一个部件，并在**同一次插件调用内**把原稿内容清掉。
+   *
+   * 为什么需要：章节母版可能有 7000+ 节点，先整块克隆再分多次 RPC 删，
+   * 插件会被长时间占住、连接层直接判超时（真机实测）。克隆与清空放进
+   * 同一次 exec，中间不留 RPC 间隙。
+   */
+  cloneSlimPart?(p: {
+    sourceId: string;
+    parentId?: string;
+    name?: string;
+    part: 'chapter' | 'cluster';
+  }): Promise<NodeInfo>;
+
   /** Set TEXT.characters. Loads font automatically. */
   setTextContent(nodeId: string, characters: string): Promise<void>;
 
