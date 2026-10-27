@@ -14,6 +14,8 @@
  */
 
 import type { FigmaBackend } from '../figma-client.js';
+import { BADGE_MASTER_NAME } from '../template-slots.js';
+import { SECTION_CHILD_NAMES } from '../template-map.js';
 import { COMPILE_CODES, compileError, type CompileGap } from './errors.js';
 
 /** 容器在部件里的固定图层名——渲染期按名字找。 */
@@ -79,4 +81,117 @@ export async function ensureBadgeContainer(
   });
 
   return { applied: true, containerId: clone.id, gaps };
+}
+
+// --- 标号母版收口 ---------------------------------------------------------
+
+/**
+ * 容器里必须恰好留一个**隐藏母版** `标号/母版`：
+ *   - 源模板自带多个标号（`1:14` 的 8 个）→ 留一个改名、隐藏，其余删除
+ *   - 补容器场景：`1:14` 的 `气泡` 是整棵克隆，标号随之带进来，同样收口
+ *   - 一个标号都没有 → 记缺口，能力重算时自然降级为不可摆位
+ *
+ * 母版是样式的唯一来源（尺寸 / 圆角 / 填充 / 描边），所以必须来自克隆，
+ * 不在代码里画。
+ *
+ * Spec: openspec/changes/engine-multi-part-template-render (D7 / template-compile)
+ */
+export interface EnsureBadgeMasterInput {
+  backend: FigmaBackend;
+  /** 章节组件 id（容器挂它下面）。 */
+  chapterComponentId: string;
+  /** 已知容器 id；不给则按名字 `气泡` 在章节子树里找。 */
+  containerId?: string;
+}
+
+export interface EnsureBadgeMasterResult {
+  masterId?: string;
+  applied: boolean;
+  /** 被删掉的其余标号。 */
+  removed: string[];
+  gaps: CompileGap[];
+}
+
+export async function ensureBadgeMaster(
+  input: EnsureBadgeMasterInput
+): Promise<EnsureBadgeMasterResult> {
+  const { backend } = input;
+  const gaps: CompileGap[] = [];
+
+  if (typeof backend.scanSubtree !== 'function') {
+    throw compileError(
+      COMPILE_CODES.BACKEND_UNSUPPORTED,
+      '当前 Figma 后端不支持 scanSubtree——无法定位标号容器'
+    );
+  }
+
+  let containerId = input.containerId;
+  if (!containerId) {
+    const { nodes } = await backend.scanSubtree(input.chapterComponentId, 8000);
+    containerId = nodes.find((n) => n.name === BADGE_CONTAINER_NAME)?.id;
+  }
+  if (!containerId) {
+    gaps.push({
+      what: '章节部件里没有标号容器（`气泡`）',
+      impact: '图上标号无处摆放，渲染会报 V2_RENDER_BADGE_MASTER_MISSING',
+      fix: '把 1:14 的「气泡」粘到 _staging 页，编译时用 badgeContainerSourceId 传入后重编'
+    });
+    return { applied: false, removed: [], gaps };
+  }
+
+  const container = await backend.getNodeInfo(containerId);
+  const childIds = container.childIds ?? [];
+  const children = childIds.length > 0 ? await backend.getNodesInfo(childIds) : [];
+  const badges = children.filter((c) => c.name.startsWith(SECTION_CHILD_NAMES.bubbleNumberPrefix));
+  const master = badges.find((b) => b.name === BADGE_MASTER_NAME) ?? badges[0];
+
+  if (!master) {
+    gaps.push({
+      what: '标号容器里没有标号母版',
+      impact: '渲染无法生成图上标号（会返回 V2_RENDER_BADGE_MASTER_MISSING）',
+      fix: '把 1:14 的一个「标号/N」粘进容器，或让容器来源带上标号后重编'
+    });
+    return { applied: false, removed: [], gaps };
+  }
+
+  const removed = badges.filter((b) => b.id !== master.id).map((b) => b.id);
+  if (removed.length > 0 && typeof backend.deleteNodes === 'function') {
+    await backend.deleteNodes(removed);
+  }
+
+  let applied = false;
+  if (master.name !== BADGE_MASTER_NAME) {
+    if (typeof backend.renameNode !== 'function') {
+      throw compileError(
+        COMPILE_CODES.BACKEND_UNSUPPORTED,
+        '当前 Figma 后端不支持 renameNode——无法把标号改名成母版'
+      );
+    }
+    await backend.renameNode(master.id, BADGE_MASTER_NAME);
+    applied = true;
+  }
+
+  if (typeof backend.setNodeVisible === 'function') {
+    if (master.visible !== false) {
+      await backend.setNodeVisible(master.id, false);
+      applied = true;
+    }
+  } else {
+    gaps.push({
+      what: '后端不支持 setNodeVisible，标号母版无法隐藏',
+      impact: '画布上会多出一个静止的标号',
+      fix: '手工在库里隐藏该节点'
+    });
+  }
+
+  const scanned = await backend.scanSubtree(master.id, 200);
+  if (!scanned.nodes.some((n) => n.type === 'TEXT')) {
+    gaps.push({
+      what: '标号母版里没有可写编号文本',
+      impact: '渲染写不进编号，标号会一直是母版的数字',
+      fix: '确认母版内含编号 TEXT（`#Number`）'
+    });
+  }
+
+  return { applied, masterId: master.id, removed, gaps };
 }

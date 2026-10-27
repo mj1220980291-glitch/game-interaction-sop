@@ -15,8 +15,11 @@ import type { AdoptResult, FigmaBackend } from '../figma-client.js';
 import { buildProbeTree, type ProbeTree } from '../probe/tree.js';
 import { DEFAULT_CAPABILITIES, type Capabilities, type TemplatePack } from '../template/schema.js';
 import { adoptNestedParts, type AdoptOutcome } from './adopt.js';
+import { normalizeSlotNames, type SlotRename } from './normalize-slots.js';
+import { buildMdContract, MD_CONTRACT_RELATIVE_PATH, type MdContract } from './md-contract.js';
+import { loadTemplatePack } from '../template-config.js';
 import { intake, type IntakeCheck } from './intake.js';
-import { ensureBadgeContainer } from './badge-container.js';
+import { ensureBadgeContainer, ensureBadgeMaster } from './badge-container.js';
 import { buildTemplatePack, verifyPublished, type ComponentKeys } from './backfill.js';
 import type { CompileGap } from './errors.js';
 import { buildWeightMap, COMPILE_FONT_FAMILY } from './font-normalize.js';
@@ -26,7 +29,7 @@ import { deriveCapabilities, type CapabilityDiff } from './verify-capabilities.j
 import { COMPILE_CODES, compileError } from './errors.js';
 
 export interface CompileInput {
-  phase: 'compile' | 'verify';
+  phase: 'compile' | 'verify' | 'contract';
   source: { fileKey?: string; nodeId: string };
   library: { fileKey: string; pageId: string };
   project: string;
@@ -50,12 +53,14 @@ export interface CompileInput {
 }
 
 export interface CompileReport {
-  phase: 'compile' | 'verify';
+  phase: 'compile' | 'verify' | 'contract';
   project: string;
   /** 计划（干跑也有），实跑时带 componentId。 */
   parts: Array<{ part: PartName; name: string; componentId: string | null; key: string | null }>;
   adopted: AdoptOutcome['adopted'];
   sets: AdoptResult['sets'];
+  /** 槽位命名归一化的逐条改名（幂等：重编已在统一命名的部件时为空）。 */
+  renamed?: SlotRename[];
   capabilities: Capabilities;
   diffs: CapabilityDiff[];
   anchors: TemplatePack['anchors'];
@@ -63,11 +68,14 @@ export interface CompileReport {
   /** 进门检查逐项结果（粘进来的素材对不对）。 */
   checks: IntakeCheck[];
   templateJson?: TemplatePack;
+  /** 人读的书写契约（`verify` / `contract` 阶段返回）。 */
+  mdContract?: MdContract;
   written: boolean;
 }
 
 export async function compileTemplate(input: CompileInput): Promise<CompileReport> {
   if (input.phase === 'verify') return verifyPhase(input);
+  if (input.phase === 'contract') return contractPhase(input);
   return compilePhase(input);
 }
 
@@ -83,8 +91,10 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
     },
     components: verified,
     capabilities: input.capabilities ?? { ...DEFAULT_CAPABILITIES },
-    anchors: {}
+    anchors: {},
+    mdContract: MD_CONTRACT_RELATIVE_PATH
   });
+  const mdContract = buildMdContract(pack);
   return {
     phase: 'verify',
     project: input.project,
@@ -102,6 +112,38 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
     gaps: [],
     checks: [],
     templateJson: pack,
+    mdContract,
+    written: false
+  };
+}
+
+/** 只读阶段：按已登记的模板包重新生成 `md-contract.md`，不连 Figma。 */
+async function contractPhase(input: CompileInput): Promise<CompileReport> {
+  const hit = loadTemplatePack();
+  if (!hit) {
+    throw compileError(
+      COMPILE_CODES.PARTS_NOT_REGISTERED,
+      `没有找到「${input.project}」的模板包——先完成编译与回填，再生成书写契约`
+    );
+  }
+  const mdContract = buildMdContract(hit.pack);
+  return {
+    phase: 'contract',
+    project: hit.pack.project ?? input.project,
+    parts: (Object.keys(hit.pack.components) as PartName[]).map((p) => ({
+      part: p,
+      name: `${hit.pack.project ?? input.project} / ${PART_LABELS[p]}`,
+      componentId: null,
+      key: hit.pack.components[p] ?? null
+    })),
+    adopted: [],
+    sets: [],
+    capabilities: hit.pack.capabilities,
+    diffs: [],
+    anchors: hit.pack.anchors,
+    gaps: [],
+    checks: [],
+    mdContract,
     written: false
   };
 }
@@ -226,6 +268,14 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
       ...(input.badgeContainerSourceId ? { containerSourceId: input.badgeContainerSourceId } : {})
     });
     gaps.push(...badge.gaps);
+
+    // 收口母版：容器里只留一个隐藏的 `标号/母版`，渲染期克隆它生成标号。
+    const master = await ensureBadgeMaster({
+      backend,
+      chapterComponentId: chapter.componentId,
+      ...(badge.containerId ? { containerId: badge.containerId } : {})
+    });
+    gaps.push(...master.gaps);
   }
 
   const adopted = await adoptNestedParts({
@@ -235,6 +285,14 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     project
   });
   gaps.push(...adopted.gaps);
+
+  // 槽位命名归一化：渲染只按统一名取值，名字在这里一次改好（已是统一名则零改动）。
+  const normalized = await normalizeSlotNames({
+    backend,
+    parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId })),
+    capabilities: source
+  });
+  pushGaps(normalized.gaps);
 
   // 产物能力重算：配置必须描述产物，而不是源模板。
   const treeOf = async (part: PartName): Promise<ProbeTree | undefined> => {
@@ -269,6 +327,7 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     })),
     adopted: adopted.adopted,
     sets: adopted.sets,
+    renamed: normalized.renamed,
     capabilities: verdict.capabilities,
     diffs: verdict.diffs,
     anchors: {},

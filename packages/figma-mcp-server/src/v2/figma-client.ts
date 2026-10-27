@@ -329,6 +329,27 @@ export interface FigmaBackend {
   /** Move a node. Coords are interpreted by parent type (see safety wrapper). */
   moveNode(nodeId: string, x: number, y: number): Promise<void>;
 
+  /**
+   * 新建一个空 FRAME（多部件渲染的文档根）。
+   *
+   * 4 个部件是独立组件实例，没有共同父级；不建根帧就只能把一堆节点散在页面上，
+   * `rootInstanceId` 与 reconcile 都失去意义。
+   */
+  createFrame?(p: {
+    parentId?: string;
+    name: string;
+    x?: number;
+    y?: number;
+    width: number;
+    height: number;
+  }): Promise<NodeInfo>;
+
+  /** 改节点尺寸。多部件渲染第二遍布局要把根帧撑到内容总高。 */
+  resizeNode?(nodeId: string, width: number, height: number): Promise<void>;
+
+  /** 清空填充（图片 / 纯色）。部件原稿里的截图必须在填充前清掉。 */
+  clearFills?(nodeIds: string[]): Promise<void>;
+
   /** Set TEXT.characters. Loads font automatically. */
   setTextContent(nodeId: string, characters: string): Promise<void>;
 

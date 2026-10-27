@@ -24,7 +24,11 @@ export const COMPILE_CODES = {
   /** 名字以 `_` / `.` 开头 → Figma 判定不发布 */
   UNPUBLISHABLE_NAME: 'V2_COMPILE_UNPUBLISHABLE_NAME',
   /** 后端缺少本变更要求的可选方法 */
-  BACKEND_UNSUPPORTED: 'V2_COMPILE_BACKEND_UNSUPPORTED'
+  BACKEND_UNSUPPORTED: 'V2_COMPILE_BACKEND_UNSUPPORTED',
+  /** 关键槽位定位不到（统一命名归一化失败） */
+  SLOT_UNMAPPED: 'V2_COMPILE_SLOT_UNMAPPED',
+  /** `phase=contract` 时该项目没有登记的模板包 */
+  PARTS_NOT_REGISTERED: 'V2_COMPILE_PARTS_NOT_REGISTERED'
 } as const;
 
 export type CompileCode = (typeof COMPILE_CODES)[keyof typeof COMPILE_CODES];

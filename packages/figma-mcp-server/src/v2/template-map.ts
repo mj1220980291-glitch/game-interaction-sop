@@ -51,6 +51,26 @@ export const OVERVIEW_SLOTS = {
 } as const;
 
 /**
+ * Header slot layer names. Inside a clone, IDs are re-assigned by Figma, so the
+ * renderer resolves these five TEXTs by name.
+ */
+export const HEADER_NAMES = {
+  title: '文档标题',
+  owner: '设计师名称',
+  group: '需求组名称',
+  ticketLink: '易协作单号链接',
+  lastUpdate: '更新时间'
+} as const;
+
+/** Overview frame layer names + the TEXT slots inside each. */
+export const OVERVIEW_NAMES = {
+  background: '功能背景',
+  coreInteraction: '核心交互',
+  heading: '#Title',
+  body: '#Content'
+} as const;
+
+/**
  * Section template. The renderer clones from this master once per `## NN.`
  * markdown section.
  *

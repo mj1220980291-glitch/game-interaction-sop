@@ -99,7 +99,7 @@ function graphicWidth(node: ProbeNode): number {
  * Number carrier — the ONE case that must look inside an INSTANCE: a `num`
  * badge component keeps its digit in an inner TEXT.
  */
-function findNumberCarrier(node: ProbeNode): { node: ProbeNode; kind: 'text' | 'instance' } | undefined {
+export function findNumberCarrier(node: ProbeNode): { node: ProbeNode; kind: 'text' | 'instance' } | undefined {
   let found: { node: ProbeNode; kind: 'text' | 'instance' } | undefined;
   walk(node, (n) => {
     if (found) return false;
@@ -116,14 +116,14 @@ function findNumberCarrier(node: ProbeNode): { node: ProbeNode; kind: 'text' | '
   return found;
 }
 
-function pickTitle(node: ProbeNode): ProbeNode | undefined {
+export function pickTitle(node: ProbeNode): ProbeNode | undefined {
   return nonEmptyTexts(node).find((t) => {
     const s = (t.characters ?? '').trim();
     return s.length <= 24 && !isNumberText(t) && !isRoleText(t);
   });
 }
 
-function contentLinesOf(node: ProbeNode, title?: ProbeNode): ProbeNode[] {
+export function contentLinesOf(node: ProbeNode, title?: ProbeNode): ProbeNode[] {
   return nonEmptyTexts(node).filter((t) => {
     const s = (t.characters ?? '').trim();
     if (s.length < 4) return false;
@@ -144,7 +144,7 @@ function contentLinesOf(node: ProbeNode, title?: ProbeNode): ProbeNode[] {
  * text. No "≥N texts" gate: a chapter with a single short cluster still has a
  * column.
  */
-function pickGraphic(node: ProbeNode): ProbeNode | undefined {
+export function pickGraphic(node: ProbeNode): ProbeNode | undefined {
   let best: { node: ProbeNode; width: number } | undefined;
   for (const child of node.children) {
     const width = graphicWidth(child);
@@ -154,7 +154,7 @@ function pickGraphic(node: ProbeNode): ProbeNode | undefined {
   return best?.node;
 }
 
-function pickColumn(node: ProbeNode, graphic: ProbeNode): ProbeNode | undefined {
+export function pickColumn(node: ProbeNode, graphic: ProbeNode): ProbeNode | undefined {
   let best: { node: ProbeNode; count: number } | undefined;
   for (const child of node.children) {
     if (child === graphic) continue;
@@ -239,7 +239,7 @@ function pickMaster(nodes: ProbeNode[], tree: ProbeTree): MasterRef | undefined 
  * The size test is what keeps an image instance (`Slide 16:9`, 1200×745) from
  * counting as a badge just because its screenshot happens to contain digits.
  */
-function isBadgeNode(node: ProbeNode): boolean {
+export function isBadgeNode(node: ProbeNode): boolean {
   if (subtreeSize(node) > 12) return false;
   if ((node.box?.width ?? 0) >= 200 || (node.box?.height ?? 0) >= 200) return false;
   return texts(node).some((t) => isNumberText(t));

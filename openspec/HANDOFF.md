@@ -2,7 +2,7 @@
 
 ## 一句话现状
 
-两个变更已完成并归档：**模板契约 + 只读探针**、**编译到组件库**。引擎现在能把任意 `ready` 的项目模板编译成我们库里 4 个原子组件并登记 key；**但渲染还走旧路径**（整份克隆），多部件渲染是下一个变更。
+两个变更已完成并归档：**模板契约 + 只读探针**、**编译到组件库**。引擎现在能把任意 `ready` 的项目模板编译成我们库里 4 个原子组件并登记 key；**多部件渲染已实现并测试通过**（见文末「多部件渲染」一节），真机重编与验收待做。
 
 已真机接入两套模板：`~/.game-interaction-sop/templates/蛋仔派对.json`、`官方1.14.json`。
 
@@ -183,3 +183,72 @@ SOP：`packages/skill/references/template-compile.md`。
 - 一项目一套模板；多套留到之后
 - `md-contract.md` 的生成逻辑未做（契约里只定义了字段集与「模板结构为准」原则）
 - `796` 的 `1:14` 判定里 `#Name` 在 `#Name/界面名称` 框内、主图在 `rec组` 内，fixture 已按真机结构重写，勿按旧文档假设改回
+
+---
+
+## 多部件渲染（2026-10-27，代码完成，真机待验收）
+
+变更：`openspec/changes/engine-multi-part-template-render/`（proposal / design / specs / tasks 齐备）。
+
+代码落点：
+
+```
+src/v2/template-slots.ts             统一槽位命名表（唯一真源）
+src/v2/compile/normalize-slots.ts    编译期改名（幂等、关键槽位缺失即拒绝）
+src/v2/compile/badge-container.ts    + ensureBadgeMaster（容器收口唯一隐藏母版）
+src/v2/compile/md-contract.ts        md-contract.md 正文生成
+src/v2/render/parts/index.ts         导入 → detach → 拼装 / 清空原稿 / 标号 / 两遍布局
+src/v2/render.ts                     按模板包分派 parts|legacy（stderr 打印 render mode）
+```
+
+行为要点：
+
+- 有模板包（top/chapter/cluster 三 key 齐全）走 parts；否则**完全回落旧路径**
+- 槽位只按统一名取；缺失报 `V2_RENDER_PART_SLOT_MISSING`，不猜形状
+- 冲突在建画布前拒绝：`V2_RENDER_OVERVIEW_UNSUPPORTED` / `V2_RENDER_SUBGROUP_UNSUPPORTED`
+- 标号：容器内克隆隐藏母版、按 8 宫格摆位；无母版报 `V2_RENDER_BADGE_MASTER_MISSING`
+- `md-contract`：`verify` 报告带 `mdContract`；新增只读 `phase: "contract"`（不连 Figma）
+
+测试：`packages/figma-mcp-server` 334/334 通过，含 `render-parts-equivalence`（同一份 md 在 1:14 上新旧路径的槽位文本一致）。
+
+真机待做（tasks 10.x）：
+
+1. 沙盒里用 `官方1.14` 包渲染样例 md，新旧路径逐节点比对
+2. 重编 `蛋仔派对`（改名 + 母版收口）→ 人工发布 → 沙盒 `verify` → 回填 key
+3. 落盘两份 `md-contract.md`，抽查禁写清单
+4. 已知限制：`badgeSlot=manual` 仍不摆标号；parts 文档暂不支持 reconcile 同步
+
+### 真机进度（2026-10-27 晚）
+
+已完成：
+
+- `官方1.14` 四部件在沙盒渲染成功（root `5:501`，顶层不重叠、原稿已清空、标号 1/2 正常）
+- `蛋仔派对` 重编成功并**已发布**，新 key 已回填 `~/.game-interaction-sop/templates/蛋仔派对.json`（旧配置备份 `.bak`，旧 4 个组件已从库里删除）
+- 新 4 个 key 在沙盒 `importComponentByKeyAsync` 冒烟通过（8–143ms）
+- 归一化实测正确：`Frame 1243 → Text`、`Slide 16:9 - 25 → 主图占位`、`序号 → #Title_Main`、`image 37964 → 配图`、`num`(+内层文本) `→ Number`、`Frame 4273… → 职能标记`
+- `md-contract.md` 已生成到 `~/.game-interaction-sop/templates/蛋仔派对.md-contract.md`
+
+卡住的点（**下次优先解决**）：
+
+蛋仔章节部件编译后仍有 **7235 个节点**（原模板 5 个簇全带进来了）。渲染在它上面扫描/删除时插件被压垮，报
+`deleteNodes(39): Unable to establish connection to Figma after 10 seconds`。
+
+结论：**部件应该在编译期就做成空壳**，而不是让渲染去删：
+
+| 部件 | 编译期应收口到 |
+|---|---|
+| `chapter` | 图区 + 空 `Text` 说明栏 + `气泡`(仅母版) — 不留任何簇 |
+| `cluster` | 编号 + 标题 + 1 条 `正文/规则` + 1 个 `#Title`(若有) + 1 个 `配图`；隐藏备用池保留 |
+
+顺带确认的坑：
+
+- `figma_reconnect` / 引擎内部 backend 与直接 `figma_execute` 是两条通道，库文件发布会短暂让跨文件 import 挂起 → 沙盒里 Assets→Libraries 关开一次即可
+- 扫描预算默认 500 会触发逐节点 BFS（几千次 RPC）；已提到 20000，删除已分批、超时 30s
+- 沙盒里 `蛋仔验收` 页与半成品已清掉；`5:501`（1.14 验收产物）保留
+
+下一步建议（新变更 `template-compile-slim-parts`）：
+
+1. 编译期空壳化 4 部件（上表）
+2. 重编蛋仔 → 发布 → 冒烟 → 回填
+3. 再跑蛋仔样例渲染验收
+

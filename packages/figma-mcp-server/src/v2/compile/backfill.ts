@@ -90,6 +90,8 @@ export interface BuildPackInput {
   components: Partial<Record<PartName, string>>;
   capabilities: Capabilities;
   anchors?: TemplatePack['anchors'];
+  /** `<项目根>/.interaction-sop/md-contract.md` 的相对路径。 */
+  mdContract?: string;
 }
 
 /** 组装 `template.json`，并用既有的 `parseTemplatePack` 自检一遍。 */
@@ -105,7 +107,8 @@ export function buildTemplatePack(input: BuildPackInput): TemplatePack {
       footer: input.components.footer ?? null
     },
     capabilities: input.capabilities,
-    anchors: input.anchors ?? {}
+    anchors: input.anchors ?? {},
+    ...(input.mdContract ? { mdContract: input.mdContract } : {})
   };
 
   const parsed = parseTemplatePack(raw);

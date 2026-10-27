@@ -334,7 +334,7 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
       inputSchema: {
         type: 'object',
         properties: {
-          phase: { type: 'string', enum: ['compile', 'verify'] },
+          phase: { type: 'string', enum: ['compile', 'verify', 'contract'] },
           project: { type: 'string', description: '项目名，用于组件命名 <项目> / 顶部' },
           source: {
             type: 'object',
@@ -403,10 +403,11 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
             'v2Backend 未配置；本工具需要在 createServer({ v2Backend }) 初始化时传入。'
           );
         }
-        const phase = args?.phase === 'verify' ? 'verify' : 'compile';
+        const phase =
+          args?.phase === 'verify' ? 'verify' : args?.phase === 'contract' ? 'contract' : 'compile';
         const nodeId = String((args?.source as { nodeId?: string })?.nodeId ?? '').trim();
         const library = args?.library as { fileKey?: string; pageId?: string } | undefined;
-        if (!nodeId || !library?.fileKey || !library?.pageId) {
+        if (phase !== 'contract' && (!nodeId || !library?.fileKey || !library?.pageId)) {
           return errorResult(
             ServerErrorCodes.INVALID_INPUT,
             'source.nodeId / library.fileKey / library.pageId 均为必填'
@@ -422,10 +423,12 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
           typeof args?.verifyFileKey === 'string' ? args.verifyFileKey : undefined;
         const targetFileKey =
           phase === 'verify'
-            ? (verifyFileKey ?? sourceFileKey ?? library.fileKey)
-            : library.fileKey;
+            ? (verifyFileKey ?? sourceFileKey ?? library?.fileKey)
+            : phase === 'contract'
+              ? undefined
+              : library?.fileKey;
         const bound =
-          typeof opts.v2Backend.withFileKey === 'function'
+          targetFileKey && typeof opts.v2Backend.withFileKey === 'function'
             ? opts.v2Backend.withFileKey(targetFileKey)
             : opts.v2Backend;
 
@@ -436,7 +439,7 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
             nodeId,
             ...(sourceFileKey ? { fileKey: sourceFileKey } : {})
           },
-          library: { fileKey: library.fileKey, pageId: library.pageId },
+          library: { fileKey: library?.fileKey ?? '', pageId: library?.pageId ?? '' },
           ...(args?.staged ? { staged: args.staged as never } : {}),
           ...(args?.capabilities ? { capabilities: args.capabilities as never } : {}),
           ...(args?.expectedMasters ? { expectedMasters: args.expectedMasters as never } : {}),

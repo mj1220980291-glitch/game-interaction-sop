@@ -169,6 +169,12 @@ export const SOFT_WARNING_CODES = {
   W_FIGURE_FILL_FAILED: 'V2_W_FIGURE_FILL_FAILED',
   /** render — 带 @职能 的条目找不到对应「职能标记」变体，降级为普通正文 */
   W_ROLE_BLOCK_MISSING: 'V2_W_ROLE_BLOCK_MISSING',
+  /** render — 模板没有配图槽（`figure = none`），md 里的配图被丢弃 */
+  W_FIGURE_DROPPED: 'V2_W_FIGURE_DROPPED',
+  /** render — 模板不支持图上标号（`badgeSlot` 非 container），标号未摆放 */
+  W_BADGE_UNPLACED: 'V2_W_BADGE_UNPLACED',
+  /** render — 顶部部件里没有总览槽位，总览内容未写入 */
+  W_OVERVIEW_SLOTS_MISSING: 'V2_W_OVERVIEW_SLOTS_MISSING',
   /** render — 渲染产物与 IR 对不上，对应部分未打标记，之后无法同步 */
   W_STAMP_LAYOUT_MISMATCH: 'V2_W_STAMP_LAYOUT_MISMATCH',
   /** render — 打标记失败，文档可用但无法同步 */

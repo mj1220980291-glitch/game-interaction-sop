@@ -35,9 +35,11 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
   - `non-conformant` → 停下来，说清哪条铁律没过、缺什么；不改 Markdown 硬写
   - 报告里的 `capabilities` 决定 md 写法是否成立：`clusterGroups: none` 时 md 不能有 `####`；`overview: none` 时 md 不能有 `## 设计总览`。**冲突就报错，不要静默丢弃**
 - 模板地址查找顺序（见 `references/template-contract.md` 第四节）：项目模板包 > `~/.game-interaction-sop/templates/<项目名>.json` > 全局 default > 官方 1:14
+  - **多部件模式**（模板包 `top` / `chapter` / `cluster` 三个 key 齐全）：引擎按 key 导入 4 个部件、detach 后拼装，槽位只认统一命名；写 md 前先读该项目的 `md-contract.md`，冲突会在建画布前拒绝
   - **库引用模式**（模板包里有 4 个 `components` key）：目标文件只要开着连接插件即可，无需包含模板；`target.fileKey` 填用户当前要写入的文件
   - **同文件模式**（只有 `fileKey` + `nodeId`）：渲染文件必须就是模板所在文件，把该 key 写进 `target.fileKey`
   - **上面两种都没有、但探针结论 `ready`**：这个项目还没编译。不要硬用同文件模式凑，也不要改 Markdown；先按 [`../references/template-compile.md`](../references/template-compile.md) 编译（要人粘一次 + 点一次发布），拿到 4 个 key 再回来渲染
+- 模板重编后 `verify` 会返回 `mdContract`；把它落盘到 `<项目根>/.interaction-sop/md-contract.md`。没有模板变更时用 `figma_compile_template({ phase: "contract", project })` 重新生成，不写画布
 - Markdown 里有 `- @职能：` 条目时，确认 `roleBlock.componentSetId` 已配置，且该组件集在**同一个文件**里、角色变体齐全。缺配置就明确告诉用户，不要先渲染再报错
 - 用户在别的文件里做设计时，先让用户把连接插件切到目标文件
 

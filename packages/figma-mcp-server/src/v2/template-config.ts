@@ -152,6 +152,21 @@ export function loadTemplatePack(
 }
 
 /**
+ * 找一个可用于「多部件渲染」的模板包：`top` / `chapter` / `cluster` 三 key 齐全。
+ *
+ * 缺任何一个都视为不可用——半套 key 拼不出文档，应该回落旧路径而不是画到一半失败。
+ */
+export function loadPartsPack(
+  opts: TemplatePackLookupOptions = {}
+): { path: string; pack: TemplatePack } | undefined {
+  const hit = loadTemplatePack(opts);
+  if (!hit) return undefined;
+  const c = hit.pack.components;
+  if (!c.top || !c.chapter || !c.cluster) return undefined;
+  return hit;
+}
+
+/**
  * Resolve the template + optional 职能标记 component set for one render.
  * Never throws: an unreadable config simply falls through to the default.
  */

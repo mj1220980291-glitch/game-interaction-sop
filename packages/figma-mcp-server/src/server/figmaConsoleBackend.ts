@@ -256,7 +256,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return (r ?? []).map(mapNode);
     },
 
-    async scanSubtree(rootId, maxNodes = 500) {
+    async scanSubtree(rootId, maxNodes = 20000) {
       const r = await run(`
         ${SERIALIZE_NODE_FN}
         const root = await figma.getNodeByIdAsync(${JSON.stringify(rootId)});
@@ -472,6 +472,43 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         n.visible = ${visible ? 'true' : 'false'};
         return null;
       `, 15000);
+    },
+
+    async createFrame({ parentId, name, x = 0, y = 0, width, height }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const f = figma.createFrame();
+        f.name = ${JSON.stringify(name)};
+        f.resize(${width}, ${height});
+        f.fills = [];
+        f.clipsContent = false;
+        ${parentId ? `const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+        if (!parent) throw new Error('createFrame: parent not found: ' + ${JSON.stringify(parentId)});
+        parent.appendChild(f);` : ''}
+        f.x = ${x};
+        f.y = ${y};
+        return serNode(f);
+      `, 15000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async resizeNode(nodeId, width, height) {
+      await run(`
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) throw new Error('resizeNode: node not found: ' + ${JSON.stringify(nodeId)});
+        if (typeof n.resize === 'function') n.resize(${width}, ${height});
+        return null;
+      `, 15000);
+    },
+
+    async clearFills(nodeIds) {
+      await run(`
+        for (const id of ${JSON.stringify(nodeIds)}) {
+          const n = await figma.getNodeByIdAsync(id);
+          if (n && 'fills' in n) n.fills = [];
+        }
+        return null;
+      `, 20000);
     },
 
     async arrangePageChildren({ pageId, gapX = 120, gapY = 120, maxWidth = 6000 }) {
@@ -816,7 +853,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           if (n) n.remove();
         }
         return null;
-      `, 15000);
+      `, 30000);
     },
 
     async reparentNode({ nodeId, newParentId, preserveAbsolutePosition }) {

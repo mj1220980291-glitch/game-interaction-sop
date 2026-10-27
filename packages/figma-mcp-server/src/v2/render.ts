@@ -1,4 +1,4 @@
-/**
+﻿/**
  * v2 renderer — orchestrates: parse v2 markdown → fill Figma template 1:14.
  *
  * Single entry: `renderV2MarkdownToFigma({ markdown, assetMap, target, backend })`.
@@ -51,9 +51,12 @@ import {
 } from './template-map.js';
 import {
   resolveTemplateConfig,
+  loadPartsPack,
   DEFAULT_TEMPLATE,
   type TemplateRef
 } from './template-config.js';
+import { renderFromParts } from './render/parts/index.js';
+import { isRoleFrame } from './template-slots.js';
 import {
   findRoleBlockBody,
   loadRoleBlocks,
@@ -289,17 +292,22 @@ export async function renderV2MarkdownToFigma(
 
   // Phase C — Stamp. A failure here leaves a usable document that simply
   // cannot be synced later, so it is a warning, never a rollback.
+  //
+  // 多部件渲染出的文档**不打标记**：它没有「说明块」这类可对位的槽位命名，
+  // 也没有实现 parts 文档的原地同步；硬打只会得到一排「对不上」的假警告。
   const stampWarnings: SoftWarning[] = [];
-  try {
-    const { problems } = await stampRenderedDoc(targetBackend, rootInstanceId, parsed.ir, input.assetMap);
-    for (const p of problems) {
-      stampWarnings.push({ code: SOFT_WARNING_CODES.W_STAMP_LAYOUT_MISMATCH, message: p });
+  if (loadPartsPack() === undefined) {
+    try {
+      const { problems } = await stampRenderedDoc(targetBackend, rootInstanceId, parsed.ir, input.assetMap);
+      for (const p of problems) {
+        stampWarnings.push({ code: SOFT_WARNING_CODES.W_STAMP_LAYOUT_MISMATCH, message: p });
+      }
+    } catch (e) {
+      stampWarnings.push({
+        code: SOFT_WARNING_CODES.W_STAMP_FAILED,
+        message: `document rendered but not stamped, so it cannot be synced later: ${(e as Error).message}`
+      });
     }
-  } catch (e) {
-    stampWarnings.push({
-      code: SOFT_WARNING_CODES.W_STAMP_FAILED,
-      message: `document rendered but not stamped, so it cannot be synced later: ${(e as Error).message}`
-    });
   }
 
   return {
@@ -367,6 +375,10 @@ async function bindTargetFile(
   // whatever file happens to be open.
   if (template.componentKey) return bound;
 
+  // 多部件模式：渲染目标是任意空文件，模板在库文件里，目标文件里没有 `1:14`
+  // 可探；探了必然报「node not found」。
+  if (loadPartsPack() !== undefined) return bound;
+
   const templateNodeId = template.nodeId ?? DEFAULT_TEMPLATE.nodeId;
 
   let templateNode: NodeInfo;
@@ -420,6 +432,25 @@ export async function renderInner(
   };
   const roleBlocks = await loadRoleBlocks(backend, template.roleBlock, warnRoleBlock);
   assertRoleBlocksAvailable(ir, roleBlocks);
+
+  // 模板包带 4 部件 → 多部件渲染；否则完全走旧路径（一行不改）。
+  const packHit = loadPartsPack();
+  const partsReady = packHit !== undefined;
+  process.stderr.write(`[render] render mode: ${partsReady ? 'parts' : 'legacy'}\n`);
+  if (packHit && partsReady) {
+    const partsResult = await renderFromParts({
+      ir,
+      pack: packHit.pack,
+      ...(input.assetMap ? { assetMap: input.assetMap } : {}),
+      ...(input.target?.pageId ? { pageId: input.target.pageId } : {}),
+      backend
+    });
+    onRootCreated?.(partsResult.rootId);
+    for (const w of partsResult.warnings) report?.(w);
+    figures.placed += partsResult.summary.figuresPlaced;
+    return partsResult.rootId;
+  }
+
   let root: NodeInfo;
   if (template.componentKey) {
     if (!backend.instantiateByKey) {
@@ -846,7 +877,7 @@ interface ImageSeed {
   flush(backend: FigmaBackend): Promise<void>;
 }
 
-function makeImageSeed(id: string | undefined): ImageSeed {
+export function makeImageSeed(id: string | undefined): ImageSeed {
   let doomed = false;
   return {
     id,
@@ -954,7 +985,7 @@ function findUnmatchedAssetKeys(
   return out;
 }
 
-async function fillCluster(
+export async function fillCluster(
   backend: FigmaBackend,
   clusterNode: NodeInfo,
   cluster: SemanticCluster,
@@ -1021,8 +1052,7 @@ async function fillCluster(
   // (the @roles line is cluster-level, so repeating it per sub-group would
   // just be noise).
   const roleFrames = allDescendants.filter(
-    (n) =>
-      n.type === 'FRAME' && n.name.startsWith(SECTION_CHILD_NAMES.roleTagsFramePrefix)
+    (n) => n.type === 'FRAME' && isRoleFrame(n.name)
   );
   if (singleDefault && roleFrames.length > 1) {
     await backend.deleteNodes(roleFrames.slice(1).map((n) => n.id));
@@ -1758,7 +1788,7 @@ export async function applyAsset(
  * PR-1 (backend-scan-subtree-batch): uses single-RTT scanSubtree when
  * available, falling back to the old multi-RTT BFS when truncated.
  */
-async function indexCloneByName(
+export async function indexCloneByName(
   backend: FigmaBackend,
   rootId: string,
   names: string[]
@@ -1767,7 +1797,7 @@ async function indexCloneByName(
   const found: Record<string, NodeInfo> = {};
 
   // Fast path: get entire subtree in one RTT, then filter in-process.
-  const { nodes: scanned, truncated } = await backend.scanSubtree(rootId);
+  const { nodes: scanned, truncated } = await backend.scanSubtree(rootId, 20000);
   if (!truncated) {
     for (const info of scanned) {
       if (wanted.has(info.name) && !found[info.name]) {
@@ -1819,7 +1849,7 @@ async function removeSparesExceptMaster(
   if (toDelete.length > 0) await backend.deleteNodes(toDelete);
 }
 
-function bubbleOffset(index0: number): { x: number; y: number } {
+export function bubbleOffset(index0: number): { x: number; y: number } {
   const grid = DEFAULT_BUBBLE_GRID[index0];
   if (grid) return grid;
   // Beyond the default 8 → wrap into a uniform 4-col grid below the defaults.
@@ -1877,3 +1907,4 @@ void SECTION_TEMPLATE;
 void HEADER_SLOTS;
 void OVERVIEW_SLOTS;
 void FigmaSafetyError;
+
