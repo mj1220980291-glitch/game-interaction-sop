@@ -409,6 +409,25 @@ async function fillChapter(
 
   await stage('chapter.badges', () => placeBadges(b, chapter, section, ctx));
 
+  // 章节高度贴合内容：模板原高常常远大于本次内容（蛋仔 6240 vs 内容 250），
+  // 留着就是一大片空白。宽度不动，只收高度。
+  await stage('chapter.fit', async () => {
+    if (typeof backend.resizeNode !== 'function') return;
+    const info = await backend.getNodeInfo(chapter.id);
+    const top = info.absoluteBoundingBox?.y ?? 0;
+    let bottom = 0;
+    for (const childId of info.childIds ?? []) {
+      const child = await backend.getNodeInfo(childId);
+      const box = child.absoluteBoundingBox;
+      if (!box) continue;
+      bottom = Math.max(bottom, box.y + box.height);
+    }
+    const height = Math.max(bottom - top, 1);
+    if (Math.abs(height - (info.absoluteBoundingBox?.height ?? 0)) > 1) {
+      await backend.resizeNode(chapter.id, info.absoluteBoundingBox?.width ?? 2209, height);
+    }
+  });
+
   return { image };
 }
 
@@ -486,6 +505,7 @@ async function placeBadges(
 
   for (let i = 0; i < section.clusters.length; i += 1) {
     const bubble = await backend.cloneNode({ sourceId: master.id, parentId: containerId });
+    if (backend.renameNode) await backend.renameNode(bubble.id, `标号/${i + 1}`);
     await setBadgeNumber(backend, bubble.id, i + 1);
     await backend.moveNode(bubble.id, bubbleOffset(i).x, bubbleOffset(i).y);
     if (backend.setNodeVisible) await backend.setNodeVisible(bubble.id, true);
