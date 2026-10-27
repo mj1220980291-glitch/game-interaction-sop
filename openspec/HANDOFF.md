@@ -6,6 +6,20 @@
 
 已真机接入两套模板：`~/.game-interaction-sop/templates/蛋仔派对.json`、`官方1.14.json`。
 
+## 关键地址（换对话后直接可用）
+
+| 用途 | 值 |
+|---|---|
+| 源项目文件 | `Agent草稿` / `UYCJok3MXTWITMfeJSqEF6` |
+| 模板库 | `交互SOP模板库` / `jQf7zj33pzOGsGKO4d73OO`；页：`部件` `0:1` · `零件` `3:9` · `_staging` `3:10` |
+| 校验沙盒 | `SOP 校验沙盒` / `0eoR7aPlpzIva8IdWATWkL`（verify 只在这里跑） |
+| 模板节点 | `796:12489` 局内相关交互（蛋仔派对）· `1:14` 模板（官方1.14） |
+| 已发布组件 | 蛋仔派对 4 个 + 零件 3 个；官方1.14 3 个（无结尾） |
+| 已登记配置 | `~/.game-interaction-sop/templates/{蛋仔派对,官方1.14}.json` |
+| Bridge 端口 | 首选 `9223`；连不上先查僵尸进程（见下） |
+
+当前工作区干净，最新提交 `ba44bbc`。
+
 ---
 
 ## 已完成
@@ -135,6 +149,28 @@ src/v2/compile/errors.ts       8 个错误码
 SOP：`packages/skill/references/template-compile.md`。
 
 测试 304 例，全部通过。
+
+### 编译阶段真机验收（2026-10-27）
+
+```
+蛋仔派对 796:12489  4 部件 + 收编 标签6变体/num/-完成 + 跳过 72 个内容实例
+                    发布 → verify 4 key 全取到 → 登记配置
+官方1.14 1:14       进门检查 3 项尺寸全对 → 3 部件（无结尾）
+                    发布 → 沙盒 verify 3 key 全取到 → 登记配置
+能力                numberBadge:instance / roleAnnotation:inline-suffix /
+                    clusterGroups:none 均如实保留；唯一差异 badgeSlot manual→container（预期）
+源模板              preflight 指纹一致，零写入
+```
+
+踩过并已修的真机坑（都写进了代码或文档）：
+
+1. `createComponentFromNode` 拒绝 GROUP 直转 → 先套同尺寸 FRAME
+2. `mainComponent` 在 dynamic-page 下必须 `getMainComponentAsync`
+3. 隐藏的簇母版克隆后要强制可见，否则整簇隐形
+4. 图层还嵌在 COMPONENT 里时不能转组件 → 先挪到零件页
+5. 部件里看不到 `overview` / `roleAnnotation` 时不能判 `none`，要保留源值
+6. 冒烟在源文件里 import 会因依赖成环超时 → 改沙盒
+7. 项目名含 `:` 无法做配置文件名 → 命名闸门
 
 ---
 
