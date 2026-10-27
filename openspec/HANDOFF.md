@@ -267,4 +267,50 @@ src/v2/render.ts                     按模板包分派 parts|legacy（stderr �
 
 尚未做：章节高度贴合内容 + 标号克隆改名（`c699e1a` 已提交，下次重启引擎生效）；`figure` 暂为 none（配图槽是裸矩形，渲染暂不填）。
 
+---
+
+## 当前状态快照（2026-10-28 02:00，换对话前）
+
+### 代码
+
+- 最新提交 `e7dd1b5`（`git log --oneline -8` 可见最近一串小提交）
+- 工作区干净；`npm run build` 通过；`npm test` **342/342**；`openspec validate --all --strict` **14/14**
+- 两个变更目录：
+  - `openspec/changes/engine-multi-part-template-render/`（主体，tasks 仅剩 10.2/10.4 未勾）
+  - `openspec/changes/template-compile-slim-parts/`（空壳化，tasks 剩 6/7 真机项）
+- 关键实现：
+  - `src/v2/template-slots.ts` 统一槽位名
+  - `src/v2/compile/normalize-slots.ts` 编译期改名（幂等；说明栏被掏空也能认）
+  - `src/v2/compile/slim-parts.ts` 空壳化
+  - `src/v2/compile/parts.ts` → 章节走 `buildChapterShell`（造壳，不克隆 7000 节点），簇走 `cloneSlimPart`
+  - `src/v2/render/parts/index.ts` 多部件渲染（阶段前缀 + 回滚上报 root）
+  - `src/server/figmaConsoleBackend.ts`：`createFrame` / `resizeNode` / `clearFills` / `cloneSlimPart` / `buildChapterShell`；clone/createComponent 超时 60s；scan 预算 20000
+
+### 真机
+
+- 库 `jQf7zj33pzOGsGKO4d73OO`：只剩「官方1.14 ×3（17:1465/1547/1583）+ 蛋仔 ×4（43:24 顶部 / 43:28 章节 / 43:2869 簇 / 43:2874 结尾）+ 蛋仔零件 9 个（43:2899 起）」，废弃组件已清 52 个
+- 蛋仔 pack（已回填、已发布、沙盒 import 冒烟通过）：
+  - top `2756b03240e7d6135f43e540fd22ea3e23ad0c04`
+  - chapter `e815d0e4ece7fc4dc0bfcf9fc6ec4a7be29be903`
+  - cluster `2f2354780b9b2b7df7aaeeeadd059c743f35b1a7`
+  - footer `8727d5780ce22edb83c762f6d1bf37489b125fc6`
+  - capabilities：`overview none / clusterGroups none / badgeSlot container / numberBadge instance / roleAnnotation inline-suffix / figure none / hiddenPool ignore / column right`
+- 沙盒 `0eoR7aPlpzIva8IdWATWkL` / Page 1：**唯一产物 `19:1123`**（蛋仔样例，两章、3 簇、标号、无残留）
+- 渲染跑法（模板包查找只认 cwd/`GISOP_PROJECT`/default）：临时把 `蛋仔派对.json` 复制成 `~/.game-interaction-sop/templates/default.json` → 渲染 → **用完必须删**（否则 72 个老测试会走 parts 路径而红）
+
+### 下一步（按优先级）
+
+1. 插件状态恢复后重渲染蛋仔，确认 `c699e1a` 的「章节高度贴合 + 标号改名」生效（不需要重编/发布）
+2. 让 `figure` 真正可用：`配图` 目前是裸矩形，渲染的 `finishBlockFigures` 期待 GROUP（含 `配图占位`）。两条路：编译期把矩形包成 GROUP，或渲染支持裸矩形
+3. 归档两个变更（`openspec-archive-change`），并把 `template-render` 主 spec 同步
+4. 未做：parts 文档的 reconcile 同步、跨文件自动搬运
+
+### 真机踩坑（新增）
+
+- Bridge 单次 `figma_execute` 超过 ~10s 就会被判「Unable to establish connection」，**后端 timeout 设多大都没用** → 大块操作必须拆小或改成「造壳」
+- 库重新发布后，沙盒的库引用要 **Assets→Libraries 关开一次**，否则跨文件 import 挂死
+- 扫描预算默认 500 会退化成逐节点 BFS（几千次 RPC），已提到 20000
+- 多部件渲染失败必须上报 root id 才能回滚（`e7dd1b5` 已修）
+
+
 
