@@ -64,6 +64,10 @@ describe('planParts', () => {
     expect(plan.steps[1]!.name).toBe('P / 章节-v2');
   });
 
+  it('项目名含文件系统保留字符 → 拒绝（配置文件名会写不出来）', () => {
+    expect(() => planParts({ project: '1:14 官方', staged: THREE })).toThrow(/保留字符/);
+  });
+
   it('项目名以 _ 开头 → 命名红线', () => {
     expect(() => planParts({ project: '_P', staged: THREE })).toThrow(/不发布/);
   });

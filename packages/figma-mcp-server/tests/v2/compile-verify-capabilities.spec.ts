@@ -41,7 +41,20 @@ describe('deriveCapabilities', () => {
     ]);
     const r = deriveCapabilities({ top, source: { ...DEFAULT_CAPABILITIES } });
     expect(r.capabilities.roleAnnotation).toBe('component-variant');
-    expect(r.capabilities.overview).toBe('none');
+    // 顶部部件看不出总览区，按新规则保留源模板结论，并记一条无法实测。
+    expect(r.capabilities.overview).toBe('two-frames');
+    expect(r.gaps.some((g) => g.what.includes('overview'))).toBe(true);
+  });
+
+  it('顶部看不出总览时不清零 overview，保留源模板结论', () => {
+    const top = tree('top', [
+      { id: 'top', name: '顶部', type: 'FRAME', childIds: ['a'] },
+      { id: 'a', name: '标题', type: 'TEXT', characters: '局内相关交互' }
+    ]);
+    const r = deriveCapabilities({ top, source: { ...DEFAULT_CAPABILITIES, overview: 'two-frames' } });
+    expect(r.capabilities.overview).toBe('two-frames');
+    expect(r.diffs.some((d) => d.key === 'overview')).toBe(false);
+    expect(r.gaps.some((g) => g.what.includes('overview'))).toBe(true);
   });
 
   it('顶部看不出成组 @ 时不清零职能写法，保留源模板结论', () => {

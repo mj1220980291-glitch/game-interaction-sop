@@ -110,7 +110,17 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   const { backend, project } = input;
   const staged = input.staged ?? {};
   const plan = planParts({ project, staged });
-  const gaps: CompileGap[] = [...plan.gaps];
+  const gaps: CompileGap[] = [];
+  // 同一句话只留一条：planParts / buildParts 都会吐「没有结尾块」。
+  const seenGaps = new Set<string>();
+  const pushGaps = (more: CompileGap[]) => {
+    for (const g of more) {
+      if (seenGaps.has(g.what)) continue;
+      seenGaps.add(g.what);
+      gaps.push(g);
+    }
+  };
+  pushGaps(plan.gaps);
   const source = input.capabilities ?? { ...DEFAULT_CAPABILITIES };
 
   // 配置错误优先于素材错误：缺落点页面先说清楚，别让人去查粘贴。
@@ -185,7 +195,7 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     pageId: input.library.pageId,
     backend
   });
-  gaps.push(...built.gaps);
+  pushGaps(built.gaps);
 
   // 字体归一化：只换字体族，字号 / 行距 / 字色一律不动。
   if (backend.normalizeFontsInSubtree) {
@@ -211,6 +221,8 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     const badge = await ensureBadgeContainer({
       backend,
       chapterComponentId: chapter.componentId,
+      // 源模板本来就带标号容器（badgeSlot=container，如 1:14）时不要补第二个。
+      alreadyHasContainer: source.badgeSlot === 'container',
       ...(input.badgeContainerSourceId ? { containerSourceId: input.badgeContainerSourceId } : {})
     });
     gaps.push(...badge.gaps);

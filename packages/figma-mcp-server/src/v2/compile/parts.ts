@@ -39,6 +39,14 @@ export function isPublishableName(name: string): boolean {
   return !/^[_.]/.test(name);
 }
 
+/**
+ * 配置文件名要能落到磁盘：项目名会变成 `~/.game-interaction-sop/templates/<项目名>.json`，
+ * 所以不能含 Windows 非法字符（`1:14` 这种写法会直接写不出来）。
+ */
+export function isFileSafeName(name: string): boolean {
+  return name.length > 0 && !/[:/\\*?"<>|]/.test(name);
+}
+
 export interface BuildPartsInput {
   project: string;
   /** `_staging` 页上的节点 id；`footer` 可缺省。 */
@@ -96,6 +104,13 @@ export function planParts(input: Pick<BuildPartsInput, 'project' | 'staged' | 'v
       throw compileError(
         COMPILE_CODES.STAGED_PART_MISSING,
         `_staging 页上缺「${PART_LABELS[part]}」部件（${part}）——请把项目模板里对应的母版整块粘过来`
+      );
+    }
+    if (!isFileSafeName(input.project)) {
+      throw compileError(
+        COMPILE_CODES.UNPUBLISHABLE_NAME,
+        `项目名 "${input.project}" 含文件系统保留字符（: / \\ * ? " < > |），` +
+          '没法写成 template.json 的文件名。换成 官方1.14 这类写法'
       );
     }
     const base = partComponentName(input.project, part);

@@ -67,7 +67,11 @@ export function deriveCapabilities(input: {
   const chapterDetect = input.chapter ? detect(input.chapter) : undefined;
 
   if (input.top) {
-    caps.overview = detectOverview(input.top, []);
+    // 单看顶部部件时，`none` 不是证据：1:14 的总览区证实起来要整棵树。
+    // 判不出就保留源模板结论，别把 two-frames 打成 none。
+    const overview = detectOverview(input.top, []);
+    if (overview !== 'none') caps.overview = overview;
+    else if (caps.overview !== 'none') undecidable.push('overview');
     // 职能写法的主证据经常不在顶部：796 是句内 `@GUI@程序`，证据在章节里。
     // 顶部只看到「没有成组 @」时不能据此判定 none，保留源模板结论。
     const habit = detectRoleHabit(input.top);

@@ -127,7 +127,7 @@
 | `V2_COMPILE_NOT_PUBLISHED` | 真的没发布，或发了但 key 变了。去 Assets 重发一次 |
 | `V2_COMPILE_VERIFY_UNAVAILABLE` | 源文件没连插件——verify 要在**源项目文件**里跑，不能是库文件 |
 | `V2_COMPILE_STAGED_PART_MISMATCH` | 粘错项目 / 漏粘 / 粘了张截图。按提示重粘 |
-| `V2_COMPILE_UNPUBLISHABLE_NAME` | 名字以 `_` / `.` 开头，Figma 不发布 |
+| `V2_COMPILE_UNPUBLISHABLE_NAME` | 名字以 `_` / `.` 开头（Figma 不发布），或项目名含 `: / \ * ? " < > |`（配置文件名写不出来，`1:14` 这类要写成 `官方1.14`） |
 | `V2_COMPILE_SOURCE_DRIFT` | 源模板结构变了，先重跑探针 |
 | 收编跳过一大堆 | 正常：大尺寸实例被视为截图类内容（阈值 600×400） |
 | 重启后连不上、端口一路往上漂 | 僵尸进程占满 9223–9232，见 [`../figma-mcp-server/docs/INSTALL.md`](../../figma-mcp-server/docs/INSTALL.md) |
