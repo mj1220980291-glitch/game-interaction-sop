@@ -15,6 +15,8 @@ export const COMPILE_CODES = {
   CAPABILITY_UNEXPRESSIBLE: 'V2_COMPILE_CAPABILITY_UNEXPRESSIBLE',
   /** 部件未发布（跨文件 import 冒烟失败） */
   NOT_PUBLISHED: 'V2_COMPILE_NOT_PUBLISHED',
+  /** 冒烟跑不了（目标文件没连上插件 / 传输失败），与「未发布」是两回事 */
+  VERIFY_UNAVAILABLE: 'V2_COMPILE_VERIFY_UNAVAILABLE',
   /** `_staging` 页上缺部件 */
   STAGED_PART_MISSING: 'V2_COMPILE_STAGED_PART_MISSING',
   /** 名字以 `_` / `.` 开头 → Figma 判定不发布 */

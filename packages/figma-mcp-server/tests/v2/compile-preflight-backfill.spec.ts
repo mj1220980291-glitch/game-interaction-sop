@@ -89,6 +89,15 @@ describe('verifyPublished', () => {
     ).rejects.toThrow(/章节/);
   });
 
+  it('连不上文件时不当成「未发布」', async () => {
+    const broken = {
+      async importComponentByKey() {
+        throw new Error('Cannot connect to Figma Desktop.');
+      }
+    } as unknown as FigmaBackend;
+    await expect(verifyPublished({ backend: broken, keys })).rejects.toThrow(/冒烟跑不起来/);
+  });
+
   it('缺章节 key → 直接拒绝', async () => {
     await expect(
       verifyPublished({ backend: backend({ published: ['k-top'] }), keys: { top: 'k-top', cluster: 'k-cl' } })

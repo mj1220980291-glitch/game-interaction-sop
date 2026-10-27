@@ -41,6 +41,7 @@ export async function verifyPublished(
   }
 
   const missing: string[] = [];
+  const transport: string[] = [];
   const ok: Partial<Record<PartName, string>> = {};
 
   for (const part of PART_ORDER) {
@@ -53,9 +54,24 @@ export async function verifyPublished(
     try {
       await input.backend.importComponentByKey(key);
       ok[part] = key;
-    } catch {
-      missing.push(`${PART_LABELS[part]}（key ${key.slice(0, 8)}… 取不到，多半还没发布）`);
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      // 只有「找不到已发布组件」才算未发布；连不上文件是另一回事，
+      // 否则插件没开时会误报「你还没发布」。
+      if (/published component|Could not find/i.test(msg)) {
+        missing.push(`${PART_LABELS[part]}（key ${key.slice(0, 8)}… 取不到，多半还没发布）`);
+      } else {
+        transport.push(`${PART_LABELS[part]}: ${msg.slice(0, 160)}`);
+      }
     }
+  }
+
+  if (transport.length > 0) {
+    throw compileError(
+      COMPILE_CODES.VERIFY_UNAVAILABLE,
+      `冒烟跑不起来（不是发布问题）：${transport.join('；')}——` +
+        '请把连接插件开在源项目文件里（不能是库文件本身），再重试'
+    );
   }
 
   if (missing.length > 0) {
