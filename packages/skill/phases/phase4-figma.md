@@ -37,6 +37,7 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
 - 模板地址查找顺序（见 `references/template-contract.md` 第四节）：项目模板包 > `~/.game-interaction-sop/templates/<项目名>.json` > 全局 default > 官方 1:14
   - **库引用模式**（模板包里有 4 个 `components` key）：目标文件只要开着连接插件即可，无需包含模板；`target.fileKey` 填用户当前要写入的文件
   - **同文件模式**（只有 `fileKey` + `nodeId`）：渲染文件必须就是模板所在文件，把该 key 写进 `target.fileKey`
+  - **上面两种都没有、但探针结论 `ready`**：这个项目还没编译。不要硬用同文件模式凑，也不要改 Markdown；先按 [`../references/template-compile.md`](../references/template-compile.md) 编译（要人粘一次 + 点一次发布），拿到 4 个 key 再回来渲染
 - Markdown 里有 `- @职能：` 条目时，确认 `roleBlock.componentSetId` 已配置，且该组件集在**同一个文件**里、角色变体齐全。缺配置就明确告诉用户，不要先渲染再报错
 - 用户在别的文件里做设计时，先让用户把连接插件切到目标文件
 

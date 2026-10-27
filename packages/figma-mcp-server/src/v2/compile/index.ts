@@ -15,6 +15,7 @@ import type { AdoptResult, FigmaBackend } from '../figma-client.js';
 import { buildProbeTree, type ProbeTree } from '../probe/tree.js';
 import { DEFAULT_CAPABILITIES, type Capabilities, type TemplatePack } from '../template/schema.js';
 import { adoptNestedParts, type AdoptOutcome } from './adopt.js';
+import { intake, type IntakeCheck } from './intake.js';
 import { ensureBadgeContainer } from './badge-container.js';
 import { buildTemplatePack, verifyPublished, type ComponentKeys } from './backfill.js';
 import type { CompileGap } from './errors.js';
@@ -37,6 +38,8 @@ export interface CompileInput {
   badgeContainerSourceId?: string;
   /** 源模板的能力判定（来自探针）。 */
   capabilities?: Capabilities;
+  /** 探针给出的母版信息，用于进门检查（名字 / 尺寸）。 */
+  expectedMasters?: Partial<Record<PartName, { name: string; width?: number; height?: number }>>;
   /** 源模板指纹（探针记录 / 当前实测），用于漂移检查。 */
   expectedFingerprint?: string;
   actualFingerprint?: string;
@@ -57,6 +60,8 @@ export interface CompileReport {
   diffs: CapabilityDiff[];
   anchors: TemplatePack['anchors'];
   gaps: CompileGap[];
+  /** 进门检查逐项结果（粘进来的素材对不对）。 */
+  checks: IntakeCheck[];
   templateJson?: TemplatePack;
   written: boolean;
 }
@@ -95,6 +100,7 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
     diffs: [],
     anchors: pack.anchors,
     gaps: [],
+    checks: [],
     templateJson: pack,
     written: false
   };
@@ -107,6 +113,38 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   const gaps: CompileGap[] = [...plan.gaps];
   const source = input.capabilities ?? { ...DEFAULT_CAPABILITIES };
 
+  // 配置错误优先于素材错误：缺落点页面先说清楚，别让人去查粘贴。
+  if (input.write && !input.partsPageId) {
+    throw compileError(
+      COMPILE_CODES.LIBRARY_UNWRITABLE,
+      'partsPageId 必填：收编出来的零件需要一个落脚的页面'
+    );
+  }
+
+  // 进门检查：粘错项目 / 漏粘 / 粘了张截图，都在建组件之前拦掉。
+  let checks: IntakeCheck[] = [];
+  if (Object.keys(staged).length > 0) {
+    try {
+      const r = await intake({
+        backend,
+        staged,
+        expected: input.expectedMasters ?? {},
+        ...(input.badgeContainerSourceId
+          ? { badgeContainerSourceId: input.badgeContainerSourceId }
+          : {})
+      });
+      checks = r.checks;
+      gaps.push(...r.gaps);
+    } catch (e) {
+      if (input.write) throw e;
+      gaps.push({
+        what: `进门检查未通过：${(e as Error).message}`,
+        impact: '干跑仍给出计划，但实跑会被拒绝',
+        fix: '按提示重新粘贴或修正 id'
+      });
+    }
+  }
+
   if (!input.write) {
     return {
       phase: 'compile',
@@ -118,6 +156,7 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
       diffs: [],
       anchors: {},
       gaps,
+      checks,
       written: false
     };
   }
@@ -222,6 +261,7 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     diffs: verdict.diffs,
     anchors: {},
     gaps,
+    checks,
     written: true
   };
 }

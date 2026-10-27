@@ -369,6 +369,10 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
           },
           expectedFingerprint: { type: 'string', description: '探针阶段记录的源模板指纹（漂移检查）' },
           actualFingerprint: { type: 'string', description: '当前源模板指纹（由调用方先探一次）' },
+          expectedMasters: {
+            type: 'object',
+            description: '探针给出的母版名与尺寸，用于进门检查；缺省则跳过尺寸核对'
+          },
           badgeContainerSourceId: { type: 'string', description: '散落标号模板用来补容器的 1:14 气泡节点 id' },
           components: {
             type: 'object',
@@ -425,6 +429,7 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
           library: { fileKey: library.fileKey, pageId: library.pageId },
           ...(args?.staged ? { staged: args.staged as never } : {}),
           ...(args?.capabilities ? { capabilities: args.capabilities as never } : {}),
+          ...(args?.expectedMasters ? { expectedMasters: args.expectedMasters as never } : {}),
           ...(typeof args?.expectedFingerprint === 'string'
             ? { expectedFingerprint: args.expectedFingerprint }
             : {}),

@@ -8,9 +8,9 @@
 
 ## 2. 编译 SOP 文档
 
-- [ ] 2.1 新增 `packages/skill/references/template-compile.md`：人工粘贴那一步的操作说明（粘到 `_staging` 页、保持原名、粘哪些块）、两段式发布流程、key 回填、重编纪律
-- [ ] 2.2 `packages/skill/references/template-contract.md` 补「归一化模板归属」一节（引用本变更 `template-contract` delta）
-- [ ] 2.3 `packages/skill/phases/phase4-figma.md`：探针 `ready` 之后增加分支——无 `template.json` 时提示编译
+- [x] 2.1 新增 `packages/skill/references/template-compile.md`：粘贴清单（整块模板 + `1:14` 气泡）、两步发布、verify 登记、重编纪律、7 条排错、已知债务
+- [x] 2.2 `packages/skill/references/template-contract.md` 补「归一化模板归属」一节（引用本变更 `template-contract` delta）
+- [x] 2.3 `packages/skill/phases/phase4-figma.md`：探针 `ready` 但无 key 时，指向本 SOP 要求先编译，不硬凑同文件模式
 
 ## 3. 后端能力补齐
 
@@ -21,9 +21,10 @@
 
 ## 4. 干跑：粘贴后的核对
 
-- [ ] 4.1 新增 `src/v2/compile/intake.ts`：核对 `_staging` 页上 4 个部件是否齐全、母版结构特征是否与探针记录吻合、收编零件清单是否齐
-- [ ] 4.2 缺口逐条输出（缺哪个部件 / 缺哪个零件 / 哪个部件结构对不上），不猜不补
-- [ ] 4.3 单测：少一个部件 → 报缺口；零件缺失 → 报缺口；齐全 → 无缺口
+- [x] 4.1 新增 `src/v2/compile/intake.ts`：核对部件是否齐全、类型能否转组件、尺寸是否与探针记录吻合（容差 4px）、标号容器是否为 FRAME
+- [x] 4.2 缺口逐条输出：缺部件 / 尺寸对不上（附「粘错项目」提示）/ 类型不对 / 名字不同（只提醒不拦）；失败即 `V2_COMPILE_STAGED_PART_MISMATCH`，**不建任何组件**
+- [x] 4.3 单测：齐全通过 / 尺寸不符 / 漏粘 / 文本节点 / 改名只提醒 / 标号容器类型 / 节点不存在（`compile-intake.spec.ts`，7 例）
+- [x] 4.4 接入编排：配置错误（缺 `partsPageId`）优先于素材错误；干跑时失败降级为缺口，实跑时硬拒绝
 
 ## 5. 部件生成
 

@@ -19,6 +19,8 @@ export const COMPILE_CODES = {
   VERIFY_UNAVAILABLE: 'V2_COMPILE_VERIFY_UNAVAILABLE',
   /** `_staging` 页上缺部件 */
   STAGED_PART_MISSING: 'V2_COMPILE_STAGED_PART_MISSING',
+  /** 粘进来的东西与探针记录的母版对不上（尺寸 / 类型） */
+  STAGED_PART_MISMATCH: 'V2_COMPILE_STAGED_PART_MISMATCH',
   /** 名字以 `_` / `.` 开头 → Figma 判定不发布 */
   UNPUBLISHABLE_NAME: 'V2_COMPILE_UNPUBLISHABLE_NAME',
   /** 后端缺少本变更要求的可选方法 */
