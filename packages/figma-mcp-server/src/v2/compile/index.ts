@@ -16,6 +16,7 @@ import { buildProbeTree, type ProbeTree } from '../probe/tree.js';
 import { DEFAULT_CAPABILITIES, type Capabilities, type TemplatePack } from '../template/schema.js';
 import { adoptNestedParts, type AdoptOutcome } from './adopt.js';
 import { normalizeSlotNames, type SlotRename } from './normalize-slots.js';
+import { slimParts } from './slim-parts.js';
 import { buildMdContract, MD_CONTRACT_RELATIVE_PATH, type MdContract } from './md-contract.js';
 import { loadTemplatePack } from '../template-config.js';
 import { intake, type IntakeCheck } from './intake.js';
@@ -61,6 +62,8 @@ export interface CompileReport {
   sets: AdoptResult['sets'];
   /** 槽位命名归一化的逐条改名（幂等：重编已在统一命名的部件时为空）。 */
   renamed?: SlotRename[];
+  /** 空壳化删掉的节点数。 */
+  slimmed?: number;
   capabilities: Capabilities;
   diffs: CapabilityDiff[];
   anchors: TemplatePack['anchors'];
@@ -294,6 +297,14 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   });
   pushGaps(normalized.gaps);
 
+  // 空壳化：把克隆母版带进来的原稿簇 / 多余内容行删掉，只留样式载体。
+  // 不做的后果是真机渲染时插件在大树里扫描删除，直接断连（蛋仔 7235 节点）。
+  const slim = await slimParts({
+    backend,
+    parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId }))
+  });
+  pushGaps(slim.gaps);
+
   // 产物能力重算：配置必须描述产物，而不是源模板。
   const treeOf = async (part: PartName): Promise<ProbeTree | undefined> => {
     const hit = built.built.find((b) => b.part === part);
@@ -328,6 +339,7 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     adopted: adopted.adopted,
     sets: adopted.sets,
     renamed: normalized.renamed,
+    slimmed: slim.deleted,
     capabilities: verdict.capabilities,
     diffs: verdict.diffs,
     anchors: {},

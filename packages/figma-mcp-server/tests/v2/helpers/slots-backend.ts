@@ -82,7 +82,17 @@ export function slotsBackend(nodes: NodeInfo[]): SlotsBackend {
     }
   } as unknown as FigmaBackend;
 
-  return { backend, renamed, writes, store };
+  return {
+    backend,
+    renamed,
+    writes,
+    store,
+    childrenOf(id: string): NodeInfo[] {
+      return (store.get(id)?.childIds ?? [])
+        .map((c) => store.get(c))
+        .filter((n): n is NodeInfo => n !== undefined);
+    }
+  };
 }
 
 /** NodeInfo shorthand for fixtures. */
