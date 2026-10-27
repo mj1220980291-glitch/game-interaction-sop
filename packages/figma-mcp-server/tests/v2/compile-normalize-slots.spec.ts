@@ -145,6 +145,23 @@ describe('normalizeSlotNames', () => {
     expect(to.get('bubble')).toBeUndefined();
   });
 
+  it('说明栏已被掏空时仍能认出它', async () => {
+    const nodes = [
+      n('e', '章节', 'FRAME', ['eg', 'ecol'], { w: 2209, h: 6240 }),
+      n('eg', '界面图示', 'GROUP', ['eimg'], { w: 1200, h: 745 }),
+      n('eimg', 'bg', 'RECTANGLE', [], { w: 1200, h: 745 }),
+      n('ecol', 'Frame 1243', 'FRAME', [], { w: 932, h: 600 })
+    ];
+    const { backend, renamed } = slotsBackend(nodes);
+    await normalizeSlotNames({
+      backend,
+      parts: [{ part: 'chapter', nodeId: 'e' }],
+      capabilities: { figure: 'first-non-text', clusterGroups: 'none', overview: 'none' }
+    });
+    const to = new Map(renamed.map((x) => [x.nodeId, x.name]));
+    expect(to.get('ecol')).toBe(CHAPTER_SLOTS.clusterHost);
+  });
+
   it('关键槽位缺失时拒绝', async () => {
     const nodes = [
       n('k2', 'Group 1253', 'GROUP', ['kn2', 'knt2'], { w: 900, h: 800 }),

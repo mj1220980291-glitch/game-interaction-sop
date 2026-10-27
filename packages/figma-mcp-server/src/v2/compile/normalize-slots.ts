@@ -170,10 +170,12 @@ async function normalizeChapter(
 
   const graphic = pickGraphic(body);
   // 说明栏至少装着一个簇（簇内 ≥2 个文本），否则它只是样式块或标号容器。
-  const columnCandidates = body.children.filter(
-    (c) => c !== graphic && !isBadgeParent(c) && texts(c).length >= 2
-  );
-  const column = columnCandidates.sort((a, b) => texts(b).length - texts(a).length)[0];
+  // 例外：克隆即掏空之后说明栏是空的——此时「除图区外唯一的大块」就是它。
+  const others = body.children.filter((c) => c !== graphic && !isBadgeParent(c));
+  const column =
+    others.length === 1
+      ? others[0]
+      : others.filter((c) => texts(c).length >= 2).sort((a, b) => texts(b).length - texts(a).length)[0];
 
   if (column) {
     await rename('chapter', column, CHAPTER_SLOTS.clusterHost);
