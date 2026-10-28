@@ -133,6 +133,12 @@ export async function main(): Promise<void> {
 
   const server = createServer({ v2Backend, proxyClient, proxyTools });
   const transport = new StdioServerTransport();
+  // 父进程换人时会关掉这条管道：worker 必须自己退，不要赖在后台抢 Bridge 端口
+  // （父进程拿不到子进程 pid 时杀不掉它，见 index.ts killAndWait）。
+  const die = (): void => process.exit(0);
+  transport.onclose = die;
+  process.stdin.once('end', die);
+  process.stdin.once('close', die);
   await server.connect(transport);
 
   // Stderr-only banner so JSON-RPC framing on stdout stays clean.

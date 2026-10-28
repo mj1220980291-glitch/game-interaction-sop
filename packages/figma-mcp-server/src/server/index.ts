@@ -47,19 +47,50 @@ async function startWorker(): Promise<RunningWorker> {
   const client = new Client({ name: 'figma-interaction-doc-engine-supervisor', version: '0.2.0' });
   await client.connect(transport);
   const { tools } = await client.listTools();
+  const pid = transport.pid;
   return {
     client,
     tools,
     handle: {
       async stop(): Promise<void> {
+        // `client.close()` 只收协议，不保证杀掉子进程（真机实测：旧 worker
+        // 会赖着不走，两个 worker 抢同一个 Bridge 端口）。显式杀掉再确认退出。
         try {
           await client.close();
         } catch {
           /* worker may already be gone */
         }
+        if (pid != null) await killAndWait(pid);
       }
     }
   };
+}
+
+/** 杀掉 worker 进程并等它真的消失（最多 3 秒，之后不再等）。 */
+async function killAndWait(pid: number): Promise<void> {
+  const alive = (): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (!alive()) return;
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {
+    return;
+  }
+  for (let i = 0; i < 30; i += 1) {
+    if (!alive()) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    /* already gone */
+  }
 }
 
 async function main(): Promise<void> {
