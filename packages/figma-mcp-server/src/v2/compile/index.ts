@@ -52,6 +52,8 @@ export interface CompileInput {
   /** 源模板指纹（探针记录 / 当前实测），用于漂移检查。 */
   expectedFingerprint?: string;
   actualFingerprint?: string;
+  /** 文档底色 `#rrggbb`：深色稿在白色画布上整篇文字看不清。 */
+  docBackground?: string;
   /** `verify` 阶段：编译产出的 key（人工可在报告里抄，或由上层传入）。 */
   components?: ComponentKeys;
   write?: boolean;
@@ -164,6 +166,7 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
     components: verified,
     capabilities: input.capabilities ?? { ...DEFAULT_CAPABILITIES },
     anchors: {},
+    ...(input.docBackground ? { docBackground: input.docBackground } : {}),
     mdContract: MD_CONTRACT_RELATIVE_PATH
   });
   const mdContract = buildMdContract(pack);

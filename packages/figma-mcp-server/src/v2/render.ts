@@ -225,7 +225,12 @@ export async function renderV2MarkdownToFigma(
   backend: FigmaBackend
 ): Promise<RenderResult> {
   // Phase A — Parse + hard-validate.
-  const parsed = parseV2(input.markdown);
+  // 校验松紧要跟模板走：没有总览区 / 职能写句尾的模板，按官方形状要求会一律拒收。
+  const packCaps = loadPartsPack()?.pack.capabilities;
+  const parsed = parseV2(input.markdown, {
+    ...(packCaps?.overview === 'none' ? { overviewOptional: true } : {}),
+    ...(packCaps?.roleAnnotation === 'inline-suffix' ? { roleLineOptional: true } : {})
+  });
   if (!parsed.ok || !parsed.ir) {
     return {
       ok: false,
@@ -1041,6 +1046,9 @@ export async function fillCluster(
       titleMains[0].id,
       stripIndexPrefix(cluster.title)
     );
+    // 编号载体与标题常常挤在同一行：源稿的标题 x 是按原字体宽度定的，换成
+    // Noto 后编号里的数字变宽，就会压住标题第一个字（蛋仔真机截图可见）。
+    await pushTitleClearOfNumber(backend, titleMains[0], allDescendants);
   }
 
   // #Title — the sub-group heading slot. The template ships 2 instances
@@ -1839,6 +1847,42 @@ export async function indexCloneByName(
     }
   }
   return found;
+}
+
+/** 编号载体与标题之间至少留这么多像素。 */
+const TITLE_NUMBER_GAP = 8;
+
+/**
+ * 标题别压在编号上。
+ *
+ * 簇的编号载体（`Number` 实例 / `#Number` 文本）和 `#Title_Main` 通常并排在
+ * 同一行，源稿把标题的 x 按原字体宽度定死。字体统一成 Noto Sans SC 之后编号
+ * 里的数字变宽，就会盖住标题第一个字——蛋仔真机截图里 `1` 直接压在「入口」上。
+ *
+ * 只在真的重叠时右移标题，位置本就够的模板一个像素都不动。
+ */
+async function pushTitleClearOfNumber(
+  backend: FigmaBackend,
+  title: NodeInfo,
+  allDescendants: NodeInfo[]
+): Promise<void> {
+  if (typeof backend.moveNode !== 'function') return;
+  const carrier = allDescendants.find(
+    (n) =>
+      n.name === SECTION_CHILD_NAMES.clusterNumberText &&
+      n.parentId === title.parentId &&
+      n.id !== title.id &&
+      n.absoluteBoundingBox !== undefined
+  );
+  const titleBox = title.absoluteBoundingBox;
+  const numberBox = carrier?.absoluteBoundingBox;
+  if (!carrier || !titleBox || !numberBox) return;
+  if (typeof title.x !== 'number' || typeof title.y !== 'number') return;
+
+  const needed = numberBox.x + numberBox.width + TITLE_NUMBER_GAP;
+  const delta = needed - titleBox.x;
+  if (delta <= 0.5) return;
+  await backend.moveNode(title.id, title.x + delta, title.y);
 }
 
 /**

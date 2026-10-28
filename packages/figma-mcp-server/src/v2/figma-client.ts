@@ -76,6 +76,9 @@ export interface NodeInfo {
    * 图片填充，留着就会被渲染原样带进新文档。
    */
   hasImageFill?: boolean;
+  /** 父级坐标系里的位置。Undefined when the backend could not report it. */
+  x?: number;
+  y?: number;
 }
 
 /**

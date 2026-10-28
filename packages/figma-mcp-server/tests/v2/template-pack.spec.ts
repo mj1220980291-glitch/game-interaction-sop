@@ -12,6 +12,16 @@ import {
 } from '../../src/v2/template/schema.js';
 
 describe('parseTemplatePack', () => {
+  it('docBackground 按 #rrggbb 读取，写错直接拒绝', () => {
+    const ok = parseTemplatePack({ schema_version: 1, docBackground: '#232429' });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.pack.docBackground).toBe('#232429');
+
+    expect(parseTemplatePack({ schema_version: 1 }).ok).toBe(true);
+    const bad = parseTemplatePack({ schema_version: 1, docBackground: 'black' });
+    expect(bad.ok).toBe(false);
+  });
+
   it('只给 schema_version 时全部回落缺省值，且缺省值等价官方 1:14', () => {
     const r = parseTemplatePack({ schema_version: 1 });
     expect(r.ok).toBe(true);

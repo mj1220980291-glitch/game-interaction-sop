@@ -19,6 +19,14 @@ export interface SlotsBackend {
 
 export function slotsBackend(nodes: NodeInfo[]): SlotsBackend {
   const store = new Map(nodes.map((n) => [n.id, { ...n, childIds: [...(n.childIds ?? [])] }]));
+  // 真机后端每个节点都带 parentId（扫描结果里有）；测试数据只写 childIds，
+  // 这里补一层，免得「按父级分组隐藏」这类逻辑在测试里永远走空。
+  for (const node of store.values()) {
+    for (const childId of node.childIds ?? []) {
+      const child = store.get(childId);
+      if (child && !child.parentId) child.parentId = node.id;
+    }
+  }
   const renamed: Array<{ nodeId: string; name: string }> = [];
   const writes: string[] = [];
 
@@ -79,6 +87,17 @@ export function slotsBackend(nodes: NodeInfo[]): SlotsBackend {
       if (!n) throw new Error(`slots backend: visible target ${id} not found`);
       n.visible = visible;
       writes.push(`visible:${id}:${visible}`);
+    },
+
+    async setMultipleTextContents(
+      updates: ReadonlyArray<{ nodeId: string; characters: string }>
+    ): Promise<void> {
+      for (const u of updates) {
+        const n = store.get(u.nodeId);
+        if (!n) throw new Error(`slots backend: text target ${u.nodeId} not found`);
+        n.characters = u.characters;
+        writes.push(`text:${u.nodeId}:${u.characters}`);
+      }
     },
 
     async replaceWithPlaceholder(input: { nodeId: string; name: string }): Promise<void> {

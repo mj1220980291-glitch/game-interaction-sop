@@ -145,3 +145,59 @@ describe('slimParts · 簇内原稿媒体', () => {
     expect(h.childrenOf('k').map((x) => x.name)).toEqual(['#Title_Main', '正文/规则', '隐藏池']);
   });
 });
+
+/**
+ * 蛋仔顶部每行是 `UI[标签, / 人名]`。值清掉之后只剩孤立标签「策划」「UX」，
+ * 文档说明块只剩一个空框（411 高的灰带）。
+ */
+function top() {
+  return [
+    n('top', '顶部', 'COMPONENT', ['row1', 'row2', 'intro'], { w: 2205, h: 1726 }),
+    n('row1', 'UI', 'FRAME', ['lb1', 'v1'], { w: 231, h: 70 }),
+    n('lb1', '策划', 'TEXT', [], { text: '策划', w: 96, h: 70 }),
+    n('v1', 'Text', 'TEXT', [], { text: '/辉湟', w: 115, h: 70 }),
+    n('row2', 'UI', 'FRAME', ['lb2', 'owner'], { w: 479, h: 70 }),
+    n('lb2', '审核者', 'TEXT', [], { text: '审核者', w: 144, h: 70 }),
+    n('owner', '设计师名称', 'TEXT', [], { text: '/ 邵腾', w: 126, h: 70 }),
+    n('intro', '文档说明', 'FRAME', ['i1'], { w: 2204, h: 591 }),
+    n('i1', 'Text', 'TEXT', [], { text: '旧链接', w: 200, h: 40 })
+  ];
+}
+
+describe('slimParts · 顶部残留', () => {
+  it('只剩标签的分组整组隐藏，带槽位的分组保留', async () => {
+    const h = slotsBackend(top());
+    await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'top', nodeId: 'top' }],
+      capabilities: { overview: 'none', figure: 'none' }
+    });
+
+    expect(h.writes).toContain('visible:row1:false');
+    expect(h.writes).not.toContain('visible:row2:false');
+    expect(h.childrenOf('row2').map((x) => x.name)).toEqual(['审核者', '设计师名称']);
+  });
+
+  it('没有总览区时文档说明整块隐藏', async () => {
+    const h = slotsBackend(top());
+    await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'top', nodeId: 'top' }],
+      capabilities: { overview: 'none', figure: 'none' }
+    });
+    expect(h.writes).toContain('visible:intro:false');
+  });
+
+  it('文档说明里带着槽位时不隐藏', async () => {
+    const nodes = top();
+    nodes.find((x) => x.id === 'intro')!.childIds = ['i1', 'i2'];
+    nodes.push(n('i2', '易协作单号链接', 'TEXT', [], { text: '#123', w: 300, h: 40 }));
+    const h = slotsBackend(nodes);
+    await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'top', nodeId: 'top' }],
+      capabilities: { overview: 'none', figure: 'none' }
+    });
+    expect(h.writes).not.toContain('visible:intro:false');
+  });
+});

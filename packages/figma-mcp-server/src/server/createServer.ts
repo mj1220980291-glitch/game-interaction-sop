@@ -373,6 +373,12 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
           },
           expectedFingerprint: { type: 'string', description: '探针阶段记录的源模板指纹（漂移检查）' },
           actualFingerprint: { type: 'string', description: '当前源模板指纹（由调用方先探一次）' },
+          docBackground: {
+            type: 'string',
+            description:
+              '文档底色 #rrggbb（模板身份）。深色稿（蛋仔 #232429）在白色画布上整篇文字看不清，' +
+              '渲染时根帧用这个颜色；不传则白底'
+          },
           expectedMasters: {
             type: 'object',
             description: '探针给出的母版名与尺寸，用于进门检查；缺省则跳过尺寸核对'
@@ -453,6 +459,7 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
           ...(typeof args?.actualFingerprint === 'string'
             ? { actualFingerprint: args.actualFingerprint }
             : {}),
+          ...(typeof args?.docBackground === 'string' ? { docBackground: args.docBackground } : {}),
           ...(typeof args?.partsPageId === 'string' ? { partsPageId: args.partsPageId } : {}),
           ...(typeof args?.badgeContainerSourceId === 'string'
             ? { badgeContainerSourceId: args.badgeContainerSourceId }

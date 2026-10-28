@@ -155,8 +155,10 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
         hugHeight: true
       });
     }
-    // 文档底色：不刷白的话导出的图透出 Figma 画布底色，看着像一块黑。
-    if (backend.setNodePaint) await backend.setNodePaint({ nodeId: frame.id, fill: '#FFFFFF' });
+    // 文档底色：模板自带深色底（蛋仔 #232429）时不能刷白，否则整篇文字看不清。
+    if (backend.setNodePaint) {
+      await backend.setNodePaint({ nodeId: frame.id, fill: pack.docBackground ?? '#FFFFFF' });
+    }
     return frame;
   });
 

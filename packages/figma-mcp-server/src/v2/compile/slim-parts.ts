@@ -108,8 +108,65 @@ async function slimTop(backend: FigmaBackend, topId: string): Promise<number> {
   if (typeof backend.setMultipleTextContents !== 'function') return 0;
   const t0 = Date.now();
   await backend.setMultipleTextContents(stale.map((n) => ({ nodeId: n.id, characters: '' })));
+  await hideOrphanLabels(backend, nodes, stale, keep, topId);
+  await hideEmptyIntro(backend, nodes, keep);
   trace(`slimTop cleared=${stale.length} ${Date.now() - t0}ms`);
   return stale.length;
+}
+
+/**
+ * 没有总览区时，`文档说明` 块里剩下的只是一个空框（原本装功能背景 / 核心交互）。
+ *
+ * 留着在文档顶部就是一条 411 高的灰带，什么也没有。块里若还带着槽位（比如需求
+ * 链接），就说明它不只是总览容器，保持可见。
+ */
+async function hideEmptyIntro(
+  backend: FigmaBackend,
+  nodes: ReadonlyArray<NodeInfo>,
+  slotNames: ReadonlySet<string>
+): Promise<void> {
+  if (typeof backend.setNodeVisible !== 'function') return;
+  const intro = nodes.find((n) => n.name === '文档说明' && !isSublayer(n.id));
+  if (!intro) return;
+  const ids = new Set(subtreeIdsOf(nodes, intro.id));
+  const holdsSlot = nodes.some((n) => ids.has(n.id) && slotNames.has(n.name));
+  if (holdsSlot) return;
+  await backend.setNodeVisible(intro.id, false);
+}
+
+/**
+ * 值清空后只剩标签的小组要整组隐藏。
+ *
+ * 蛋仔顶部每一行是 `UI[标签, / 人名]`（`策划 /辉湟`、`UX / 苗儿`）。值清掉之后
+ * 就只剩一个孤零零的「策划」，渲染出来像脏数据。判断依据是「这一组里除了刚被
+ * 清掉的值，没有别的有内容的槽位」——`审核者 / 邵腾 -完成` 那组因为有 `设计师
+ * 名称` 槽位会被保住。
+ */
+async function hideOrphanLabels(
+  backend: FigmaBackend,
+  nodes: ReadonlyArray<NodeInfo>,
+  cleared: ReadonlyArray<NodeInfo>,
+  slotNames: ReadonlySet<string>,
+  rootId: string
+): Promise<void> {
+  if (typeof backend.setNodeVisible !== 'function') return;
+  const contentful = new Set(
+    nodes
+      .filter((n) => slotNames.has(n.name) && (n.characters ?? '').trim() !== '')
+      .map((n) => n.id)
+  );
+  const hide = new Set<string>();
+  for (const n of cleared) {
+    const parentId = n.parentId;
+    if (!parentId || parentId === rootId) continue;
+    const siblings = nodes.filter((x) => x.parentId === parentId);
+    const keepsContent = siblings.some((s) => s.id !== n.id && contentful.has(s.id));
+    if (!keepsContent) hide.add(parentId);
+  }
+  for (const id of hide) {
+    if (isSublayer(id)) continue;
+    await backend.setNodeVisible(id, false);
+  }
 }
 
 /**

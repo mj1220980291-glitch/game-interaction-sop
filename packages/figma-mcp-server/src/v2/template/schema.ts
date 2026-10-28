@@ -93,6 +93,11 @@ export interface TemplatePack {
   components: ComponentKeys;
   capabilities: Capabilities;
   anchors: Record<string, AnchorSpec>;
+  /**
+   * 文档底色（`#rrggbb`）。模板身份的一部分：蛋仔这类深色稿在白色画布上整篇
+   * 文字都看不清。不写在配置里就得靠渲染去猜，所以由编译期从原稿根节点抄下来。
+   */
+  docBackground?: string;
   /** Relative path of the human-readable writing contract. */
   mdContract?: string;
 }
@@ -241,12 +246,18 @@ export function parseTemplatePack(raw: unknown): ParseTemplatePackResult {
 
   if (errors.length > 0) return { ok: false, errors };
 
+  const docBackground = readString(raw['docBackground']);
+  if (docBackground !== undefined && !/^#[0-9a-fA-F]{6}$/.test(docBackground)) {
+    return { ok: false, errors: [`docBackground must look like #rrggbb (got ${JSON.stringify(docBackground)})`] };
+  }
+
   const pack: TemplatePack = {
     schema_version: TEMPLATE_PACK_SCHEMA_VERSION,
     components,
     capabilities,
     anchors
   };
+  if (docBackground) pack.docBackground = docBackground;
   const project = readString(raw['project']);
   if (project) pack.project = project;
   if (source) pack.source = source;

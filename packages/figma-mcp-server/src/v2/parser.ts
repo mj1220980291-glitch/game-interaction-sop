@@ -59,7 +59,7 @@ const DEAD_CATEGORY_NAMES = new Set([
 
 // --- Public entry --------------------------------------------------------
 
-export function parseV2(markdown: string, opts?: ParseClustersOpts): ParseResult {
+export function parseV2(markdown: string, opts?: ParseV2Opts): ParseResult {
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
   const errors: HardError[] = [];
   const warnings: SoftWarning[] = [];
@@ -68,7 +68,7 @@ export function parseV2(markdown: string, opts?: ParseClustersOpts): ParseResult
   const header = parseHeader(lines, errors);
 
   // 2) Overview
-  const overview = parseOverview(lines, errors);
+  const overview = parseOverview(lines, errors, opts);
 
   // 3) Sections
   const sections = parseSections(lines, errors, warnings, opts);
@@ -175,7 +175,8 @@ function findHeaderField(scope: string[], label: string): string | undefined {
 
 function parseOverview(
   lines: string[],
-  errors: HardError[]
+  errors: HardError[],
+  opts?: ParseV2Opts
 ): DesignOverview | undefined {
   // Find `## 设计总览` exactly.
   let overviewIdx = -1;
@@ -184,6 +185,10 @@ function parseOverview(
       overviewIdx = i;
       break;
     }
+  }
+  // 模板没有总览区（overview = none）时，写了也没地方放、不写才是对的。
+  if (overviewIdx === -1 && opts?.overviewOptional) {
+    return { background: '', coreInteraction: '' };
   }
   if (overviewIdx === -1) {
     errors.push({
@@ -270,7 +275,7 @@ function parseSections(
   lines: string[],
   errors: HardError[],
   warnings: SoftWarning[],
-  opts?: ParseClustersOpts
+  opts?: ParseV2Opts
 ): InterfaceSection[] | undefined {
   // Collect all `## NN. xxx` heading positions.
   const sectionStarts: Array<{ idx: number; numStr: string; name: string }> = [];
@@ -379,12 +384,26 @@ interface ParseClustersOpts {
   stripH4?: boolean;
 }
 
+/**
+ * 解析期硬校验的两处「模板相关」开关。
+ *
+ * 校验规则原本只有官方 `1:14` 一套形状：必须有 `## 设计总览`、每个簇首行必须是
+ * `@角色` 列表。蛋仔这类模板两者都没有（无总览区、职能写在条目句尾），按契约
+ * 写出来的 md 反而过不了校验，等于逼设计师迁就引擎。
+ */
+export interface ParseV2Opts extends ParseClustersOpts {
+  /** `capabilities.overview = none`：不要求 `## 设计总览`。 */
+  overviewOptional?: boolean;
+  /** `capabilities.roleAnnotation = inline-suffix`：不要求簇首行 `@角色`。 */
+  roleLineOptional?: boolean;
+}
+
 function parseClusters(
   scope: string[],
   scopeStartLineNo: number,
   errors: HardError[],
   warnings: SoftWarning[],
-  opts?: ParseClustersOpts
+  opts?: ParseV2Opts
 ): SemanticCluster[] {
   // G1: `####` appearing before any `###` belongs to the `## NN.` scope
   // directly, which has no cluster to attach to.
@@ -408,9 +427,10 @@ function parseClusters(
     if (!b) continue;
     const absLine = scopeStartLineNo + b.line; // approximate
 
-    // 第一行非空必须是 @角色...
+    // 第一行非空必须是 @角色...（职能写在句尾的模板不要求）
     const firstNonEmpty = b.bodyLines.find((l) => l.trim().length > 0);
-    if (!firstNonEmpty || !/^@\S/.test(firstNonEmpty.trim())) {
+    const hasRoleLine = firstNonEmpty !== undefined && /^@\S/.test(firstNonEmpty.trim());
+    if (!hasRoleLine && !opts?.roleLineOptional) {
       errors.push({
         code: HARD_ERROR_CODES.C2_ROLE_LINE_MISSING,
         message: `\`### ${b.title}\` 下方第一行必须是 \`@角色1 @角色2 ...\``,
@@ -420,8 +440,9 @@ function parseClusters(
       out.push({ order: i + 1, title: b.title, roles: [], groups: [], bullets: [] });
       continue;
     }
+    const roleLineText = hasRoleLine ? firstNonEmpty.trim() : '';
 
-    const roles = parseRoleLine(firstNonEmpty);
+    const roles = hasRoleLine ? parseRoleLine(firstNonEmpty) : [];
     // W1: unknown role
     for (const r of roles) {
       if (!ROLE_NAMES.includes(r as (typeof ROLE_NAMES)[number])) {
@@ -449,10 +470,10 @@ function parseClusters(
     // compatible shape the renderer's fast path keys off.
     const groups =
       opts?.stripH4 === false
-        ? [{ title: null, bullets: extractBulletsLegacy(b.bodyLines, firstNonEmpty) }]
+        ? [{ title: null, bullets: extractBulletsLegacy(b.bodyLines, roleLineText) }]
         : parseClusterGroups(
             b.bodyLines,
-            firstNonEmpty,
+            roleLineText,
             absLine,
             b.title,
             errors,
@@ -646,6 +667,8 @@ function parseClusterGroups(
 
 /** 丢掉角色行及其之前的所有内容，返回其后的原始行。 */
 function linesAfterRoleLine(bodyLines: string[], roleLineText: string): string[] {
+  // 没有角色行（`roleAnnotation = inline-suffix` 的模板）：整段都是正文。
+  if (roleLineText.trim().length === 0) return [...bodyLines];
   const out: string[] = [];
   let pastRoleLine = false;
   for (const raw of bodyLines) {

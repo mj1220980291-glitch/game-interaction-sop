@@ -145,7 +145,9 @@ function serNode(n) {
     characters: chars === null ? null : chars.slice(0, 400),
     visible: typeof n.visible === 'boolean' ? n.visible : true,
     layoutMode: ('layoutMode' in n) ? n.layoutMode : null,
-    hasImageFill: ('fills' in n && Array.isArray(n.fills)) ? n.fills.some(f => f.type === 'IMAGE') : false
+    hasImageFill: ('fills' in n && Array.isArray(n.fills)) ? n.fills.some(f => f.type === 'IMAGE') : false,
+    x: typeof n.x === 'number' ? n.x : null,
+    y: typeof n.y === 'number' ? n.y : null
   };
 }
 `;
@@ -210,7 +212,9 @@ function mapNode(raw: Record<string, unknown>): NodeInfo {
       raw['layoutMode'] === 'HORIZONTAL' || raw['layoutMode'] === 'VERTICAL' || raw['layoutMode'] === 'NONE'
         ? (raw['layoutMode'] as NodeInfo['layoutMode'])
         : undefined,
-    hasImageFill: typeof raw['hasImageFill'] === 'boolean' ? (raw['hasImageFill'] as boolean) : undefined
+    hasImageFill: typeof raw['hasImageFill'] === 'boolean' ? (raw['hasImageFill'] as boolean) : undefined,
+    x: typeof raw['x'] === 'number' ? (raw['x'] as number) : undefined,
+    y: typeof raw['y'] === 'number' ? (raw['y'] as number) : undefined
   };
 }
 

@@ -373,3 +373,43 @@ core
     expect(cluster.bullets).toContain('规则2');
   });
 });
+
+/**
+ * 蛋仔契约：无总览区、职能写在句尾。按官方形状硬校验这两条都会被拒收，
+ * 于是「照契约写」反而渲不出来。
+ */
+describe('parseV2 — 模板能力放宽（overview=none / inline-suffix）', () => {
+  const md = `# Demo
+跟进UI：a
+需求组：b
+易协作链接：c
+最后更新时间：2026.05.27
+
+## 01. 测试界面
+
+### 入口规则
+
+- 点击入口打开面板 @GUI
+`;
+
+  it('默认（官方形状）仍要求总览与角色行', () => {
+    const r = parseV2(md);
+    expect(r.ok).toBe(false);
+    expect(r.errors.map((e) => e.code)).toContain(HARD_ERROR_CODES.O1_OVERVIEW_MISSING);
+    expect(r.errors.map((e) => e.code)).toContain(HARD_ERROR_CODES.C2_ROLE_LINE_MISSING);
+  });
+
+  it('overviewOptional + roleLineOptional 时按契约写法通过', () => {
+    const r = parseV2(md, { overviewOptional: true, roleLineOptional: true });
+    expect(r.ok).toBe(true);
+    expect(r.ir!.overview).toEqual({ background: '', coreInteraction: '' });
+    const cluster = r.ir!.sections[0]!.clusters[0]!;
+    expect(cluster.roles).toEqual([]);
+    expect(cluster.bullets).toEqual(['点击入口打开面板 @GUI']);
+  });
+
+  it('只放宽总览、不放宽角色行时，仍报 C2', () => {
+    const r = parseV2(md, { overviewOptional: true });
+    expect(r.errors.map((e) => e.code)).toContain(HARD_ERROR_CODES.C2_ROLE_LINE_MISSING);
+  });
+});

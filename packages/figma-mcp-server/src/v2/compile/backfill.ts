@@ -92,6 +92,8 @@ export interface BuildPackInput {
   anchors?: TemplatePack['anchors'];
   /** `<项目根>/.interaction-sop/md-contract.md` 的相对路径。 */
   mdContract?: string;
+  /** 文档底色 `#rrggbb`（模板身份，深色稿渲染时根帧用它）。 */
+  docBackground?: string;
 }
 
 /** 组装 `template.json`，并用既有的 `parseTemplatePack` 自检一遍。 */
@@ -108,6 +110,7 @@ export function buildTemplatePack(input: BuildPackInput): TemplatePack {
     },
     capabilities: input.capabilities,
     anchors: input.anchors ?? {},
+    ...(input.docBackground ? { docBackground: input.docBackground } : {}),
     ...(input.mdContract ? { mdContract: input.mdContract } : {})
   };
 
