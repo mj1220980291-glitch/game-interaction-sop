@@ -62,9 +62,45 @@ export async function slimParts(input: SlimInput): Promise<SlimResult> {
     } else if (part === 'top' && input.capabilities?.overview === 'none') {
       cleared += await slimTop(backend, nodeId);
     }
+    cleared += await placeholderSlotTexts(backend, nodeId);
   }
 
   return { deleted, cleared, gaps };
+}
+
+/**
+ * 槽位文本一律换成占位符。
+ *
+ * 部件是模板，里面不该留上一份需求的真内容：`文档标题` 还挂着一条易协作单号、
+ * `正文/规则` 还是上一版的规则、`#Title_Main` 还是「撤离」。渲染会按槽位名覆盖，
+ * 但库里打开部件、或渲染缺字段时，看到的就是这些旧文案。
+ */
+const SLOT_PLACEHOLDERS: Record<string, string> = {
+  [TOP_SLOTS.docTitle]: '文档标题',
+  [TOP_SLOTS.owner]: '/设计师名称',
+  [TOP_SLOTS.group]: '/需求组',
+  [TOP_SLOTS.ticketLink]: '#单号',
+  [TOP_SLOTS.lastUpdate]: 'YYYY.MM.DD',
+  [OVERVIEW_TEXT_SLOTS.body]: '正文占位',
+  [CHAPTER_SLOTS.sectionTitle]: '界面名称',
+  [CLUSTER_SLOTS.title]: '簇标题',
+  [CLUSTER_SLOTS.bullet]: '正文占位'
+};
+
+async function placeholderSlotTexts(backend: FigmaBackend, partId: string): Promise<number> {
+  if (typeof backend.setMultipleTextContents !== 'function') return 0;
+  const { nodes } = await backend.scanSubtree(partId, SCAN_BUDGET);
+  const updates: Array<{ nodeId: string; characters: string }> = [];
+  for (const n of nodes) {
+    if (n.type !== 'TEXT' || isSublayer(n.id) || n.visible === false) continue;
+    const placeholder = SLOT_PLACEHOLDERS[n.name];
+    if (!placeholder) continue;
+    if ((n.characters ?? '') === placeholder) continue;
+    updates.push({ nodeId: n.id, characters: placeholder });
+  }
+  if (updates.length === 0) return 0;
+  await backend.setMultipleTextContents(updates);
+  return updates.length;
 }
 
 /**
@@ -241,6 +277,7 @@ async function slimCluster(
   ];
   deleted += await deleteAll(backend, drop);
 
+  await unstickTitleFromNumber(backend, nodes);
   deleted += await slimClusterMedia(backend, nodes, figure);
 
   if (visibleBullets.length === 0) {
@@ -252,6 +289,36 @@ async function slimCluster(
   }
 
   return deleted;
+}
+
+/**
+ * 簇标题别压在编号上 —— 编译期就把位置摆正。
+ *
+ * 源稿把 `#Title_Main` 的 x 按原字体宽度定死，字体统一成 Noto Sans SC 之后编号
+ * 里的数字变宽，就把标题第一个字盖住（库里打开部件第一眼就是这个）。渲染期也有
+ * 同样的保护，但部件本身也得是干净的：设计师看的是部件。
+ */
+async function unstickTitleFromNumber(
+  backend: FigmaBackend,
+  nodes: ReadonlyArray<NodeInfo>
+): Promise<void> {
+  if (typeof backend.moveNode !== 'function') return;
+  const title = nodes.find((n) => n.name === CLUSTER_SLOTS.title && !isSublayer(n.id));
+  if (!title || typeof title.x !== 'number' || typeof title.y !== 'number') return;
+  const carrier = nodes.find(
+    (n) =>
+      n.name === CLUSTER_SLOTS.number &&
+      n.id !== title.id &&
+      n.parentId === title.parentId &&
+      n.absoluteBoundingBox !== undefined
+  );
+  const titleBox = title.absoluteBoundingBox;
+  const numberBox = carrier?.absoluteBoundingBox;
+  if (!numberBox || !titleBox) return;
+
+  const delta = numberBox.x + numberBox.width + 8 - titleBox.x;
+  if (delta <= 0.5) return;
+  await backend.moveNode(title.id, title.x + delta, title.y);
 }
 
 /**

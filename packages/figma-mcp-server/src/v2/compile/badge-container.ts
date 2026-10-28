@@ -13,7 +13,7 @@
  * Spec: openspec/changes/template-compile-to-library (D9)
  */
 
-import type { FigmaBackend } from '../figma-client.js';
+import type { FigmaBackend, NodeInfo } from '../figma-client.js';
 import { BADGE_MASTER_NAME, CHAPTER_SLOTS } from '../template-slots.js';
 import { SECTION_CHILD_NAMES } from '../template-map.js';
 import { COMPILE_CODES, compileError, type CompileGap } from './errors.js';
@@ -64,12 +64,24 @@ export async function ensureBadgeContainer(
 
   // 气泡挂在**舞台**里（图区与气泡的共同父级，官方模板叫 `rec组`）：
   // 挂在章节根上会和标题、说明栏抢位置，标号坐标也就跟着飘。
-  const stageId = await findStage(input.backend, input.chapterComponentId);
+  const stage = await findStage(input.backend, input.chapterComponentId);
+  const stageId = stage?.id;
   const clone = await input.backend.cloneNode({
     sourceId: input.containerSourceId,
     parentId: stageId ?? input.chapterComponentId,
     name: BADGE_CONTAINER_NAME
   });
+
+  // 形态来源是 `1:14` 的气泡（1920×1080），直接搬过来会比图区大一圈，盖住说明栏。
+  // 标号位置本来就是相对图区算的，容器缩到图区大小不改变任何坐标。
+  const stageW = stage?.absoluteBoundingBox?.width;
+  const stageH = stage?.absoluteBoundingBox?.height;
+  if (stageW && stageH && typeof input.backend.resizeNode === 'function') {
+    await input.backend.resizeNode(clone.id, stageW, stageH);
+    if (typeof input.backend.moveNode === 'function') {
+      await input.backend.moveNode(clone.id, 0, 0);
+    }
+  }
 
   if (input.backend.setPluginData) {
     await input.backend.setPluginData([
@@ -92,10 +104,10 @@ export async function ensureBadgeContainer(
 async function findStage(
   backend: FigmaBackend,
   chapterComponentId: string
-): Promise<string | undefined> {
+): Promise<NodeInfo | undefined> {
   if (typeof backend.scanSubtree !== 'function') return undefined;
   const { nodes } = await backend.scanSubtree(chapterComponentId, 2000);
-  return nodes.find((n) => n.name === CHAPTER_SLOTS.stage)?.id;
+  return nodes.find((n) => n.name === CHAPTER_SLOTS.stage);
 }
 
 /**

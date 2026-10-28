@@ -144,6 +144,40 @@ describe('slimParts · 簇内原稿媒体', () => {
 
     expect(h.childrenOf('k').map((x) => x.name)).toEqual(['#Title_Main', '正文/规则', '隐藏池']);
   });
+
+  it('簇标题让位给编号：x 推到编号右边缘之后', async () => {
+    const h = slotsBackend([
+      n('k', '簇', 'COMPONENT', ['g'], { w: 916, h: 400 }),
+      n('g', 'Group', 'GROUP', ['title', 'num', 'b1'], { w: 916, h: 400 }),
+      n('title', '#Title_Main', 'TEXT', [], { text: '簇标题', w: 180, h: 52, x: 47, y: 0 }),
+      n('num', 'Number', 'INSTANCE', [], { w: 63, h: 63, x: 0, y: 0 }),
+      n('b1', '正文/规则', 'TEXT', [], { text: '正文占位', w: 872, h: 129 })
+    ]);
+    await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'cluster', nodeId: 'k' }],
+      capabilities: { overview: 'none', figure: 'none' }
+    });
+
+    // 编号 0..63 + 8 间距 = 71，原标题在 47 → 需要右移 24
+    expect(h.store.get('title')!.x).toBe(71);
+  });
+
+  it('簇标题本来就够远时不动', async () => {
+    const h = slotsBackend([
+      n('k', '簇', 'COMPONENT', ['g'], { w: 916, h: 400 }),
+      n('g', 'Group', 'GROUP', ['title', 'num', 'b1'], { w: 916, h: 400 }),
+      n('title', '#Title_Main', 'TEXT', [], { text: '簇标题', w: 180, h: 52, x: 120, y: 0 }),
+      n('num', 'Number', 'INSTANCE', [], { w: 63, h: 63, x: 0, y: 0 }),
+      n('b1', '正文/规则', 'TEXT', [], { text: '正文占位', w: 872, h: 129 })
+    ]);
+    await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'cluster', nodeId: 'k' }],
+      capabilities: { overview: 'none', figure: 'none' }
+    });
+    expect(h.store.get('title')!.x).toBe(120);
+  });
 });
 
 /**

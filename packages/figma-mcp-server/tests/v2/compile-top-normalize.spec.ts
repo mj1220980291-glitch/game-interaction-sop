@@ -154,10 +154,11 @@ describe('顶部落残留空壳化', () => {
     });
 
     expect(r.cleared).toBeGreaterThan(0);
-    // 标签要留着撑版式，值换成占位符（留空串会让人以为这一行漏了）。
+    // 标签要留着撑版式，值换成占位符（留空串会让人以为这一行漏了）；
+    // 槽位文本也换成占位符，部件里不留上一份需求的内容。
     expect(h.store.get('roleNote')!.characters).toBe('职能注意');
     expect(h.store.get('status')!.characters).toBe('/待补充');
-    expect(h.store.get('title')!.characters).toBe('局内相关交互');
+    expect(h.store.get('title')!.characters).toBe('文档标题');
   });
 
   it('有总览区时不动顶部（总览标题要留着）', async () => {

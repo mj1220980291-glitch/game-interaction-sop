@@ -102,6 +102,15 @@ export function slotsBackend(nodes: NodeInfo[]): SlotsBackend {
 
     async replaceWithPlaceholder(input: { nodeId: string; name: string }): Promise<void> {
       writes.push(`placeholder:${input.nodeId}:${input.name}`);
+    },
+
+    async moveNode(id: string, x: number, y: number): Promise<void> {
+      const n = store.get(id);
+      if (!n) throw new Error(`slots backend: move target ${id} not found`);
+      n.x = x;
+      n.y = y;
+      if (n.absoluteBoundingBox) n.absoluteBoundingBox = { ...n.absoluteBoundingBox, x, y };
+      writes.push(`move:${id}:${x}`);
     }
   } as unknown as FigmaBackend;
 
@@ -146,6 +155,8 @@ export function n(
     ...(opts.hasImageFill !== undefined ? { hasImageFill: opts.hasImageFill } : {}),
     ...(opts.w !== undefined || opts.h !== undefined || opts.x !== undefined || opts.y !== undefined
       ? {
+          x: opts.x ?? 0,
+          y: opts.y ?? 0,
           absoluteBoundingBox: {
             x: opts.x ?? 0,
             y: opts.y ?? 0,
