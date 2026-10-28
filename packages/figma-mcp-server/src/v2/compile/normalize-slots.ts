@@ -233,7 +233,12 @@ async function normalizeChapter(
   }
 
   if (graphic) {
-    const image = widestImageSlot(graphic);
+    // 已经有 `主图占位` 就不要再认：舞台和主图同样宽 1200，先遍历到的是舞台，
+    // 改名会把舞台整块变成「主图占位」（蛋仔真机踩过）。
+    const hasImageSlot = structuredDescendants(root).some(
+      (n) => n.name === CHAPTER_SLOTS.mainImage
+    );
+    const image = hasImageSlot ? undefined : widestImageSlot(graphic);
     if (image) await rename('chapter', image, CHAPTER_SLOTS.mainImage);
 
     const hint = texts(graphic).find((t) => /待手动替换|占位文案/.test(t.characters ?? ''));

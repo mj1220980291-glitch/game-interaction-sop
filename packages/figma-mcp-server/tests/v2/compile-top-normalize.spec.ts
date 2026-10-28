@@ -111,6 +111,25 @@ describe('章节：气泡不能被当成主图', () => {
     expect(r.renamed.find((x) => x.nodeId === 'bubble')).toBeUndefined();
     expect(h.store.get('bubble')!.name).toBe('气泡');
   });
+
+  it('舞台与主图同宽时也不会被改名（已有主图占位就别再认）', async () => {
+    const h = slotsBackend([
+      n('c', '章节', 'COMPONENT', ['left', 'col'], { w: 2209, h: 1769 }),
+      n('left', '左列', 'FRAME', ['stage'], { w: 1200, h: 805 }),
+      n('stage', '舞台', 'FRAME', ['img'], { w: 1200, h: 719 }),
+      n('img', '主图占位', 'RECTANGLE', [], { w: 1200, h: 719 }),
+      n('col', 'Text', 'FRAME', [], { w: 932, h: 1769 })
+    ]);
+
+    await normalizeSlotNames({
+      backend: h.backend,
+      parts: [{ part: 'chapter', nodeId: 'c' }],
+      capabilities: { figure: 'none', clusterGroups: 'none', overview: 'none' }
+    });
+
+    expect(h.store.get('stage')!.name).toBe('舞台');
+    expect(h.store.get('img')!.name).toBe('主图占位');
+  });
 });
 
 describe('顶部落残留空壳化', () => {
