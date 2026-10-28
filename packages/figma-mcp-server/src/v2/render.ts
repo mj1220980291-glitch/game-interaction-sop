@@ -1184,13 +1184,21 @@ async function fillBlockContent(
       n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText
   );
 
-  if (bullets.some(isImageBullet) || bullets.some((b) => parseRoleBullet(b) !== undefined)) {
+  // `fillBlockContentInline` 的「追加-再删原件」策略假设正文是**块的直接子级**
+  // （官方形状）。蛋仔这类空壳部件的正文在 `Frame 808` 里，克隆会跑到外面、
+  // 原占位也删不掉 —— 真机就是文字跑到配图下面、一堆白框。嵌套结构一律走就地填充。
+  const bulletParent = bulletTexts[0]?.parentId;
+  const nestedShell = bulletParent !== undefined && bulletParent !== p.blockId;
+  const hasImageBullets = bullets.some(isImageBullet);
+
+  if (!nestedShell && (hasImageBullets || bullets.some((b) => parseRoleBullet(b) !== undefined))) {
     await fillBlockContentInline(backend, p, bulletTexts);
     return;
   }
 
   // Bullets: 1 TEXT ("正文/规则") = 1 bullet. Clone or trim to match count.
-  const visibleBullets = bullets;
+  // `配图：` 条目不是正文，交给下面的配图槽处理。
+  const visibleBullets = nestedShell ? bullets.filter((b) => !isImageBullet(b)) : bullets;
   const bulletNodes: NodeInfo[] = bulletTexts.slice(0, visibleBullets.length);
   const bulletSource = bulletTexts[0];
   // PR-2 (backend-batch-clone-nodes): replace serial while-loop with single
@@ -1241,10 +1249,40 @@ async function fillBlockContent(
   // No 配图 wanted here: drop the template's (the section seed survives
   // until ImageSeed.flush).
   const existingImageGroups = allDescendants.filter(isFigureSlot);
-  if (existingImageGroups.length > 0) {
+  if (existingImageGroups.length > 0 && !hasImageBullets) {
     const doomed = imageSeed.filterDeletes(existingImageGroups.map((n) => n.id));
     if (doomed.length > 0) await backend.deleteNodes(doomed);
+  } else if (hasImageBullets) {
+    await fillNestedFigures(backend, p, existingImageGroups);
   }
+}
+
+/**
+ * 嵌套空壳里的配图：槽位已经排在正文之后，就地填第一张、多余槽删掉。
+ *
+ * 蛋仔的簇是「标题 / 正文 / 配图」三层，没有官方那种「GROUP 内含配图占位」，
+ * 也就没法走「克隆 + 追加」的 inline 路径。就地填既保持模板版式，又不用重排。
+ */
+async function fillNestedFigures(
+  backend: FigmaBackend,
+  p: FillBlockContentParams,
+  slots: NodeInfo[]
+): Promise<void> {
+  const descs = p.bullets.filter(isImageBullet).map((b) => b.replace(/^\s*[-·•*]+\s*/, '').replace(/^\s*配图\s*[：:]\s*/, '').trim());
+  const keyPrefix = figureKeyPrefix(p.sectionIndex, p.clusterIndex);
+  if (slots.length === 0) {
+    if (descs.length > 0) p.figures.warn(`${keyPrefix}/1`, '模板里没有「配图」槽，配图被丢弃');
+    return;
+  }
+  const [first, ...rest] = slots;
+  if (rest.length > 0) await backend.deleteNodes(rest.map((s) => s.id));
+  await finishBlockFigures(backend, {
+    blockId: p.blockId,
+    textUpdates: [],
+    images: [{ groupId: first!.id, desc: descs[0] ?? '', ordinal: 1 }],
+    figures: p.figures,
+    keyPrefix
+  });
 }
 
 /**
