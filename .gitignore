@@ -4,6 +4,7 @@ coverage/
 release/
 tmp/
 runs/
+.interaction-sop/
 e2e/diffs/
 e2e/results/
 *.log

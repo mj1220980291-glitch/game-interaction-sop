@@ -38,6 +38,7 @@ import {
   type AssetSpec,
   type FigureState
 } from '../../render.js';
+import { retryTransient } from '../../../server/retry.js';
 
 export const PARTS_RENDER_CODES = {
   LAYOUT_UNSUPPORTED: 'V2_RENDER_LAYOUT_UNSUPPORTED',
@@ -89,8 +90,34 @@ async function stage<T>(name: string, fn: () => Promise<T>): Promise<T> {
 /** 文档根帧的间距：部件自带留白，这里不再加。 */
 const PARTS_GAP = 0;
 
+/**
+ * 只重试**只读**调用。
+ *
+ * 真机：簇这个 key 冷启动 import 之后，第一次 `scanSubtree` 要在插件里等库数据
+ * 落地，超过 Bridge 的 10s 上限就整轮渲染白跑（写操作不能重试——克隆重试会多出
+ * 一份）。所以读操作套一层重试，写操作原样穿透。
+ */
+const RETRY_READ_METHODS = new Set(['getNodeInfo', 'getNodesInfo', 'scanSubtree']);
+
+function retriedReads(backend: FigmaBackend): FigmaBackend {
+  return new Proxy(backend, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target);
+      if (typeof value !== 'function') return value;
+      if (!RETRY_READ_METHODS.has(String(prop))) return value.bind(target);
+      return (...args: unknown[]) =>
+        retryTransient(() => (value as (...a: unknown[]) => Promise<unknown>).apply(target, args), {
+          attempts: 3,
+          delayMs: 3000,
+          log: (message) => process.stderr.write(`[render] ${message}\n`)
+        });
+    }
+  }) as FigmaBackend;
+}
+
 export async function renderFromParts(input: PartsRenderInput): Promise<PartsRenderResult> {
-  const { backend, ir, pack } = input;
+  const { ir, pack } = input;
+  const backend = retriedReads(input.backend);
   if (!pack.components.top || !pack.components.chapter || !pack.components.cluster) {
     throw fail(PARTS_RENDER_CODES.PART_SLOT_MISSING, '模板包缺少 top / chapter / cluster 三个 key');
   }
@@ -520,6 +547,25 @@ async function fillChapter(
     if (Math.abs(height - (info.absoluteBoundingBox?.height ?? 0)) > 1) {
       await backend.resizeNode(chapter.id, info.absoluteBoundingBox?.width ?? 2209, height);
     }
+  });
+
+  // 左列（标题 + 舞台）高度是模板写死的，说明栏随文案变长后两列底边不齐。
+  // 章节是自动布局时不能动父级，但拉伸子级没问题（HUG 会被 resize 改成 FIXED）。
+  await stage('chapter.stretch', async () => {
+    if (typeof backend.resizeNode !== 'function') return;
+    const info = await backend.getNodeInfo(chapter.id);
+    let taller = 0;
+    let left: NodeInfo | undefined;
+    for (const childId of info.childIds ?? []) {
+      const child = await backend.getNodeInfo(childId);
+      const box = child.absoluteBoundingBox;
+      if (!box) continue;
+      if (child.name === CHAPTER_SLOTS.leftColumn) left = child;
+      else taller = Math.max(taller, box.height);
+    }
+    const box = left?.absoluteBoundingBox;
+    if (!left || !box || taller <= box.height + 1) return;
+    await backend.resizeNode(left.id, box.width, taller);
   });
 
   return { image };

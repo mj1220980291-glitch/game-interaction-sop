@@ -1310,6 +1310,8 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         const { bytes, width: srcW, height: srcH } = await exportRegion(src, ${JSON.stringify(crop ?? null)}, ${scale});
         const image = figma.createImage(bytes);
         rect.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
+        // 占位虚线是模板自带的描边：填上图不清掉，成图外圈会留一圈虚线。
+        if ('strokes' in rect && rect.strokes.length > 0) rect.strokes = [];
 
         const w = Math.min(srcW, ${maxWidth});
         const h = Math.round(srcH * w / srcW);
