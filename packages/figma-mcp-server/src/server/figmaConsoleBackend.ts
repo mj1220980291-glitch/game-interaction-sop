@@ -953,6 +953,16 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           if (clone.parent === root) { clone.x = 0; }
         }
 
+        // 文档说明里的「区块标题」是收编过的零件实例（同一个组件被「文档说明」和
+        // 「界面说明」两处引用，各自用文字覆盖）。发布后实例解析到组件本体，覆盖
+        // 就丢了——真机上这一段标题直接消失。这块是静态区，拆平成普通图层最稳。
+        for (const clone of root.children) {
+          if (clone.name !== '文档说明') continue;
+          for (const inst of clone.findAll((n) => n.type === 'INSTANCE')) {
+            try { inst.detachInstance(); } catch (e) {}
+          }
+        }
+
         root.layoutMode = 'VERTICAL';
         root.primaryAxisSizingMode = 'AUTO';
         root.counterAxisSizingMode = 'FIXED';
