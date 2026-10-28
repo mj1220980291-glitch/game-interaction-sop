@@ -218,7 +218,7 @@ describe('slimParts · 顶部残留', () => {
     expect(h.childrenOf('row2').map((x) => x.name)).toEqual(['审核者', '设计师名称']);
   });
 
-  it('文档说明块保持可见（标题与链接位要留着）', async () => {
+  it('文档说明块保持可见，块里的区块标题不被当成残留清掉', async () => {
     const h = slotsBackend(top());
     await slimParts({
       backend: h.backend,
@@ -226,8 +226,8 @@ describe('slimParts · 顶部残留', () => {
       capabilities: { overview: 'none', figure: 'none' }
     });
     expect(h.writes).not.toContain('visible:intro:false');
-    // 块里的旧链接文本被清掉，但块本身还在。
-    expect(h.writes).toContain('text:i1:');
+    // `i1` 是普通文字（不是 /人 名、不是链接），保留；值型文本才换占位符。
+    expect(h.store.get('i1')!.characters).toBe('旧链接');
   });
 
   it('文档说明里带着槽位时不隐藏', async () => {

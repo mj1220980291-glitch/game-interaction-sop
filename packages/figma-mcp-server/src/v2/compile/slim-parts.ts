@@ -141,9 +141,10 @@ async function slimTop(backend: FigmaBackend, topId: string): Promise<number> {
       !isSublayer(n.id) &&
       (n.characters ?? '').trim() !== '' &&
       !keep.has(n.name) &&
-      // 只清「值」，不清标签：`策划` / `审核者` / `职能注意` 是顶部版式的一部分，
-      // 清掉整行就塌了；`/辉湟`、`-未开始` 才是上一份需求的值。
-      (isValueText((n.characters ?? '').trim()) || introIds.has(n.id))
+      // 只清「值」：`/辉湟`、`#367218`、`https://…` 是上一份需求的数据。
+      // 标签（`策划`）、区块标题（`文档说明` / `界面说明`）都是版式的一部分，
+      // 清掉整块就塌了 —— 真机踩过：拆平实例后这两个标题被当成残留清空。
+      looksLikeValue((n.characters ?? '').trim())
   );
   if (stale.length === 0) return 0;
   if (typeof backend.setMultipleTextContents !== 'function') return 0;
@@ -153,11 +154,21 @@ async function slimTop(backend: FigmaBackend, topId: string): Promise<number> {
   await backend.setMultipleTextContents(
     stale.map((n) => ({
       nodeId: n.id,
-      characters: introIds.has(n.id) ? '' : VALUE_PLACEHOLDER
+      characters: VALUE_PLACEHOLDER
     }))
   );
   trace(`slimTop cleared=${stale.length} ${Date.now() - t0}ms`);
   return stale.length;
+}
+
+/**
+ * 「值样式」文本：`/辉湟`、`-未开始`、`#367218`、`https://…`。
+ *
+ * 判断依据是**写法**，不是位置：区块标题（`文档说明` / `界面说明`）和标签
+ * （`策划` / `职能注意`）都不长这样，也就不会被当成上一份需求的残留清掉。
+ */
+function looksLikeValue(text: string): boolean {
+  return isValueText(text) || /^(https?:\/\/|#\d{3,})/.test(text) || /https?:\/\//.test(text);
 }
 
 /** 顶部值槽（`/辉湟`、`/苗儿`）清空后留下的占位符。 */
