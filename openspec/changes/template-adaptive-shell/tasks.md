@@ -39,17 +39,17 @@
 - [x] 4.9 真机踩坑修正：实例子层 id 不 resolve、绝对定位顺序、`resize` 翻 FIXED
 - [x] 4.10 `npm run build` + `npm test`（369 全绿）
 
-## 5. 真机（未完成，交接在 `openspec/HANDOFF.md` 顶部快照）
+## 5. 真机（已完成，2026-10-28）
 
-- [ ] 5.1 重编蛋仔（参数见 HANDOFF，注意 `badgeSlot` 传 `manual` 才会补气泡）
-- [ ] 5.2 发布 → 沙盒 `Assets → Libraries` 关开 → import 冒烟 → 回填 key
-- [ ] 5.3 配置里 `badgeSlot` 写 `container`
-- [ ] 5.4 重渲染 + **截图逐项目视**（底色 / 占位 / 标号 / 章节标题 / 重叠）
-- [ ] 5.5 清理旧零件变体集，再发布一次
+- [x] 5.1 重编蛋仔（参数见 HANDOFF，注意 `badgeSlot` 传 `manual` 才会补气泡）
+- [x] 5.2 发布 → 沙盒 `Assets → Libraries` 关开 → import 冒烟 → 回填 key
+- [x] 5.3 配置里 `badgeSlot` 写 `container`
+- [x] 5.4 重渲染 + **截图逐项目视**（底色 / 占位 / 标号 / 章节标题 / 重叠）
+- [x] 5.5 清理旧零件变体集，再发布一次
 
-## 6. 改进（本轮返工的根因，独立于本变更）
+## 6. 改进（已完成）
 
-- [ ] 6.1 蛋仔形状写进 fixture 矩阵（顶部三块 / 章节左列+舞台 / 簇内占位 / 编号在实例内 / 标题外置 / 气泡更宽 / 舞台等宽）
-- [ ] 6.2 渲染后固定 `figma_capture_screenshot`，不再只看 `summary`
-- [ ] 6.3 免手动重启：父进程常驻 + 可替换 worker（`autoRestart.ts` 是失败方向，仅留参考）
+- [x] 6.1 蛋仔形状写进 fixture 矩阵（`tests/v2/fixtures/danzi-shapes.ts` + `danzi-shapes.spec.ts`）
+- [x] 6.2 渲染后固定截图（`render` 默认返回整篇 PNG）+ 发布后 import 假死自动重试
+- [x] 6.3 免手动重启：父进程常驻 + 可替换 worker（`src/server/index.ts` / `worker.ts` / `workerLoop.ts`）
 
