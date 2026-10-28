@@ -172,7 +172,8 @@ export const SOFT_WARNING_CODES = {
   /** render — 模板没有配图槽（`figure = none`），md 里的配图被丢弃 */
   W_FIGURE_DROPPED: 'V2_W_FIGURE_DROPPED',
   /** render — 模板不支持图上标号（`badgeSlot` 非 container），标号未摆放 */
-  W_BADGE_UNPLACED: 'V2_W_BADGE_UNPLACED',
+  W_BADGE_UNPLACED: 'V2_W_BADGE_UNPLACED',  /** 渲染成功但验收截图导出失败（不影响文档本身） */
+  W_SCREENSHOT_FAILED: 'V2_W_SCREENSHOT_FAILED',
   /** render — 顶部部件里没有总览槽位，总览内容未写入 */
   W_OVERVIEW_SLOTS_MISSING: 'V2_W_OVERVIEW_SLOTS_MISSING',
   /** 顶部部件缺「文档标题 / 设计师 / 需求组 / 单号 / 更新时间」某个槽位。 */

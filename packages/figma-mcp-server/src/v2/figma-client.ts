@@ -478,6 +478,14 @@ export interface FigmaBackend {
    */
   setTextRangeFills?(updates: TextRangeFillUpdate[]): Promise<string[]>;
 
+  /**
+   * 把节点导成 PNG（base64），长边不超过 `maxSide`。
+   *
+   * 渲染完必须看一眼画面：`summary` 只说「几章几簇」，白块占位、标题压字、
+   * 区块标题丢失这些它一个都报不出来（真机连续踩过）。
+   */
+  exportNodeImage?(nodeId: string, maxSide?: number): Promise<{ base64: string; width: number; height: number }>;
+
   /** Batch delete. */
   deleteNodes(nodeIds: string[]): Promise<void>;
 

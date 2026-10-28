@@ -171,6 +171,12 @@ const V2_RENDER_INPUT_SCHEMA = {
     },
     scope: { type: 'string', pattern: '^\\d{2}(/\\d+)?$' },
     dryRun: { type: 'boolean' },
+    screenshot: {
+      type: 'boolean',
+      description:
+        '渲染成功后自动导出整篇截图（默认 true）。`summary` 只说几章几簇，' +
+        '白块占位 / 标题压字 / 区块标题丢失这些只有看图才发现，所以默认强制出图。'
+    },
     template: {
       type: 'object',
       properties: {
@@ -275,6 +281,34 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
           },
           opts.v2Backend
         );
+
+        // 渲染成功就默认出图：数字说「成功」，画面可能一塌糊涂（这一轮踩过
+        // 白块占位、标题压字、区块标题丢失），验收必须看图。
+        const rootId = result.ok ? (result.rootInstanceId ?? target?.rootId) : undefined;
+        if (rootId && args?.screenshot !== false && typeof opts.v2Backend.exportNodeImage === 'function') {
+          try {
+            const shot = await opts.v2Backend.exportNodeImage(rootId, 1568);
+            return {
+              content: [
+                { type: 'image' as const, data: shot.base64, mimeType: 'image/png' },
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify(
+                    { ...result, screenshot: { width: shot.width, height: shot.height } },
+                    null,
+                    2
+                  )
+                }
+              ]
+            };
+          } catch (e) {
+            // 出图失败不影响渲染结果本身，退化成原来的 JSON。
+            result.warnings.push({
+              code: 'V2_W_SCREENSHOT_FAILED',
+              message: `渲染成功但截图失败：${(e as Error).message}——请手动在 Figma 里看一眼`
+            });
+          }
+        }
         return jsonResult(result);
       } catch (e) {
         const err = e as Error & { code?: string };

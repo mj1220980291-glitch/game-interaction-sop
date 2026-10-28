@@ -9,6 +9,7 @@
  */
 
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { retryTransient } from './retry.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import type { FigmaBackend, NodeInfo, FigmaNodeType } from '../v2/figma-client.js';
@@ -450,12 +451,14 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     },
 
     async importComponentByKey(componentKey) {
-      const r = await run(`
+      const r = await retryTransient(() =>
+        run(`
         ${SERIALIZE_NODE_FN}
         const comp = await figma.importComponentByKeyAsync(${JSON.stringify(componentKey)});
         if (!comp) throw new Error('importComponentByKey: not published: ' + ${JSON.stringify(componentKey)});
         return serNode(comp);
-      `, 40000) as Record<string, unknown>;
+      `, 40000)
+      ) as Record<string, unknown>;
       return mapNode(r);
     },
 
@@ -837,7 +840,8 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     },
 
     async instantiateByKey({ componentKey, parentId, name }) {
-      const r = await run(`
+      const r = await retryTransient(() =>
+        run(`
         ${SERIALIZE_NODE_FN}
         const comp = await figma.importComponentByKeyAsync(${JSON.stringify(componentKey)});
         if (!comp) throw new Error('instantiateByKey: component not found for key ' + ${JSON.stringify(componentKey)});
@@ -849,7 +853,8 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           parent.appendChild(inst);
         ` : ''}
         return serNode(inst);
-      `, 30000) as Record<string, unknown>;
+      `, 30000)
+      ) as Record<string, unknown>;
       return mapNode(r);
     },
 
@@ -1138,8 +1143,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return mapNode(r);
     },
 
-    async moveNode(nodeId, x, y) {
-      await run(`
+    async moveNode(nodeId, x, y) {      await run(`
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         if (!n) throw new Error('moveNode: node not found: ' + ${JSON.stringify(nodeId)});
         n.x = ${x};
@@ -1229,6 +1233,24 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         }
         return null;
       `, 30000);
+    },
+
+        async exportNodeImage(nodeId, maxSide = 1568) {
+      const r = await run(`
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) throw new Error('exportNodeImage: node not found: ' + ${JSON.stringify(nodeId)});
+        const w = n.width || 1, h = n.height || 1;
+        const scale = Math.min(1, ${maxSide} / Math.max(w, h));
+        const bytes = await n.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: scale } });
+        let bin = '';
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        return { base64: btoa(bin), width: Math.round(w * scale), height: Math.round(h * scale) };
+      `, 60000) as { base64: string; width: number; height: number } | null;
+      if (!r) throw new Error('exportNodeImage: empty result');
+      return r;
     },
 
     async reparentNode({ nodeId, newParentId, preserveAbsolutePosition }) {
