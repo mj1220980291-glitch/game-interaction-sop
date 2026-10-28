@@ -82,13 +82,15 @@ export function deriveCapabilities(input: {
   }
 
   if (chapterDetect) {
-    caps.column = detectColumn(chapterDetect.chapters);
     caps.figure = detectFigure(chapterDetect.clusters);
     caps.hiddenPool = detectHiddenPool(chapterDetect.clusters);
 
     if (chapterDetect.clusters.length === 0) {
-      undecidable.push('numberBadge', 'badgeSlot', 'clusterGroups');
+      // 说明栏已被空壳化清空：这时候既判不出簇的编号形态，也判不出左右栏
+      // （标题块、图区、气泡摆在一起，任何结论都是猜）。一律保留源模板结论。
+      undecidable.push('column', 'numberBadge', 'badgeSlot', 'clusterGroups');
     } else {
+      caps.column = detectColumn(chapterDetect.chapters);
       const kinds = chapterDetect.clusters.map((c) => c.numberKind);
       caps.numberBadge = kinds.includes('instance')
         ? 'instance'

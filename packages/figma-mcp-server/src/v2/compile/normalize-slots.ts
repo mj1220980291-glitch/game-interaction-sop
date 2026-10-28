@@ -205,11 +205,21 @@ async function normalizeChapter(
   const graphic = pickGraphic(body);
   // 说明栏至少装着一个簇（簇内 ≥2 个文本），否则它只是样式块或标号容器。
   // 例外：克隆即掏空之后说明栏是空的——此时「除图区外唯一的大块」就是它。
-  const others = body.children.filter((c) => c !== graphic && !isBadgeParent(c));
+  // 已经叫 `#Name` 的那块是章节标题，绝不能当说明栏（蛋仔真机踩过：标题被
+  // 改名成 `Text`，接着标题找不到、能力 `column` 也被算成 bottom）。
+  const preTitleText = texts(root).find((t) => t.name === CHAPTER_SLOTS.sectionTitle);
+  const preTitleBlock = preTitleText
+    ? body.children.find((c) => subtreeIds([c]).has(preTitleText.id))
+    : undefined;
+  const preNamedColumn = root.children.find((c) => c.name === CHAPTER_SLOTS.clusterHost);
+  const others = body.children.filter(
+    (c) => c !== graphic && c !== preTitleBlock && !isBadgeParent(c)
+  );
   const column =
-    others.length === 1
+    preNamedColumn ??
+    (others.length === 1
       ? others[0]
-      : others.filter((c) => texts(c).length >= 2).sort((a, b) => texts(b).length - texts(a).length)[0];
+      : others.filter((c) => texts(c).length >= 2).sort((a, b) => texts(b).length - texts(a).length)[0]);
 
   if (column) {
     await rename('chapter', column, CHAPTER_SLOTS.clusterHost);
@@ -234,13 +244,15 @@ async function normalizeChapter(
 
   // 章节标题：图区与说明栏之外的短文本（1:14 的 `#Name` 就在图片上方的标签框里）。
   const excluded = subtreeIds([graphic, column]);
-  const titleCandidates = texts(root).filter((t) => {
-    if (excluded.has(t.id)) return false;
-    if (!t.visible) return false;
-    const s = (t.characters ?? '').trim();
-    if (s === '' || s.length > 24) return false;
-    return !isNumberText(t) && !isRoleText(t);
-  });
+  const titleCandidates = preTitleText
+    ? [preTitleText]
+    : texts(root).filter((t) => {
+        if (excluded.has(t.id)) return false;
+        if (!t.visible) return false;
+        const s = (t.characters ?? '').trim();
+        if (s === '' || s.length > 24) return false;
+        return !isNumberText(t) && !isRoleText(t);
+      });
   if (titleCandidates.length === 1 && titleCandidates[0]) {
     await rename('chapter', titleCandidates[0], CHAPTER_SLOTS.sectionTitle);
   } else if (titleCandidates.length === 0) {

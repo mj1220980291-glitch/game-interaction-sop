@@ -959,9 +959,17 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         if (titleSrc) {
           const t = titleSrc.clone();
           root.appendChild(t);
-          t.name = '#Name';
+          t.name = '标题';
           t.x = 0;
           t.y = 0;
+          // 槽位名落在里面的 TEXT 上：渲染写标题就是用 setTextContent。
+          const txt = t.findAll((x) => x.type === 'TEXT')[0];
+          if (txt) txt.name = '#Name';
+          // 标题块里的其它文本（编号之类）是原稿写死的序号，留着会让每一章
+          // 都显示同一个数字，直接清掉。
+          for (const other of t.findAll((x) => x.type === 'TEXT')) {
+            if (other !== txt) other.remove();
+          }
         }
         ` : ''}
 
