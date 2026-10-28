@@ -312,20 +312,26 @@ async function centerClusterHeading(
   backend: FigmaBackend,
   nodes: ReadonlyArray<NodeInfo>
 ): Promise<void> {
-  const title = nodes.find((n) => n.name === CLUSTER_SLOTS.title && !isSublayer(n.id));
-  const carrier = nodes.find(
-    (n) => n.name === CLUSTER_SLOTS.number && n.parentId === title?.parentId
+  const snapshotTitle = nodes.find((n) => n.name === CLUSTER_SLOTS.title && !isSublayer(n.id));
+  const snapshotCarrier = nodes.find(
+    (n) => n.name === CLUSTER_SLOTS.number && n.parentId === snapshotTitle?.parentId
   );
-  if (!title || !carrier) return;
-  const parent = nodes.find((n) => n.id === title.parentId);
+  if (!snapshotTitle || !snapshotCarrier) return;
+  // 让位那一步刚挪过标题，扫描快照里的坐标是旧的 —— 必须重新读。
+  const [title, carrier] = await backend.getNodesInfo([snapshotTitle.id, snapshotCarrier.id]);
+  const parent = title?.parentId ? await backend.getNodeInfo(title.parentId) : undefined;
   const parentW = parent?.absoluteBoundingBox?.width;
-  const tb = title.absoluteBoundingBox;
-  const nb = carrier.absoluteBoundingBox;
+  const tb = title?.absoluteBoundingBox;
+  const nb = carrier?.absoluteBoundingBox;
   if (!parentW || !tb || !nb) return;
   const left = Math.min(nb.x, tb.x);
   const right = Math.max(nb.x + nb.width, tb.x + tb.width);
   const parentLeft = parent?.absoluteBoundingBox?.x ?? 0;
-  await shiftPair(backend, [carrier, title], parentLeft + (parentW - (right - left)) / 2 - left);
+  await shiftPair(
+    backend,
+    [carrier!, title!],
+    parentLeft + (parentW - (right - left)) / 2 - left
+  );
 }
 
 /**
@@ -375,8 +381,18 @@ async function shiftPair(
 ): Promise<void> {
   if (typeof backend.moveNode !== 'function' || Math.abs(shift) < 0.5) return;
   for (const n of nodes) {
-    if (typeof n.x !== 'number' || typeof n.y !== 'number') continue;
-    await backend.moveNode(n.id, n.x + shift, n.y);
+    // 局部坐标可能没被后端报回来；那就用绝对坐标减父级原点兜底。
+    let x = n.x;
+    let y = n.y;
+    if (typeof x !== 'number' || typeof y !== 'number') {
+      const abs = n.absoluteBoundingBox;
+      const parent = n.parentId ? await backend.getNodeInfo(n.parentId) : undefined;
+      const pAbs = parent?.absoluteBoundingBox;
+      if (!abs || !pAbs) continue;
+      x = abs.x - pAbs.x;
+      y = abs.y - pAbs.y;
+    }
+    await backend.moveNode(n.id, x + shift, y);
   }
 }
 

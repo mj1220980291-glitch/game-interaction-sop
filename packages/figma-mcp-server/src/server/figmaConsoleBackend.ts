@@ -956,10 +956,27 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         // 文档说明里的「区块标题」是收编过的零件实例（同一个组件被「文档说明」和
         // 「界面说明」两处引用，各自用文字覆盖）。发布后实例解析到组件本体，覆盖
         // 就丢了——真机上这一段标题直接消失。这块是静态区，拆平成普通图层最稳。
+        // 拆平时把每个 TEXT 的文字先存下来再写回：detach 会把这些覆盖重置成组件
+        // 的默认文字，两处标题就都变成「文档说明」。
         for (const clone of root.children) {
           if (clone.name !== '文档说明') continue;
+          const saved = clone.findAll((n) => n.type === 'TEXT').map((n) => n.characters);
+          const fonts = new Map();
+          for (const t of clone.findAll((n) => n.type === 'TEXT')) {
+            for (const f of t.getRangeAllFontNames(0, Math.max(t.characters.length, 1))) {
+              fonts.set(f.family + '\\u0000' + f.style, f);
+            }
+          }
           for (const inst of clone.findAll((n) => n.type === 'INSTANCE')) {
             try { inst.detachInstance(); } catch (e) {}
+          }
+          for (const f of fonts.values()) await figma.loadFontAsync(f);
+          const after = clone.findAll((n) => n.type === 'TEXT');
+          for (let i = 0; i < after.length; i += 1) {
+            const want = saved[i];
+            if (typeof want === 'string' && after[i].characters !== want) {
+              after[i].characters = want;
+            }
           }
         }
 
