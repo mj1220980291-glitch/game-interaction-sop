@@ -79,6 +79,10 @@ export function slotsBackend(nodes: NodeInfo[]): SlotsBackend {
       if (!n) throw new Error(`slots backend: visible target ${id} not found`);
       n.visible = visible;
       writes.push(`visible:${id}:${visible}`);
+    },
+
+    async replaceWithPlaceholder(input: { nodeId: string; name: string }): Promise<void> {
+      writes.push(`placeholder:${input.nodeId}:${input.name}`);
     }
   } as unknown as FigmaBackend;
 
@@ -109,6 +113,7 @@ export function n(
     y?: number;
     visible?: boolean;
     layoutMode?: NodeInfo['layoutMode'];
+    hasImageFill?: boolean;
   } = {}
 ): NodeInfo {
   return {
@@ -119,6 +124,7 @@ export function n(
     visible: opts.visible !== false,
     ...(opts.text !== undefined ? { characters: opts.text } : {}),
     ...(opts.layoutMode !== undefined ? { layoutMode: opts.layoutMode } : {}),
+    ...(opts.hasImageFill !== undefined ? { hasImageFill: opts.hasImageFill } : {}),
     ...(opts.w !== undefined || opts.h !== undefined || opts.x !== undefined || opts.y !== undefined
       ? {
           absoluteBoundingBox: {

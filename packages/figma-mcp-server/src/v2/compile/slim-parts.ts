@@ -10,7 +10,7 @@
  * Spec: openspec/changes/template-compile-slim-parts
  */
 
-import type { FigmaBackend } from '../figma-client.js';import {
+import type { FigmaBackend, NodeInfo } from '../figma-client.js';import {
   BADGE_MASTER_NAME,
   CHAPTER_SLOTS,
   CLUSTER_SLOTS,
@@ -27,8 +27,11 @@ const SCAN_BUDGET = 20000;
 export interface SlimInput {
   backend: FigmaBackend;
   parts: ReadonlyArray<{ part: PartName; nodeId: string }>;
-  /** 产物能力：顶部清残留只在「没有总览区」时做（总览区的标题文本要留着）。 */
-  capabilities?: Pick<Capabilities, 'overview'>;
+  /**
+   * 产物能力：顶部清残留只在「没有总览区」时做（总览区的标题文本要留着）；
+   * 簇里的原稿媒体怎么清，取决于模板有没有配图位。
+   */
+  capabilities?: Pick<Capabilities, 'overview' | 'figure'>;
 }
 
 export interface SlimResult {
@@ -55,7 +58,7 @@ export async function slimParts(input: SlimInput): Promise<SlimResult> {
     if (part === 'chapter') {
       deleted += await slimChapter(backend, nodeId, gaps);
     } else if (part === 'cluster') {
-      deleted += await slimCluster(backend, nodeId, gaps);
+      deleted += await slimCluster(backend, nodeId, input.capabilities?.figure ?? 'named-group', gaps);
     } else if (part === 'top' && input.capabilities?.overview === 'none') {
       cleared += await slimTop(backend, nodeId);
     }
@@ -188,6 +191,7 @@ async function slimChapter(
 async function slimCluster(
   backend: FigmaBackend,
   clusterId: string,
+  figure: Capabilities['figure'],
   gaps: CompileGap[]
 ): Promise<number> {
   const { nodes } = await backend.scanSubtree(clusterId, SCAN_BUDGET);
@@ -206,20 +210,7 @@ async function slimCluster(
   ];
   deleted += await deleteAll(backend, drop);
 
-  // 原稿截图：簇里那些大尺寸实例是上一份需求的画面，留着会把旧内容带进新
-  // 文档，删了又会在版面上留洞。统一换成同尺寸的虚线占位框。
-  const shots = nodes.filter(
-    (n) =>
-      n.type === 'INSTANCE' &&
-      !isSublayer(n.id) &&
-      (n.absoluteBoundingBox?.width ?? 0) >= 400 &&
-      (n.absoluteBoundingBox?.height ?? 0) >= 300
-  );
-  if (backend.replaceWithPlaceholder) {
-    for (const shot of shots) {
-      await backend.replaceWithPlaceholder({ nodeId: shot.id, name: '配图占位' });
-    }
-  }
+  deleted += await slimClusterMedia(backend, nodes, figure);
 
   if (visibleBullets.length === 0) {
     gaps.push({
@@ -230,6 +221,91 @@ async function slimCluster(
   }
 
   return deleted;
+}
+
+/**
+ * 簇里的原稿媒体 —— 上一份需求的画面。
+ *
+ * 蛋仔的簇带 3 张 872×490 的原稿截图 + 1 张 127×123 的按钮截图；原本只把它们
+ * 换成同尺寸的 `配图占位` 就收工，结果每簇渲染出来挂 3 个空框（`figure = none`
+ * 时渲染根本不消费它们）。规则改成：
+ *
+ * - 模板没有配图位（`figure = none`）→ 媒体全是残留，一个不留
+ * - 有配图位 → 只留最大的那一个当样式载体，其余删掉
+ *
+ * 只取「最外层」的媒体：里面的子节点跟着父级一起走，单独删只会多几次 RPC。
+ */
+async function slimClusterMedia(
+  backend: FigmaBackend,
+  nodes: ReadonlyArray<NodeInfo>,
+  figure: Capabilities['figure']
+): Promise<number> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+
+  // 媒体容器算媒体：蛋仔的截图外面裹着 Group 427319372 这类 GROUP，只删里面的
+  // 实例会在簇里留一个空壳容器。
+  const memo = new Map<string, boolean>();
+  const isMedia = (id: string, seen = new Set<string>()): boolean => {
+    const cached = memo.get(id);
+    if (cached !== undefined) return cached;
+    const node = byId.get(id);
+    if (!node) return false;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    const self = isClusterMedia(node);
+    const kids = node.childIds ?? [];
+    const verdict =
+      self ||
+      ((node.type === 'GROUP' || node.type === 'FRAME') &&
+        kids.length > 0 &&
+        kids.every((c) => isMedia(c, seen)));
+    memo.set(id, verdict);
+    return verdict;
+  };
+
+  const media = nodes.filter((n) => !isSublayer(n.id) && n.visible !== false && isMedia(n.id));
+  if (media.length === 0) return 0;
+
+  const ids = new Set(media.map((n) => n.id));
+  const outermost = media.filter((n) => {
+    let parentId = n.parentId;
+    while (parentId) {
+      if (ids.has(parentId)) return false;
+      parentId = byId.get(parentId)?.parentId;
+    }
+    return true;
+  });
+
+  if (figure === 'none') {
+    return deleteAll(backend, outermost.map((n) => n.id));
+  }
+
+  const area = (n: NodeInfo) =>
+    (n.absoluteBoundingBox?.width ?? 0) * (n.absoluteBoundingBox?.height ?? 0);
+  const [keep, ...rest] = [...outermost].sort((a, b) => area(b) - area(a));
+  const deleted = await deleteAll(backend, rest.map((n) => n.id));
+
+  // 原稿截图是实例：留着会把旧画面带进新文档，换成同尺寸虚线占位。
+  if (keep && keep.type === 'INSTANCE' && backend.replaceWithPlaceholder) {
+    await backend.replaceWithPlaceholder({ nodeId: keep.id, name: CLUSTER_SLOTS.figure });
+  }
+  return deleted;
+}
+
+/** 簇里的「原稿媒体」：配图槽本身、图片填充节点、原稿大截图。 */
+function isClusterMedia(n: {
+  name: string;
+  type: string;
+  hasImageFill?: boolean;
+  absoluteBoundingBox?: { width: number; height: number };
+}): boolean {
+  if (n.name === CLUSTER_SLOTS.figure || n.name === CLUSTER_SLOTS.figureRect) return true;
+  if (n.hasImageFill === true) return true;
+  return (
+    n.type === 'INSTANCE' &&
+    (n.absoluteBoundingBox?.width ?? 0) >= 400 &&
+    (n.absoluteBoundingBox?.height ?? 0) >= 300
+  );
 }
 
 async function deleteChildren(backend: FigmaBackend, parentId: string): Promise<number> {

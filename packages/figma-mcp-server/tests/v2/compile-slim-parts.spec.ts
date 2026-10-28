@@ -79,3 +79,69 @@ describe('slimParts', () => {
     expect(h.writes).toEqual([]);
   });
 });
+
+/**
+ * 蛋仔的簇带 3 张原稿截图 + 1 张按钮截图。`figure = none` 时渲染不消费配图位，
+ * 留着就是每簇挂 3 个空框（真机截图抓到过）。
+ */
+function clusterWithShots() {
+  return [
+    n('k', '簇', 'COMPONENT', ['title', 'b1', 's1', 's2', 's3', 'icon'], { w: 916, h: 1417 }),
+    n('title', '#Title_Main', 'TEXT', [], { text: '撤离', w: 72, h: 52 }),
+    n('b1', '正文/规则', 'TEXT', [], { text: '规则一', w: 872, h: 129 }),
+    n('s1', 'Frame 632', 'INSTANCE', [], { w: 872, h: 490 }),
+    n('s2', 'Group 427319372', 'GROUP', ['i1'], { w: 872, h: 490 }),
+    n('i1', 'Frame 537', 'INSTANCE', [], { w: 872, h: 490 }),
+    n('s3', 'Frame 629', 'INSTANCE', [], { w: 872, h: 490 }),
+    n('icon', 'image 37982', 'RECTANGLE', [], { w: 127, h: 123, hasImageFill: true })
+  ];
+}
+
+describe('slimParts · 簇内原稿媒体', () => {
+  it('figure = none：原稿截图与图片填充全删（含嵌套）', async () => {
+    const h = slotsBackend(clusterWithShots());
+    await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'cluster', nodeId: 'k' }],
+      capabilities: { overview: 'none', figure: 'none' }
+    });
+
+    expect(h.childrenOf('k').map((x) => x.name)).toEqual(['#Title_Main', '正文/规则']);
+    expect(h.writes.filter((w) => w.startsWith('placeholder:'))).toEqual([]);
+  });
+
+  it('有配图位：只留最大的一个，其余删掉', async () => {
+    const h = slotsBackend([
+      n('k', '簇', 'COMPONENT', ['title', 'b1', 'small', 'big'], { w: 916, h: 1417 }),
+      n('title', '#Title_Main', 'TEXT', [], { text: '撤离', w: 72, h: 52 }),
+      n('b1', '正文/规则', 'TEXT', [], { text: '规则一', w: 872, h: 129 }),
+      n('small', 'Frame 629', 'INSTANCE', [], { w: 400, h: 300 }),
+      n('big', 'Frame 632', 'INSTANCE', [], { w: 872, h: 490 })
+    ]);
+    await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'cluster', nodeId: 'k' }],
+      capabilities: { overview: 'none', figure: 'named-group' }
+    });
+
+    expect(h.childrenOf('k').map((x) => x.name)).toEqual(['#Title_Main', '正文/规则', 'Frame 632']);
+    expect(h.writes).toContain('placeholder:big:配图');
+  });
+
+  it('隐藏备用池里的媒体不动', async () => {
+    const h = slotsBackend([
+      n('k', '簇', 'COMPONENT', ['title', 'b1', 'pool'], { w: 916, h: 1417 }),
+      n('title', '#Title_Main', 'TEXT', [], { text: '撤离', w: 72, h: 52 }),
+      n('b1', '正文/规则', 'TEXT', [], { text: '规则一', w: 872, h: 129 }),
+      n('pool', '隐藏池', 'GROUP', ['shot'], { w: 872, h: 490, visible: false }),
+      n('shot', 'Frame 631', 'INSTANCE', [], { w: 872, h: 490 })
+    ]);
+    await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'cluster', nodeId: 'k' }],
+      capabilities: { overview: 'none', figure: 'none' }
+    });
+
+    expect(h.childrenOf('k').map((x) => x.name)).toEqual(['#Title_Main', '正文/规则', '隐藏池']);
+  });
+});

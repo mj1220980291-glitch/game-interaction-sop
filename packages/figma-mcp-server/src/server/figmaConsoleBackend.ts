@@ -144,7 +144,8 @@ function serNode(n) {
     // whole paragraphs made 14k-node documents exceed the 25s scan budget.
     characters: chars === null ? null : chars.slice(0, 400),
     visible: typeof n.visible === 'boolean' ? n.visible : true,
-    layoutMode: ('layoutMode' in n) ? n.layoutMode : null
+    layoutMode: ('layoutMode' in n) ? n.layoutMode : null,
+    hasImageFill: ('fills' in n && Array.isArray(n.fills)) ? n.fills.some(f => f.type === 'IMAGE') : false
   };
 }
 `;
@@ -208,7 +209,8 @@ function mapNode(raw: Record<string, unknown>): NodeInfo {
     layoutMode:
       raw['layoutMode'] === 'HORIZONTAL' || raw['layoutMode'] === 'VERTICAL' || raw['layoutMode'] === 'NONE'
         ? (raw['layoutMode'] as NodeInfo['layoutMode'])
-        : undefined
+        : undefined,
+    hasImageFill: typeof raw['hasImageFill'] === 'boolean' ? (raw['hasImageFill'] as boolean) : undefined
   };
 }
 
@@ -1066,7 +1068,13 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           }
           try { col.fills = column.fills; } catch (e) {}
           try { col.strokes = column.strokes; } catch (e) {}
-          if ('layoutSizingVertical' in col) col.layoutSizingVertical = 'HUG';
+          // 空壳高度要归零再 HUG：直接切 HUG 会把克隆时的显式高度（1769）留成
+          // 下限，章节跟着虚高一大截。先 FIXED 压到 1，再 HUG 让内容决定。
+          if ('layoutSizingVertical' in col) {
+            col.layoutSizingVertical = 'FIXED';
+            col.resize(Math.max(colW, 1), 1);
+            col.layoutSizingVertical = 'HUG';
+          }
         }
 
         // 章节根：横向自动布局（左列 | 说明栏），高度 HUG——内容长了整章跟着长。

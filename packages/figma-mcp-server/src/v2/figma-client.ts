@@ -69,6 +69,13 @@ export interface NodeInfo {
    * HUG 高是算出来的，写回去只会打架）。
    */
   layoutMode?: 'NONE' | 'HORIZONTAL' | 'VERTICAL';
+  /**
+   * 节点自身是否带图片填充。Undefined when the backend could not report it.
+   *
+   * 空壳化用它在簇里区分「原稿截图」与「样式骨架」：上一份需求的画面都是一张
+   * 图片填充，留着就会被渲染原样带进新文档。
+   */
+  hasImageFill?: boolean;
 }
 
 /**
