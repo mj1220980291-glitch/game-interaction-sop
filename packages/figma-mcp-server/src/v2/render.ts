@@ -1014,11 +1014,22 @@ export async function fillCluster(
   const singleDefault = isSingleDefaultGroup(cluster);
 
   // (Bug 1) Number TEXT → 1-based cluster index.
+  // 编号常藏在一个 `Number` 实例里：实例内部不许改名（编译期会卡死），所以这里
+  // 名字可能是任意值，按「父级是编号载体」结构兜底。
   const numberTexts = allDescendants.filter(
     (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterNumberText
   );
-  if (numberTexts.length > 0 && numberTexts[0]) {
-    await backend.setTextContent(numberTexts[0].id, String(bubbleNumber));
+  const numberCarrierIds = new Set(
+    allDescendants
+      .filter((n) => n.name === SECTION_CHILD_NAMES.clusterNumberText && n.type === 'INSTANCE')
+      .map((n) => n.id)
+  );
+  const innerNumber = allDescendants.find(
+    (n) => n.type === 'TEXT' && n.parentId !== undefined && numberCarrierIds.has(n.parentId)
+  );
+  const numberText = numberTexts[0] ?? innerNumber;
+  if (numberText) {
+    await backend.setTextContent(numberText.id, String(bubbleNumber));
   }
 
   // (Bug 2) #Title_Main → cluster.title, strip "NN." prefix defensively.

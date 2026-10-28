@@ -68,6 +68,29 @@ describe('顶部自由排版归一化', () => {
   });
 });
 
+describe('实例子层保护', () => {
+  it('实例子层不改名（getNodeByIdAsync 会卡死），只改实例本身', async () => {
+    const h = slotsBackend([
+      n('k', 'Group 1253', 'GROUP', ['num', 'title', 'b1'], { w: 900, h: 800 }),
+      n('num', 'Number', 'INSTANCE', ['numText'], { w: 44, h: 40 }),
+      n('numText', '1', 'TEXT', [], { text: '1', w: 20, h: 34 }),
+      n('title', '#Title_Main', 'TEXT', [], { text: '标题', w: 200, h: 40 }),
+      n('b1', '正文/规则', 'TEXT', [], { text: '一条', w: 800, h: 44 })
+    ]);
+
+    const r = await normalizeSlotNames({
+      backend: h.backend,
+      parts: [{ part: 'cluster', nodeId: 'k' }],
+      capabilities: { figure: 'none', clusterGroups: 'none', overview: 'none' }
+    });
+
+    expect(h.renamed.find((x) => x.nodeId === 'numText')).toBeUndefined();
+    // 载体本身已叫 `Number`（统一名），所以不产生改名动作——关键是没去碰内层。
+    expect(h.renamed.every((x) => x.nodeId !== 'numText')).toBe(true);
+    expect(r.gaps.every((g) => !g.what.includes('编号载体'))).toBe(true);
+  });
+});
+
 describe('顶部落残留空壳化', () => {
   it('overview = none 时清空未归位的原稿文案，保留槽位文本', async () => {
     const h = slotsBackend(danziTop());

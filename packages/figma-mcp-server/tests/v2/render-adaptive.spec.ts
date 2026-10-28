@@ -111,7 +111,14 @@ function clusterSpec(): PNodeSpec {
     width: 932,
     height: 400,
     children: [
-      { id: 'k-num', name: 'Number', type: 'TEXT', characters: '9', width: 40, height: 40 },
+      {
+        id: 'k-num',
+        name: 'Number',
+        type: 'INSTANCE',
+        width: 44,
+        height: 40,
+        children: [{ id: 'k-num-text', name: 'numText', type: 'TEXT', characters: '9', width: 20, height: 34 }]
+      },
       { id: 'k-title', name: '#Title_Main', type: 'TEXT', characters: '旧标题', width: 300, height: 50 },
       { id: 'k-b1', name: '正文/规则', type: 'TEXT', characters: '旧一', width: 800, height: 44 },
       { id: 'k-b2', name: '正文/规则', type: 'TEXT', characters: '旧二', width: 800, height: 44 }
@@ -186,6 +193,16 @@ describe('renderFromParts 自适应', () => {
     expect(parts.length).toBeGreaterThan(1);
     expect(parts.every((p) => p.y >= 0)).toBe(true);
     expect(h.calls.some((c) => c.startsWith('reparent:'))).toBe(true);
+  });
+
+  it('簇编号在实例内部时也能写入（按结构找，不靠名字）', async () => {
+    const { h, ir, pack } = setup();
+    addAutoLayout(h);
+
+    await renderFromParts({ ir, pack, pageId: 'page-root', backend: h.backend });
+
+    const inner = h.byName(h.root().id, 'numText')[0]!;
+    expect(inner.characters).toBe('1');
   });
 
   it('根帧刷白底、主图占位换虚线灰框（无配图时）', async () => {

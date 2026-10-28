@@ -39,6 +39,7 @@ import {
 } from '../template-slots.js';
 import type { Capabilities } from '../template/schema.js';
 import { COMPILE_CODES, compileError, type CompileGap } from './errors.js';
+import { trace } from './trace.js';
 
 export interface SlotRename {
   part: PartName;
@@ -65,6 +66,16 @@ const SCAN_BUDGET = 20000;
 
 type Rename = (part: PartName, node: ProbeNode, to: string) => Promise<void>;
 
+/** 节点是否在某个实例内部（任意一层父级是 INSTANCE）。 */
+function isInstanceSublayer(node: ProbeNode): boolean {
+  let parent = node.parent;
+  while (parent) {
+    if (parent.type === 'INSTANCE') return true;
+    parent = parent.parent;
+  }
+  return false;
+}
+
 export async function normalizeSlotNames(input: NormalizeInput): Promise<NormalizeResult> {
   const { backend } = input;
   if (typeof backend.renameNode !== 'function') {
@@ -83,8 +94,27 @@ export async function normalizeSlotNames(input: NormalizeInput): Promise<Normali
 
   const rename: Rename = async (part, node, to) => {
     if (node.name === to) return;
+    // 实例子层（id 形如 `I123;456`）不能改名：`getNodeByIdAsync` 对这类 id 在
+    // dynamic-page 下会一直不返回，整个编译卡在 10 秒超时上（真机实测）。
+    // 渲染在 detach 之后自己按结构找，不依赖这里的名字。
+    if (isInstanceSublayer(node)) {
+      gap({
+        what: `「${part}」里有一处槽位在实例内部（${node.id}），未改名`,
+        impact: '渲染按结构兜底；若兜不住，该槽位会沿用原稿内容',
+        fix: '把该实例从母版里 detach 成普通图层后重编'
+      });
+      return;
+    }
     const from = node.name;
-    await backend.renameNode!(node.id, to);
+    const t0 = Date.now();
+    try {
+      await backend.renameNode!(node.id, to);
+    } catch (e) {
+      trace(`rename ${part} ${node.id} "${from}"->"${to}" FAILED after ${Date.now() - t0}ms: ${(e as Error).message}`);
+      throw e;
+    }
+    const ms = Date.now() - t0;
+    if (ms > 1000) trace(`rename ${part} ${node.id} "${from}"->"${to}" slow ${ms}ms`);
     node.name = to;
     renamed.push({ part, nodeId: node.id, from, to });
   };
@@ -133,7 +163,10 @@ async function scanPart(backend: FigmaBackend, rootId: string): Promise<ProbeTre
       '当前 Figma 后端不支持 scanSubtree——无法定位部件槽位'
     );
   }
+  const t0 = Date.now();
   const { nodes, truncated } = await backend.scanSubtree(rootId, SCAN_BUDGET);
+  const ms = Date.now() - t0;
+  trace(`scan ${rootId} nodes=${nodes.length} ${ms}ms`);
   return buildProbeTree(nodes, rootId, truncated);
 }
 
@@ -237,11 +270,8 @@ async function normalizeCluster(
   const carrier = findNumberCarrier(root);
   if (carrier) {
     await rename('cluster', carrier.node, CLUSTER_SLOTS.number);
-    // `numberBadge=instance`：编号在实例内部的 TEXT 里，渲染按名字写它，所以内层也要统一名。
-    if (carrier.kind === 'instance') {
-      const inner = texts(carrier.node).find((t) => isNumberText(t));
-      if (inner) await rename('cluster', inner, CLUSTER_SLOTS.number);
-    }
+    // `numberBadge=instance`：编号在实例内部的 TEXT 里。实例内部不改名（会卡死），
+    // 渲染 detach 之后按「父级是编号载体」结构去找。
   } else {
     gap({
       what: '簇部件里找不到编号载体',
