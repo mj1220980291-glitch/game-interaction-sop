@@ -218,6 +218,26 @@ describe('slimParts · 顶部残留', () => {
     expect(h.childrenOf('row2').map((x) => x.name)).toEqual(['审核者', '设计师名称']);
   });
 
+  it('顶部标签行居中时避让同行右侧的块', async () => {
+    const h = slotsBackend([
+      n('t', '顶部', 'COMPONENT', ['label', 'row', 'right'], { w: 2205, h: 700 }),
+      n('label', '职能注意', 'TEXT', [], { text: '职能注意', w: 176, h: 71, x: 7, y: 0 }),
+      n('row', '标签行', 'FRAME', ['a', 'b'], { w: 1000, h: 68, x: 205, y: 0 }),
+      n('a', '标签', 'INSTANCE', [], { w: 199, h: 68, x: 0, y: 0 }),
+      n('b', '标签', 'INSTANCE', [], { w: 199, h: 68, x: 199, y: 0 }),
+      n('right', 'UI', 'FRAME', [], { w: 279, h: 70, x: 1600, y: 0 })
+    ]);
+    await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'top', nodeId: 't' }],
+      capabilities: { overview: 'none', figure: 'none' }
+    });
+
+    // 整行 7..1205（1198 宽），可用宽度只到 1600：(1600-1198)/2 = 201
+    expect(h.store.get('label')!.x).toBe(201);
+    expect(h.store.get('row')!.x).toBe(399);
+  });
+
   it('文档说明块保持可见，块里的区块标题不被当成残留清掉', async () => {
     const h = slotsBackend(top());
     await slimParts({

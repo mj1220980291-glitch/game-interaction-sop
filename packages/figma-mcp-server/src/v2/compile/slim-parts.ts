@@ -385,7 +385,20 @@ async function centerTopTagRow(
   const left = lb.x;
   const right = rb.x + rb.width;
   const parentLeft = parent?.absoluteBoundingBox?.x ?? 0;
-  await shiftPair(backend, [label, row], parentLeft + (parentW - (right - left)) / 2 - left);
+
+  // 同一行右侧可能还有别的块（蛋仔右上角是「审核者 / 设计师名称」）。居中的
+  // 可用宽度只能算到那一块的左边缘，否则整行会撞上去（真机截图直接压字）。
+  const sameLineRight = nodes
+    .filter((n) => n.id !== row.id && n.id !== label.id && n.visible !== false && n.absoluteBoundingBox)
+    .filter((n) => {
+      const b = n.absoluteBoundingBox!;
+      const overlapsY = b.y < rb.y + rb.height && b.y + b.height > rb.y;
+      return overlapsY && b.x >= right - 1;
+    })
+    .reduce<number>((min, n) => Math.min(min, n.absoluteBoundingBox!.x), parentLeft + parentW);
+
+  const limit = sameLineRight - parentLeft;
+  await shiftPair(backend, [label, row], parentLeft + (limit - (right - left)) / 2 - left);
 }
 
 /** 同一父级下的两个节点整体平移 `shift`（局部坐标加同样量）。 */
