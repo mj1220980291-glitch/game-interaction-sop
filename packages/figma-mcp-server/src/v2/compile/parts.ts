@@ -49,8 +49,13 @@ export function isFileSafeName(name: string): boolean {
 
 export interface BuildPartsInput {
   project: string;
-  /** `_staging` 页上的节点 id；`footer` 可缺省。 */
-  staged: Partial<Record<PartName, string>>;
+  /**
+   * `_staging` 页上的节点 id；`footer` 可缺省。
+   *
+   * `chapterTitle` 是「章节标题」那一块：部分项目（蛋仔）的标题是章节组之外的
+   * 独立块，不并进章节产物就没有章节名。
+   */
+  staged: Partial<Record<PartName, string>> & { chapterTitle?: string };
   /** 库文件里最终组件落脚的页面 id。 */
   pageId: string;
   backend: FigmaBackend;
@@ -158,7 +163,8 @@ export async function buildParts(input: BuildPartsInput): Promise<BuildPartsResu
       step.part === 'chapter' && backend.buildChapterShell
         ? await backend.buildChapterShell({
             sourceId: step.stagedNodeId,
-            parentId: pageId
+            parentId: pageId,
+            ...(input.staged.chapterTitle ? { titleSourceId: input.staged.chapterTitle } : {})
           })
         : slimmable && backend.cloneSlimPart
           ? await backend.cloneSlimPart({

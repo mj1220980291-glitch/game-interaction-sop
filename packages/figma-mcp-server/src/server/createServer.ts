@@ -354,10 +354,12 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
           },
           staged: {
             type: 'object',
-            description: '_staging 页上人工粘好的部件节点 id',
+            description:
+              '_staging 页上人工粘好的部件节点 id。chapterTitle 是章节标题那一块（标题在章节组之外的项目才需要）',
             properties: {
               top: { type: 'string' },
               chapter: { type: 'string' },
+              chapterTitle: { type: 'string' },
               cluster: { type: 'string' },
               footer: { type: 'string' }
             }

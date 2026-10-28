@@ -38,6 +38,15 @@ const MD = `# 设置面板
 `;
 
 type Call = Parameters<NonNullable<FigmaBackend['setAutoLayout']>>[0];
+type Paint = Parameters<NonNullable<FigmaBackend['setNodePaint']>>[0];
+
+function addPaint(h: PartsBackend): Paint[] {
+  const calls: Paint[] = [];
+  (h.backend as unknown as { setNodePaint: (p: Paint) => Promise<void> }).setNodePaint = async (p) => {
+    calls.push(p);
+  };
+  return calls;
+}
 
 function addAutoLayout(h: PartsBackend): Call[] {
   const calls: Call[] = [];
@@ -60,7 +69,7 @@ function topSpec(): PNodeSpec {
   };
 }
 
-function chapterSpec(opts: { autoLayout?: boolean } = {}): PNodeSpec {
+function chapterSpec(opts: { autoLayout?: boolean; imageY?: number } = {}): PNodeSpec {
   return {
     id: 'c-root',
     name: '章节',
@@ -70,7 +79,7 @@ function chapterSpec(opts: { autoLayout?: boolean } = {}): PNodeSpec {
     ...(opts.autoLayout ? { layoutMode: 'HORIZONTAL' as const } : {}),
     children: [
       { id: 'c-name', name: '#Name', type: 'TEXT', characters: '旧章节', width: 300, height: 70 },
-      { id: 'c-img', name: '主图占位', type: 'RECTANGLE', width: 1200, height: 745 },
+      { id: 'c-img', name: '主图占位', type: 'RECTANGLE', width: 1200, height: 745, y: opts.imageY ?? 0 },
       {
         id: 'c-bubble',
         name: '气泡',
@@ -110,7 +119,7 @@ function clusterSpec(): PNodeSpec {
   };
 }
 
-function setup(chapterOpts: { autoLayout?: boolean } = {}) {
+function setup(chapterOpts: { autoLayout?: boolean; imageY?: number } = {}) {
   const parsed = parseV2(MD);
   if (!parsed.ir) throw new Error(parsed.errors.map((e) => e.message).join('; '));
   const pack = parseTemplatePack({
@@ -177,5 +186,33 @@ describe('renderFromParts 自适应', () => {
     expect(parts.length).toBeGreaterThan(1);
     expect(parts.every((p) => p.y >= 0)).toBe(true);
     expect(h.calls.some((c) => c.startsWith('reparent:'))).toBe(true);
+  });
+
+  it('根帧刷白底、主图占位换虚线灰框（无配图时）', async () => {
+    const { h, ir, pack } = setup();
+    addAutoLayout(h);
+    const paints = addPaint(h);
+
+    const r = await renderFromParts({ ir, pack, pageId: 'page-root', backend: h.backend });
+
+    const rootPaint = paints.find((p) => p.nodeId === r.rootId);
+    expect(rootPaint?.fill).toBe('#FFFFFF');
+    const placeholder = paints.find((p) => p.fill === '#F5F5F5');
+    expect(placeholder?.dash).toBe(true);
+  });
+
+  it('标号落在主图矩形内（主图不是 1920×1080 时）', async () => {
+    // 蛋仔的真实几何：主图 1200×745 从 (0,807) 开始，气泡铺满 1920×1080。
+    const { h, ir, pack } = setup({ imageY: 807 });
+    addAutoLayout(h);
+
+    await renderFromParts({ ir, pack, pageId: 'page-root', backend: h.backend });
+
+    const rootId = h.root().id;
+    const badge = h.byName(rootId, '标号/1')[0]!;
+    expect(badge.x).toBeGreaterThanOrEqual(0);
+    expect(badge.x).toBeLessThanOrEqual(1200 - badge.width);
+    expect(badge.y).toBeGreaterThanOrEqual(807);
+    expect(badge.y).toBeLessThanOrEqual(807 + 745 - badge.height);
   });
 });

@@ -559,6 +559,28 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 20000);
     },
 
+    async setNodePaint({ nodeId, fill, stroke, strokeWeight = 1, dash }) {
+      await run(`
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) throw new Error('setNodePaint: node not found: ' + ${JSON.stringify(nodeId)});
+        const hex = (h) => ({
+          r: parseInt(h.slice(1, 3), 16) / 255,
+          g: parseInt(h.slice(3, 5), 16) / 255,
+          b: parseInt(h.slice(5, 7), 16) / 255
+        });
+        const fill = ${JSON.stringify(fill ?? null)};
+        if (fill && 'fills' in n) n.fills = [{ type: 'SOLID', color: hex(fill) }];
+        const stroke = ${JSON.stringify(stroke ?? null)};
+        if (stroke && 'strokes' in n) {
+          n.strokes = [{ type: 'SOLID', color: hex(stroke) }];
+          n.strokeWeight = ${strokeWeight};
+          n.strokeAlign = 'INSIDE';
+          try { n.dashPattern = ${dash ? '[12, 12]' : '[]'}; } catch (e) {}
+        }
+        return null;
+      `, 15000);
+    },
+
     async arrangePageChildren({ pageId, gapX = 120, gapY = 120, maxWidth = 6000 }) {
       const r = await run(`
         const page = await figma.getNodeByIdAsync(${JSON.stringify(pageId)});
@@ -872,7 +894,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return mapNode(r);
     },
 
-    async buildChapterShell({ sourceId, parentId, name }) {
+    async buildChapterShell({ sourceId, parentId, name, titleSourceId }) {
       const r = await run(`
         ${SERIALIZE_NODE_FN}
         const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
@@ -928,6 +950,20 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           try { col.fills = column.fills; } catch (e) {}
           try { col.strokes = column.strokes; } catch (e) {}
         }
+
+        // 章节标题：部分项目（蛋仔）的标题是章节外的独立块，章节组里没有它，
+        // 产物就会没有章节名。这里把它并进来，命名成统一槽位 #Name。
+        // 位置放在章节左上角、绝对定位——章节的顶部空带本来就是留给它的。
+        ${titleSourceId ? `
+        const titleSrc = await figma.getNodeByIdAsync(${JSON.stringify(titleSourceId)});
+        if (titleSrc) {
+          const t = titleSrc.clone();
+          root.appendChild(t);
+          t.name = '#Name';
+          t.x = 0;
+          t.y = 0;
+        }
+        ` : ''}
 
         return serNode(root);
       `, 30000) as Record<string, unknown>;

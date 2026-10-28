@@ -382,6 +382,23 @@ export interface FigmaBackend {
   clearFills?(nodeIds: string[]): Promise<void>;
 
   /**
+   * 给节点上纯色填充 / 描边。
+   *
+   * 多部件渲染的两个用途：文档根帧要白底（否则导出透出画布底色），
+   * 主图占位要中性灰 + 虚线（清空原稿截图后不能留一块黑洞）。
+   */
+  setNodePaint?(p: {
+    nodeId: string;
+    /** `#RRGGBB`。 */
+    fill?: string;
+    /** `#RRGGBB`；给了就画描边。 */
+    stroke?: string;
+    strokeWeight?: number;
+    /** 虚线描边（占位框用）。 */
+    dash?: boolean;
+  }): Promise<void>;
+
+  /**
    * 克隆一个部件，并在**同一次插件调用内**把原稿内容清掉。
    *
    * 为什么需要：章节母版可能有 7000+ 节点，先整块克隆再分多次 RPC 删，
@@ -401,7 +418,13 @@ export interface FigmaBackend {
    * 为什么不克隆整块：章节母版 7000+ 节点，单次调用会超过 Bridge 的 10 秒
    * 传输上限，无论后端 timeout 设多大都一样。
    */
-  buildChapterShell?(p: { sourceId: string; parentId?: string; name?: string }): Promise<NodeInfo>;
+  buildChapterShell?(p: {
+    sourceId: string;
+    parentId?: string;
+    name?: string;
+    /** 章节标题块（在章节组之外的项目才需要）：并进产物，命名 `#Name`。 */
+    titleSourceId?: string;
+  }): Promise<NodeInfo>;
 
   /** Set TEXT.characters. Loads font automatically. */
   setTextContent(nodeId: string, characters: string): Promise<void>;

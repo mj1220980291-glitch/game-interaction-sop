@@ -17,6 +17,7 @@ import type { FigmaBackend, NodeInfo } from '../../figma-client.js';
 import type { DocIR, InterfaceSection, SemanticCluster, SoftWarning } from '../../ir.js';
 import { SOFT_WARNING_CODES } from '../../ir.js';
 import type { TemplatePack } from '../../template/schema.js';
+import { MAIN_IMAGE_SIZE } from '../../template-map.js';
 import {
   BADGE_MASTER_NAME,
   CHAPTER_SLOTS,
@@ -154,6 +155,8 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
         hugHeight: true
       });
     }
+    // 文档底色：不刷白的话导出的图透出 Figma 画布底色，看着像一块黑。
+    if (backend.setNodePaint) await backend.setNodePaint({ nodeId: frame.id, fill: '#FFFFFF' });
     return frame;
   });
 
@@ -404,8 +407,18 @@ async function fillChapter(
       const hint = named[CHAPTER_SLOTS.mainImageHint];
       if (hint) await backend.deleteNodes([hint.id]);
       image = true;
-    } else if (backend.clearFills) {
-      await backend.clearFills([mainImage.id]);
+    } else {
+      if (backend.clearFills) await backend.clearFills([mainImage.id]);
+      // 原稿截图清掉之后不能留个空洞：中性灰 + 虚线，一眼看出这是占位。
+      if (backend.setNodePaint) {
+        await backend.setNodePaint({
+          nodeId: mainImage.id,
+          fill: '#F5F5F5',
+          stroke: '#BFBFBF',
+          strokeWeight: 2,
+          dash: true
+        });
+      }
     }
   }
 
@@ -537,6 +550,10 @@ async function placeBadges(
     );
   }
 
+  // 标号要贴在主图上，而主图不一定是 1920×1080（蛋仔 1200×745）。
+  // 网格本身仍按 1920×1080 的目标位置定义，这里换算到主图的实际矩形。
+  const rect = await imageRectInContainer(backend, chapter.id, container);
+
   // 容器里可能还留着原稿的多个标号（`1:14` 就带 标号/1、标号/2）：
   // 只留母版，其余先删，避免产出一堆重复编号。
   const stale = children.filter((c) => isBadgeFrame(c.name) && c.id !== master.id).map((c) => c.id);
@@ -549,9 +566,58 @@ async function placeBadges(
     const bubble = await backend.cloneNode({ sourceId: master.id, parentId: containerId });
     if (backend.renameNode) await backend.renameNode(bubble.id, `标号/${i + 1}`);
     await setBadgeNumber(backend, bubble.id, i + 1);
-    await backend.moveNode(bubble.id, bubbleOffset(i).x, bubbleOffset(i).y);
+    const at = badgePosition(i, rect, master);
+    await backend.moveNode(bubble.id, at.x, at.y);
     if (backend.setNodeVisible) await backend.setNodeVisible(bubble.id, true);
   }
+}
+
+/**
+ * 主图在标号容器里的矩形。
+ *
+ * 拿不到就回落到整个容器：那样标号至少还在画面上，只是位置不贴图。
+ */
+async function imageRectInContainer(
+  backend: FigmaBackend,
+  chapterId: string,
+  container: NodeInfo
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const box = container.absoluteBoundingBox;
+  const fallback = { x: 0, y: 0, width: MAIN_IMAGE_SIZE.width, height: MAIN_IMAGE_SIZE.height };
+  if (!box) return fallback;
+  const imageId = await findNamed(backend, chapterId, CHAPTER_SLOTS.mainImage);
+  if (!imageId) return fallback;
+  const image = await backend.getNodeInfo(imageId);
+  const img = image.absoluteBoundingBox;
+  if (!img) return fallback;
+  return {
+    x: img.x - box.x,
+    y: img.y - box.y,
+    width: img.width,
+    height: img.height
+  };
+}
+
+/**
+ * 第 i 个标号落在主图矩形里的位置。
+ *
+ * `bubbleOffset` 的网格是按 1920×1080 的主图定义的；这里按主图实际宽高等比
+ * 缩放，并夹在矩形内，避免标号跑到图外（蛋仔的主图只有 1200×745）。
+ */
+function badgePosition(
+  index: number,
+  rect: { x: number; y: number; width: number; height: number },
+  master: NodeInfo
+): { x: number; y: number } {
+  const base = bubbleOffset(index);
+  const w = master.absoluteBoundingBox?.width ?? 48;
+  const h = master.absoluteBoundingBox?.height ?? 48;
+  const x = rect.x + (base.x / MAIN_IMAGE_SIZE.width) * rect.width;
+  const y = rect.y + (base.y / MAIN_IMAGE_SIZE.height) * rect.height;
+  return {
+    x: Math.round(Math.min(Math.max(x, rect.x), rect.x + rect.width - w)),
+    y: Math.round(Math.min(Math.max(y, rect.y), rect.y + rect.height - h))
+  };
 }
 
 async function setBadgeNumber(

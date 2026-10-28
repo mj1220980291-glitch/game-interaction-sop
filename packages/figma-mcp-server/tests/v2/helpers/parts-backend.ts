@@ -6,8 +6,7 @@
  *   - `detachInstance` returns a NEW id (renderer must re-resolve slots)
  *   - `cloneNode` deep-clones, `deleteNodes` cascades
  *
- * Spec: template-render（拼装 / 清空 / 布局）
- */
+ * Spec: template-render（拼�?/ 清空 / 布局�? */
 
 import type { FigmaBackend, NodeInfo } from '../../../src/v2/figma-client.js';
 
@@ -47,6 +46,8 @@ export interface PNodeSpec {
   visible?: boolean;
   width?: number;
   height?: number;
+  x?: number;
+  y?: number;
   fills?: string[];
   layoutMode?: NodeInfo['layoutMode'];
 }
@@ -64,8 +65,8 @@ export function buildNodes(rootId: string, spec: PNodeSpec): Map<string, PNode> 
       visible: s.visible !== false,
       width: s.width ?? 100,
       height: s.height ?? 100,
-      x: 0,
-      y: 0,
+      x: s.x ?? 0,
+      y: s.y ?? 0,
       ...(s.fills ? { fills: s.fills } : {}),
       ...(s.layoutMode ? { layoutMode: s.layoutMode } : {})
     });
@@ -163,8 +164,8 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
       visible: spec.visible !== false,
       width: spec.width ?? 100,
       height: spec.height ?? 100,
-      x: 0,
-      y: 0,
+      x: spec.x ?? 0,
+      y: spec.y ?? 0,
       ...(spec.fills ? { fills: [...spec.fills] } : {}),
       ...(spec.layoutMode ? { layoutMode: spec.layoutMode } : {})
     };
