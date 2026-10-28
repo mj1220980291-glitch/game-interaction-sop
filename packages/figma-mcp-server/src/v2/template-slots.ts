@@ -33,6 +33,12 @@ export const OVERVIEW_TEXT_SLOTS = {
 /** `<项目> / 章节` 内部槽位。 */
 export const CHAPTER_SLOTS = {
   sectionTitle: SECTION_CHILD_NAMES.interfaceNameLabel,
+  /** 标题块（装 `#Name` 的那层，官方叫 `#Name/界面名称`）。 */
+  titleBlock: '标题',
+  /** 左列：标题 + 舞台，纵向自动布局。 */
+  leftColumn: '左列',
+  /** 舞台：图区与气泡的共同父级（官方叫 `rec组`）。 */
+  stage: '舞台',
   mainImage: SECTION_CHILD_NAMES.mainImagePlaceholder,
   mainImageHint: SECTION_CHILD_NAMES.mainImagePlaceholderHint,
   badgeContainer: SECTION_CHILD_NAMES.bubbleOverlayFrame,

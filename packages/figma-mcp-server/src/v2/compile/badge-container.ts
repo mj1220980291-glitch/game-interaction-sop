@@ -14,7 +14,7 @@
  */
 
 import type { FigmaBackend } from '../figma-client.js';
-import { BADGE_MASTER_NAME } from '../template-slots.js';
+import { BADGE_MASTER_NAME, CHAPTER_SLOTS } from '../template-slots.js';
 import { SECTION_CHILD_NAMES } from '../template-map.js';
 import { COMPILE_CODES, compileError, type CompileGap } from './errors.js';
 
@@ -62,9 +62,12 @@ export async function ensureBadgeContainer(
     );
   }
 
+  // 气泡挂在**舞台**里（图区与气泡的共同父级，官方模板叫 `rec组`）：
+  // 挂在章节根上会和标题、说明栏抢位置，标号坐标也就跟着飘。
+  const stageId = await findStage(input.backend, input.chapterComponentId);
   const clone = await input.backend.cloneNode({
     sourceId: input.containerSourceId,
-    parentId: input.chapterComponentId,
+    parentId: stageId ?? input.chapterComponentId,
     name: BADGE_CONTAINER_NAME
   });
 
@@ -84,6 +87,16 @@ export async function ensureBadgeContainer(
 }
 
 // --- 标号母版收口 ---------------------------------------------------------
+
+/** 章节里的舞台（图区 + 气泡的共同父级）；没有舞台的模板返回 undefined。 */
+async function findStage(
+  backend: FigmaBackend,
+  chapterComponentId: string
+): Promise<string | undefined> {
+  if (typeof backend.scanSubtree !== 'function') return undefined;
+  const { nodes } = await backend.scanSubtree(chapterComponentId, 2000);
+  return nodes.find((n) => n.name === CHAPTER_SLOTS.stage)?.id;
+}
 
 /**
  * 容器里必须恰好留一个**隐藏母版** `标号/母版`：

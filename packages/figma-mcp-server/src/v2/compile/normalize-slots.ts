@@ -34,6 +34,7 @@ import {
   CRITICAL_SLOTS,
   OVERVIEW_TEXT_SLOTS,
   TOP_SLOTS,
+  isBadgeFrame,
   isRoleFrame,
   type PartName
 } from '../template-slots.js';
@@ -503,6 +504,9 @@ function widestImageSlot(root: ProbeNode): ProbeNode | undefined {
   walkStructured(root, (n) => {
     if (n === root) return undefined;
     if (n.type !== 'RECTANGLE' && n.type !== 'INSTANCE' && n.type !== 'FRAME') return undefined;
+    // 舞台里的气泡比主图宽（1920 > 1200），不能被当成主图——那会把标号容器
+    // 改名成「主图占位」，渲染就再也找不到气泡了（蛋仔真机踩过）。
+    if (isBadgeFrame(n.name) || n.name === CHAPTER_SLOTS.badgeContainer) return undefined;
     const w = n.box?.width ?? 0;
     if (w < 800) return undefined;
     if (!best || w > best.width) best = { node: n, width: w };

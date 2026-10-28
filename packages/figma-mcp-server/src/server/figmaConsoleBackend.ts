@@ -924,44 +924,35 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           if (w > gBest) { gBest = w; graphic = c; }
         }
 
-        if (graphic) {
-          // 图区不搬原稿：每份文档都要换成自己的图，搬过来只会拖慢编译。
-          // 直接按图区尺寸放一个空矩形，渲染时往它上面贴图。
-          const g = figma.createRectangle();
-          g.name = '主图占位';
-          g.resize(Math.max(graphic.width, 1), Math.max(graphic.height, 1));
-          root.appendChild(g);
-          g.x = graphic.x;
-          g.y = graphic.y;
-          g.fills = [];
-        }
+        const gw = Math.max(graphic ? graphic.width : src.width, 1);
+        const gh = Math.max(graphic ? graphic.height : src.height, 1);
+        const colW = Math.max(column ? column.width : 0, 1);
+        const gap = column && graphic ? Math.max(Math.round(column.x - (graphic.x + graphic.width)), 0) : 0;
 
-        if (column) {
-          const col = figma.createFrame();
-          col.name = 'Text';
-          col.resize(Math.max(column.width, 1), Math.max(column.height, 1));
-          root.appendChild(col);
-          col.x = column.x;
-          col.y = column.y;
-          // 复制布局与外观属性（说明栏靠它们维持排版）
-          for (const key of ['layoutMode','itemSpacing','paddingLeft','paddingRight','paddingTop','paddingBottom','primaryAxisSizingMode','counterAxisSizingMode','cornerRadius','clipsContent']) {
-            if (column[key] !== undefined && key in col) { try { col[key] = column[key]; } catch (e) {} }
-          }
-          try { col.fills = column.fills; } catch (e) {}
-          try { col.strokes = column.strokes; } catch (e) {}
-        }
+        // 左列：标题 + 舞台，纵向自动布局、高度 HUG。
+        const left = figma.createFrame();
+        left.name = '左列';
+        left.resize(gw, 1);
+        left.fills = [];
+        left.clipsContent = false;
+        root.appendChild(left);
+        left.layoutMode = 'VERTICAL';
+        left.primaryAxisSizingMode = 'AUTO';
+        left.counterAxisSizingMode = 'FIXED';
+        left.itemSpacing = 24;
+        left.paddingTop = 0;
+        left.paddingBottom = 0;
+        left.paddingLeft = 0;
+        left.paddingRight = 0;
 
         // 章节标题：部分项目（蛋仔）的标题是章节外的独立块，章节组里没有它，
-        // 产物就会没有章节名。这里把它并进来，命名成统一槽位 #Name。
-        // 位置放在章节左上角、绝对定位——章节的顶部空带本来就是留给它的。
+        // 产物就会没有章节名。现在它进左列第一行，跟官方模板一致。
         ${titleSourceId ? `
         const titleSrc = await figma.getNodeByIdAsync(${JSON.stringify(titleSourceId)});
         if (titleSrc) {
           const t = titleSrc.clone();
-          root.appendChild(t);
+          left.appendChild(t);
           t.name = '标题';
-          t.x = 0;
-          t.y = 0;
           // 槽位名落在里面的 TEXT 上：渲染写标题就是用 setTextContent。
           const txt = t.findAll((x) => x.type === 'TEXT')[0];
           if (txt) txt.name = '#Name';
@@ -972,6 +963,56 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           }
         }
         ` : ''}
+
+        // 舞台：图区 + 气泡的共同父级（官方模板里叫 rec组）。不裁切，气泡可以
+        // 比舞台大；舞台尺寸就是主图尺寸，渲染按它算标号位置。
+        const stage = figma.createFrame();
+        stage.name = '舞台';
+        stage.resize(gw, gh);
+        stage.fills = [];
+        stage.clipsContent = false;
+        left.appendChild(stage);
+
+        const g = figma.createRectangle();
+        g.name = '主图占位';
+        g.resize(gw, gh);
+        g.x = 0;
+        g.y = 0;
+        // 灰底 + 虚线：库里打开部件能一眼看出这是占位，不是一块空。
+        g.fills = [{ type: 'SOLID', color: { r: 0.96, g: 0.96, b: 0.96 } }];
+        g.strokes = [{ type: 'SOLID', color: { r: 0.75, g: 0.75, b: 0.75 } }];
+        g.strokeWeight = 2;
+        g.dashPattern = [12, 12];
+        stage.appendChild(g);
+
+        if (column) {
+          const col = figma.createFrame();
+          col.name = 'Text';
+          col.resize(colW, Math.max(column.height, 1));
+          root.appendChild(col);
+          // 复制布局与外观属性（说明栏靠它们维持排版）
+          for (const key of ['layoutMode','itemSpacing','paddingLeft','paddingRight','paddingTop','paddingBottom','primaryAxisSizingMode','counterAxisSizingMode','cornerRadius','clipsContent']) {
+            if (column[key] !== undefined && key in col) { try { col[key] = column[key]; } catch (e) {} }
+          }
+          try { col.fills = column.fills; } catch (e) {}
+          try { col.strokes = column.strokes; } catch (e) {}
+          if ('layoutSizingVertical' in col) col.layoutSizingVertical = 'HUG';
+        }
+
+        // 章节根：横向自动布局（左列 | 说明栏），高度 HUG——内容长了整章跟着长。
+        root.layoutMode = 'HORIZONTAL';
+        root.primaryAxisSizingMode = 'FIXED';
+        root.counterAxisSizingMode = 'FIXED';
+        root.itemSpacing = gap;
+        root.paddingTop = 0;
+        root.paddingBottom = 0;
+        root.paddingLeft = 0;
+        root.paddingRight = 0;
+        root.primaryAxisAlignItems = 'MIN';
+        root.counterAxisAlignItems = 'MIN';
+        root.layoutSizingHorizontal = 'FIXED';
+        root.layoutSizingVertical = 'HUG';
+        root.resize(Math.max(gw + gap + (column ? colW : 0), 1), root.height);
 
         return serNode(root);
       `, 30000) as Record<string, unknown>;

@@ -58,6 +58,9 @@ describe('统一槽位命名', () => {
   it('字面值锁定：渲染只认这些名字', () => {
     expect(CHAPTER_SLOTS).toEqual({
       sectionTitle: '#Name',
+      titleBlock: '标题',
+      leftColumn: '左列',
+      stage: '舞台',
       mainImage: '主图占位',
       mainImageHint: '主图占位文案',
       badgeContainer: '气泡',

@@ -91,6 +91,28 @@ describe('实例子层保护', () => {
   });
 });
 
+describe('章节：气泡不能被当成主图', () => {
+  it('舞台里的气泡 1920 比主图 1200 宽，也不能改名成主图占位', async () => {
+    const h = slotsBackend([
+      n('c', '章节', 'COMPONENT', ['left', 'col'], { w: 2209, h: 1769 }),
+      n('left', '左列', 'FRAME', ['stage'], { w: 1200, h: 805 }),
+      n('stage', '舞台', 'FRAME', ['img', 'bubble'], { w: 1200, h: 719 }),
+      n('img', '主图占位', 'RECTANGLE', [], { w: 1200, h: 719 }),
+      n('bubble', '气泡', 'FRAME', [], { w: 1920, h: 1080 }),
+      n('col', 'Text', 'FRAME', [], { w: 932, h: 1769 })
+    ]);
+
+    const r = await normalizeSlotNames({
+      backend: h.backend,
+      parts: [{ part: 'chapter', nodeId: 'c' }],
+      capabilities: { figure: 'none', clusterGroups: 'none', overview: 'none' }
+    });
+
+    expect(r.renamed.find((x) => x.nodeId === 'bubble')).toBeUndefined();
+    expect(h.store.get('bubble')!.name).toBe('气泡');
+  });
+});
+
 describe('顶部落残留空壳化', () => {
   it('overview = none 时清空未归位的原稿文案，保留槽位文本', async () => {
     const h = slotsBackend(danziTop());

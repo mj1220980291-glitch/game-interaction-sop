@@ -85,10 +85,19 @@ export function deriveCapabilities(input: {
     caps.figure = detectFigure(chapterDetect.clusters);
     caps.hiddenPool = detectHiddenPool(chapterDetect.clusters);
 
+    // 标号容器是**结构证据**：说明栏被清空了也照样看得见，所以单独判。
+    if (chapterDetect.badgeGroup) {
+      caps.badgeSlot = 'container';
+    } else if (chapterDetect.clusters.length === 0) {
+      undecidable.push('badgeSlot');
+    } else {
+      caps.badgeSlot = chapterDetect.clusters.some((c) => c.numberKind !== 'none') ? 'manual' : 'none';
+    }
+
     if (chapterDetect.clusters.length === 0) {
       // 说明栏已被空壳化清空：这时候既判不出簇的编号形态，也判不出左右栏
       // （标题块、图区、气泡摆在一起，任何结论都是猜）。一律保留源模板结论。
-      undecidable.push('column', 'numberBadge', 'badgeSlot', 'clusterGroups');
+      undecidable.push('column', 'numberBadge', 'clusterGroups');
     } else {
       caps.column = detectColumn(chapterDetect.chapters);
       const kinds = chapterDetect.clusters.map((c) => c.numberKind);
@@ -96,11 +105,6 @@ export function deriveCapabilities(input: {
         ? 'instance'
         : kinds.includes('text')
           ? 'text'
-          : 'none';
-      caps.badgeSlot = chapterDetect.badgeGroup
-        ? 'container'
-        : kinds.some((k) => k !== 'none')
-          ? 'manual'
           : 'none';
       // `subrunGroup` 是「簇内第二级」的唯一硬证据。看不到就保留源模板结论——
       // 单看一个簇部件，扁平行序列很容易被误判成 slot run。
