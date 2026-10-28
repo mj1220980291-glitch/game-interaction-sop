@@ -399,14 +399,25 @@ async function normalizeTop(
     assigned.set(slot, pair.value.id);
   }
 
-  // 第二段：自由排版（蛋仔式）——顶部没有「标签：值」，值各自成块。
-  // 只认三种可判定的形状，其余留给缺口，不靠坐标猜。
+  // `文档说明` 块整块排除出「自由排版」候选：那里面放的是需求链接 / 区块标题，
+  // 最长的一条单号有 2000 多像素宽，按「面积最大」会把真正的大标题挤掉（蛋仔
+  // 真机踩过：渲染出来大标题永远是模板里那句「局内相关交互」）。
   //
-  // `文档说明` 块先整块排除：那里面放的是需求链接 / 总览正文，最长的一条单号
-  // 有 2000 多像素宽，按「面积最大」会把真正的大标题挤掉（蛋仔真机踩过：渲染
-  // 出来大标题永远是模板里那句「局内相关交互」）。
-  for (const n of structuredDescendants(tree.root)) {
-    if (n.name !== '文档说明') continue;
+  // 但块里的链接本身是槽位：`易协作单号链接` 就写在那儿，先认领再排除。
+  const introBlocks = structuredDescendants(tree.root).filter((n) => n.name === '文档说明');
+  if (!assigned.has(TOP_SLOTS.ticketLink)) {
+    for (const block of introBlocks) {
+      const link = structuredDescendants(block).find(
+        (n) => n.type === 'TEXT' && /(https?:\/\/|易协作|#\d{4,})/.test(n.characters ?? '')
+      );
+      if (link && !taken.has(link.id)) {
+        await take(link, TOP_SLOTS.ticketLink);
+        assigned.set(TOP_SLOTS.ticketLink, link.id);
+        break;
+      }
+    }
+  }
+  for (const n of introBlocks) {
     for (const id of subtreeIds([n])) taken.add(id);
   }
 

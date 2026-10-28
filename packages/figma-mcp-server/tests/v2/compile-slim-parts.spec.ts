@@ -213,14 +213,16 @@ describe('slimParts · 顶部残留', () => {
     expect(h.childrenOf('row2').map((x) => x.name)).toEqual(['审核者', '设计师名称']);
   });
 
-  it('没有总览区时文档说明整块隐藏', async () => {
+  it('文档说明块保持可见（标题与链接位要留着）', async () => {
     const h = slotsBackend(top());
     await slimParts({
       backend: h.backend,
       parts: [{ part: 'top', nodeId: 'top' }],
       capabilities: { overview: 'none', figure: 'none' }
     });
-    expect(h.writes).toContain('visible:intro:false');
+    expect(h.writes).not.toContain('visible:intro:false');
+    // 块里的旧链接文本被清掉，但块本身还在。
+    expect(h.writes).toContain('text:i1:');
   });
 
   it('文档说明里带着槽位时不隐藏', async () => {

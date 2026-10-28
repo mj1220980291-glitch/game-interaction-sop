@@ -1029,6 +1029,12 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           const t = titleSrc.clone();
           left.appendChild(t);
           t.name = '标题';
+          // 标题与图之间的间距沿用原稿：两块的相对位置就是设计稿里的呼吸感，
+          // 写死一个数会让每一套模板都贴得过近（蛋仔原文是 60）。
+          if (titleSrc.parent === src.parent) {
+            const gap = Math.round(src.y - (titleSrc.y + titleSrc.height));
+            if (gap > 0) left.itemSpacing = Math.min(gap, 200);
+          }
           // 槽位名落在里面的 TEXT 上：渲染写标题就是用 setTextContent。
           const txt = t.findAll((x) => x.type === 'TEXT')[0];
           if (txt) txt.name = '#Name';

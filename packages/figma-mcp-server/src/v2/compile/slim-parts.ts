@@ -151,33 +151,12 @@ async function slimTop(backend: FigmaBackend, topId: string): Promise<number> {
       characters: introIds.has(n.id) ? '' : VALUE_PLACEHOLDER
     }))
   );
-  await hideEmptyIntro(backend, nodes, keep);
   trace(`slimTop cleared=${stale.length} ${Date.now() - t0}ms`);
   return stale.length;
 }
 
 /** 顶部值槽（`/辉湟`、`/苗儿`）清空后留下的占位符。 */
 const VALUE_PLACEHOLDER = '/待补充';
-
-/**
- * 没有总览区时，`文档说明` 块里剩下的只是一个空框（原本装功能背景 / 核心交互）。
- *
- * 留着在文档顶部就是一条 411 高的灰带，什么也没有。块里若还带着槽位（比如需求
- * 链接），就说明它不只是总览容器，保持可见。
- */
-async function hideEmptyIntro(
-  backend: FigmaBackend,
-  nodes: ReadonlyArray<NodeInfo>,
-  slotNames: ReadonlySet<string>
-): Promise<void> {
-  if (typeof backend.setNodeVisible !== 'function') return;
-  const intro = nodes.find((n) => n.name === '文档说明' && !isSublayer(n.id));
-  if (!intro) return;
-  const ids = new Set(subtreeIdsOf(nodes, intro.id));
-  const holdsSlot = nodes.some((n) => ids.has(n.id) && slotNames.has(n.name));
-  if (holdsSlot) return;
-  await backend.setNodeVisible(intro.id, false);
-}
 
 /**
  * 实例子层：id 形如 `I123;456`（Figma 用 `;` 串起祖先 id）。
@@ -383,8 +362,9 @@ async function slimClusterMedia(
   const [keep, ...rest] = [...outermost].sort((a, b) => area(b) - area(a));
   const deleted = await deleteAll(backend, rest.map((n) => n.id));
 
-  // 原稿截图是实例：留着会把旧画面带进新文档，换成同尺寸虚线占位。
-  if (keep && keep.type === 'INSTANCE' && backend.replaceWithPlaceholder) {
+  // 留一个空槽：原稿截图（实例）或包着它的 GROUP 都换成同尺寸虚线占位，
+  // 渲染有 `配图：` 时填进去，没有就整块删掉。
+  if (keep && backend.replaceWithPlaceholder) {
     await backend.replaceWithPlaceholder({ nodeId: keep.id, name: CLUSTER_SLOTS.figure });
   }
   return deleted;

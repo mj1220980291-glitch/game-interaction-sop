@@ -1240,9 +1240,7 @@ async function fillBlockContent(
 
   // No 配图 wanted here: drop the template's (the section seed survives
   // until ImageSeed.flush).
-  const existingImageGroups = allDescendants.filter(
-    (n) => n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder
-  );
+  const existingImageGroups = allDescendants.filter(isFigureSlot);
   if (existingImageGroups.length > 0) {
     const doomed = imageSeed.filterDeletes(existingImageGroups.map((n) => n.id));
     if (doomed.length > 0) await backend.deleteNodes(doomed);
@@ -1267,10 +1265,7 @@ async function fillBlockContentInline(
   const { blockId, allDescendants, bullets, imageSeed, sectionIndex, clusterIndex, figures } = p;
 
   const directImageGroups = allDescendants.filter(
-    (n) =>
-      n.type === 'GROUP' &&
-      n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder &&
-      n.parentId === blockId
+    (n) => isFigureSlot(n) && n.parentId === blockId
   );
   const directBulletTexts = bulletTexts.filter((n) => n.parentId === blockId);
 
@@ -1580,8 +1575,7 @@ async function fillGroupSlots(
   );
   const protoImage =
     prototype.find(
-      (n) =>
-        n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder
+      (n) => isFigureSlot(n)
     ) ??
     (ctx.imageSeed.id ? ({ id: ctx.imageSeed.id } as NodeInfo) : undefined);
 
@@ -1699,10 +1693,21 @@ function stripImageBulletPrefix(raw: string): string {
       `[render] scanSubtree truncated for section ${sectionRootId} in findSeedImageGroup\n`
     );
   }
-  const hit = all.find(
-    (n) => n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder
-  );
+  const hit = all.find((n) => isFigureSlot(n));
   return hit?.id;
+}
+
+/**
+ * 配图槽：名字统一是「配图」，但**类型不必**跟官方一致。
+ *
+ * 官方 `1:14` 是「GROUP 内含配图占位」，蛋仔这类项目直接把一个裸矩形留在簇里。
+ * 归一化只承诺统一槽位名；要求类型也得一样，等于让模板迁就引擎。
+ */
+export function isFigureSlot(n: NodeInfo): boolean {
+  return (
+    n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder &&
+    (n.type === 'GROUP' || n.type === 'RECTANGLE' || n.type === 'FRAME')
+  );
 }
 
 /**
