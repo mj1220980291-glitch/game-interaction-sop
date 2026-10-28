@@ -513,6 +513,16 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         if (!n) throw new Error('setAutoLayout: node not found: ' + ${JSON.stringify(nodeId)});
         if (!('layoutMode' in n)) throw new Error('setAutoLayout: node has no layout: ' + n.type);
 
+        // Figma 只允许「父级已是自动布局」的子级设 ABSOLUTE，所以顺序只能是：
+        // 先记下绝对定位子级的坐标 → 开自动布局（会重排一次）→ 设 ABSOLUTE →
+        // 把坐标写回去。反过来（先 ABSOLUTE）会直接抛错。
+        const abs = [];
+        for (const id of ${JSON.stringify(absoluteChildIds ?? [])}) {
+          const c = await figma.getNodeByIdAsync(id);
+          if (c) abs.push({ node: c, x: c.x, y: c.y });
+        }
+
+        n.layoutMode = ${JSON.stringify(mode)};
         n.paddingTop = ${p.top ?? 0};
         n.paddingRight = ${p.right ?? 0};
         n.paddingBottom = ${p.bottom ?? 0};
@@ -520,19 +530,16 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         n.itemSpacing = ${itemSpacing};
         n.primaryAxisAlignItems = 'MIN';
         n.counterAxisAlignItems = 'MIN';
-
-        for (const id of ${JSON.stringify(absoluteChildIds ?? [])}) {
-          const c = await figma.getNodeByIdAsync(id);
-          if (c && 'layoutPositioning' in c) c.layoutPositioning = 'ABSOLUTE';
-        }
-
-        // 顺序很重要：先设绝对定位，再开自动布局；反过来 Figma 会先把
-        // 舞台当作普通子级排一遍，位置已经错了。
-        n.layoutMode = ${JSON.stringify(mode)};
         n.primaryAxisSizingMode = 'FIXED';
         n.counterAxisSizingMode = 'FIXED';
-        ${hugHeight ? `n.layoutSizingVertical = 'HUG';` : `n.layoutSizingVertical = 'FIXED';`}
         n.layoutSizingHorizontal = 'FIXED';
+        ${hugHeight ? `n.layoutSizingVertical = 'HUG';` : `n.layoutSizingVertical = 'FIXED';`}
+
+        for (const { node, x, y } of abs) {
+          if ('layoutPositioning' in node) node.layoutPositioning = 'ABSOLUTE';
+          node.x = x;
+          node.y = y;
+        }
         return null;
       `, 20000);
     },

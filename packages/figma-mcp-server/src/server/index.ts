@@ -32,6 +32,7 @@ import { buildFigmaConsoleBackend } from './figmaConsoleBackend.js';
 import { warnOnExternalFigmaConsoleInstances } from './detectExternal.js';
 import { installChildCleanup } from './childLifecycle.js';
 import { reclaimOrphanedBridgePorts } from './reclaimPorts.js';
+import { installAutoRestart } from './autoRestart.js';
 
 async function main(): Promise<void> {
   let v2Backend = undefined;
@@ -134,6 +135,10 @@ async function main(): Promise<void> {
   }
 
   const server = createServer({ v2Backend, proxyClient, proxyTools });
+
+  // 开发期：`npm run build` 之后本进程自己退出，CodeMaker 下次调用会拉起新进程，
+  // 省掉「改一次代码手动重启一次」。
+  installAutoRestart();
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

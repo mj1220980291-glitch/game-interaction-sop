@@ -41,9 +41,13 @@ itemSpacing = 说明栏.x − (主图.x + 主图.width)
 
 渲染期保留 `chapter.fit` 作兜底：部件没接上链时照旧压高度，接上了就跳过（`layoutMode` 判定）。
 
-### D4: 绝对定位必须在开自动布局之前设
+### D4: 绝对定位只能在父级开了自动布局之后设
 
-先设 `layoutPositioning = ABSOLUTE` 再设 `layoutMode`。反过来 Figma 会先把舞台当普通子级排一遍，坐标已经错了。
+真机实测：父级 `layoutMode = NONE` 时给子级设 `layoutPositioning = ABSOLUTE` 会直接抛
+`Can only set layoutPositioning = ABSOLUTE if the parent node has layoutMode !== NONE`。
+
+所以顺序固定为「记下子级坐标 → 开自动布局 → 设 ABSOLUTE → 把坐标写回」。
+不写回的话，开自动布局那一下已经把舞台当普通子级排过一遍，位置就漂了。
 
 ## Risks / Trade-offs
 
