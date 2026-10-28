@@ -967,8 +967,12 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
               fonts.set(f.family + '\\u0000' + f.style, f);
             }
           }
-          for (const inst of clone.findAll((n) => n.type === 'INSTANCE')) {
-            try { inst.detachInstance(); } catch (e) {}
+          for (let pass = 0; pass < 4; pass += 1) {
+            const insts = clone.findAll((n) => n.type === 'INSTANCE');
+            if (insts.length === 0) break;
+            for (const inst of insts) {
+              try { inst.detachInstance(); } catch (e) {}
+            }
           }
           for (const f of fonts.values()) await figma.loadFontAsync(f);
           const after = clone.findAll((n) => n.type === 'TEXT');

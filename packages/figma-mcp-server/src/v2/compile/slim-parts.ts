@@ -62,11 +62,12 @@ export async function slimParts(input: SlimInput): Promise<SlimResult> {
     } else if (part === 'top' && input.capabilities?.overview === 'none') {
       cleared += await slimTop(backend, nodeId);
     }
-    if (part === 'top') {
-      const { nodes } = await backend.scanSubtree(nodeId, SCAN_BUDGET);
-      await centerTopTagRow(backend, nodes);
-    }
     cleared += await placeholderSlotTexts(backend, nodeId);
+    // 居中放在占位文本之后：占位文案的宽窄会改变整行/整组的宽度，先居中再换字
+    // 就等于白算（真机踩过：簇标题偏了 18px）。
+    const { nodes: fresh } = await backend.scanSubtree(nodeId, SCAN_BUDGET);
+    if (part === 'top') await centerTopTagRow(backend, fresh);
+    if (part === 'cluster') await centerClusterHeading(backend, fresh);
   }
 
   return { deleted, cleared, gaps };
@@ -261,7 +262,6 @@ async function slimCluster(
   deleted += await deleteAll(backend, drop);
 
   await unstickTitleFromNumber(backend, nodes);
-  await centerClusterHeading(backend, nodes);
   deleted += await slimClusterMedia(backend, nodes, figure);
 
   if (visibleBullets.length === 0) {
@@ -358,8 +358,12 @@ async function centerTopTagRow(
       (n) => n.type === 'TEXT' && n.parentId === row.parentId && n.visible !== false && n.absoluteBoundingBox
     )
     .filter((n) => (n.absoluteBoundingBox!.x ?? 0) + (n.absoluteBoundingBox!.width ?? 0) <= (row.absoluteBoundingBox?.x ?? 0) + 1)
+    // 紧贴在标签行左边的那一个（右边缘最靠右），不是「x 最大」——同一行里
+    // 更新时间之类也在左边，按 x 排会抓错（真机踩过：挪的是日期）。
     .sort(
-      (a, b) => (b.absoluteBoundingBox!.x ?? 0) - (a.absoluteBoundingBox!.x ?? 0)
+      (a, b) =>
+        (b.absoluteBoundingBox!.x ?? 0) + (b.absoluteBoundingBox!.width ?? 0) -
+        ((a.absoluteBoundingBox!.x ?? 0) + (a.absoluteBoundingBox!.width ?? 0))
     )[0];
   if (!label) return;
   const parent = byId.get(row.parentId);
