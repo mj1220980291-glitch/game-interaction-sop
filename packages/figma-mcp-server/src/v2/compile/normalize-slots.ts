@@ -66,8 +66,9 @@ const SCAN_BUDGET = 20000;
 
 type Rename = (part: PartName, node: ProbeNode, to: string) => Promise<void>;
 
-/** 节点是否在某个实例内部（任意一层父级是 INSTANCE）。 */
+/** 节点是否在某个实例内部（实例子层 id 形如 `I123;456`，父链里也会有 INSTANCE）。 */
 function isInstanceSublayer(node: ProbeNode): boolean {
+  if (node.id.includes(';')) return true;
   let parent = node.parent;
   while (parent) {
     if (parent.type === 'INSTANCE') return true;

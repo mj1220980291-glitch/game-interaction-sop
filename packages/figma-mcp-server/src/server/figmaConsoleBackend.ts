@@ -1028,6 +1028,10 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       await run(`
         const ids = ${JSON.stringify(nodeIds)};
         for (const id of ids) {
+          // 实例子层的 id 形如 \`I123;456\`：dynamic-page 下 getNodeByIdAsync 对它
+          // 永远不返回，整个调用卡到连接超时（真机实测）。这类节点属于实例内部，
+          // 本来也不该被单独删。
+          if (id.includes(';')) continue;
           const n = await figma.getNodeByIdAsync(id);
           if (n) n.remove();
         }

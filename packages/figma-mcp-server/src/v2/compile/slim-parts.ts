@@ -10,8 +10,7 @@
  * Spec: openspec/changes/template-compile-slim-parts
  */
 
-import type { FigmaBackend } from '../figma-client.js';
-import {
+import type { FigmaBackend } from '../figma-client.js';import {
   BADGE_MASTER_NAME,
   CHAPTER_SLOTS,
   CLUSTER_SLOTS,
@@ -21,6 +20,7 @@ import {
 } from '../template-slots.js';
 import type { Capabilities } from '../template/schema.js';
 import { COMPILE_CODES, compileError, type CompileGap } from './errors.js';
+import { trace } from './trace.js';
 
 const SCAN_BUDGET = 20000;
 
@@ -84,12 +84,29 @@ async function slimTop(backend: FigmaBackend, topId: string): Promise<number> {
     OVERVIEW_TEXT_SLOTS.body
   ]);
   const stale = nodes.filter(
-    (n) => n.type === 'TEXT' && n.visible !== false && (n.characters ?? '').trim() !== '' && !keep.has(n.name)
+    (n) =>
+      n.type === 'TEXT' &&
+      n.visible !== false &&
+      !isSublayer(n.id) &&
+      (n.characters ?? '').trim() !== '' &&
+      !keep.has(n.name)
   );
   if (stale.length === 0) return 0;
   if (typeof backend.setMultipleTextContents !== 'function') return 0;
+  const t0 = Date.now();
   await backend.setMultipleTextContents(stale.map((n) => ({ nodeId: n.id, characters: '' })));
+  trace(`slimTop cleared=${stale.length} ${Date.now() - t0}ms`);
   return stale.length;
+}
+
+/**
+ * 实例子层：id 形如 `I123;456`（Figma 用 `;` 串起祖先 id）。
+ *
+ * 这类节点不能按 id 读写——dynamic-page 下 `getNodeByIdAsync` 对它们永远不返回，
+ * 直接把整次编译卡进 10 秒超时。它们属于实例内部，也不该被单独删 / 改名。
+ */
+function isSublayer(id: string): boolean {
+  return id.includes(';');
 }
 
 /** 章节：说明栏清空（只留容器），标号容器只留母版。 */
@@ -135,10 +152,10 @@ async function slimCluster(
   let deleted = 0;
 
   const visibleBullets = nodes.filter(
-    (n) => n.name === CLUSTER_SLOTS.bullet && n.visible !== false
+    (n) => n.name === CLUSTER_SLOTS.bullet && n.visible !== false && !isSublayer(n.id)
   );
   const visibleGroups = nodes.filter(
-    (n) => n.name === CLUSTER_SLOTS.groupSlot && n.visible !== false
+    (n) => n.name === CLUSTER_SLOTS.groupSlot && n.visible !== false && !isSublayer(n.id)
   );
 
   const drop = [
