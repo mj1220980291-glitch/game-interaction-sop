@@ -17,9 +17,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-/** 编译产物根目录（dist）。 */
-const DIST_ROOT = path.resolve(__dirname, '..');
+/** 编译产物根目录（dist）。ESM 里没有 `__dirname`，必须从 import.meta.url 推。 */
+const DIST_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** build 会连续写几十个文件，攒一下再退，避免退在半个构建上。 */
 const DEBOUNCE_MS = 800;
