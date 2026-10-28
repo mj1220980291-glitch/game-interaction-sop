@@ -44,7 +44,9 @@ describe.skipIf(!hasDist)('dist 入口冒烟', () => {
 
     expect(stderr).not.toContain('ReferenceError');
     expect(stderr).not.toContain('failed to start');
-    expect(stderr).toContain('mcp stdio server ready');
+    // 入口是常驻父进程：它自己应答会话，业务在 worker 里。
+    expect(stderr).toContain('supervisor ready');
+    expect(stderr).toContain('worker ready');
     expect(code === 0 || code === 1).toBe(true);
   });
 });
