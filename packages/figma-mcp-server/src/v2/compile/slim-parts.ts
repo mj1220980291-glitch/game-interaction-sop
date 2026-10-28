@@ -83,13 +83,23 @@ async function slimTop(backend: FigmaBackend, topId: string): Promise<number> {
     TOP_SLOTS.lastUpdate,
     OVERVIEW_TEXT_SLOTS.body
   ]);
+  // 文档说明块是模板自带的静态区（放需求链接之类）：骨架要留，内容是上一份
+  // 需求的，留着就是脏数据。
+  const introIds = new Set<string>();
+  for (const n of nodes) {
+    if (n.name !== '文档说明') continue;
+    for (const child of subtreeIdsOf(nodes, n.id)) introIds.add(child);
+  }
   const stale = nodes.filter(
     (n) =>
       n.type === 'TEXT' &&
       n.visible !== false &&
       !isSublayer(n.id) &&
       (n.characters ?? '').trim() !== '' &&
-      !keep.has(n.name)
+      !keep.has(n.name) &&
+      // 只清「值」，不清标签：`策划` / `审核者` / `职能注意` 是顶部版式的一部分，
+      // 清掉整行就塌了；`/辉湟`、`-未开始` 才是上一份需求的值。
+      (isValueText((n.characters ?? '').trim()) || introIds.has(n.id))
   );
   if (stale.length === 0) return 0;
   if (typeof backend.setMultipleTextContents !== 'function') return 0;
@@ -107,6 +117,38 @@ async function slimTop(backend: FigmaBackend, topId: string): Promise<number> {
  */
 function isSublayer(id: string): boolean {
   return id.includes(';');
+}
+
+/**
+ * 顶部里的「值文本」：`/辉湟`、`/ 邵腾`、`-未开始` 这种。
+ *
+ * 标签（`策划`、`审核者`、`职能注意`、`GUI`）要留着撑版式，只有值会被上一份
+ * 需求的内容污染，必须清掉。
+ */
+function isValueText(text: string): boolean {
+  return /^[/\-－—]/.test(text);
+}
+
+/** 扁平节点表里，某节点子树内所有节点的 id（含自身）。 */
+function subtreeIdsOf(
+  nodes: ReadonlyArray<{ id: string; parentId?: string }>,
+  rootId: string
+): string[] {
+  const childrenOf = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (!n.parentId) continue;
+    const list = childrenOf.get(n.parentId) ?? [];
+    list.push(n.id);
+    childrenOf.set(n.parentId, list);
+  }
+  const out: string[] = [];
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    out.push(id);
+    for (const child of childrenOf.get(id) ?? []) queue.push(child);
+  }
+  return out;
 }
 
 /** 章节：说明栏清空（只留容器），标号容器只留母版。 */
@@ -163,6 +205,21 @@ async function slimCluster(
     ...visibleGroups.slice(1).map((n) => n.id)
   ];
   deleted += await deleteAll(backend, drop);
+
+  // 原稿截图：簇里那些大尺寸实例是上一份需求的画面，留着会把旧内容带进新
+  // 文档，删了又会在版面上留洞。统一换成同尺寸的虚线占位框。
+  const shots = nodes.filter(
+    (n) =>
+      n.type === 'INSTANCE' &&
+      !isSublayer(n.id) &&
+      (n.absoluteBoundingBox?.width ?? 0) >= 400 &&
+      (n.absoluteBoundingBox?.height ?? 0) >= 300
+  );
+  if (backend.replaceWithPlaceholder) {
+    for (const shot of shots) {
+      await backend.replaceWithPlaceholder({ nodeId: shot.id, name: '配图占位' });
+    }
+  }
 
   if (visibleBullets.length === 0) {
     gaps.push({

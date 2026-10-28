@@ -154,7 +154,8 @@ describe('顶部落残留空壳化', () => {
     });
 
     expect(r.cleared).toBeGreaterThan(0);
-    expect(h.store.get('roleNote')!.characters).toBe('');
+    // 标签要留着撑版式，只有「值」（前缀 / 或 -）会被清掉。
+    expect(h.store.get('roleNote')!.characters).toBe('职能注意');
     expect(h.store.get('status')!.characters).toBe('');
     expect(h.store.get('title')!.characters).toBe('局内相关交互');
   });

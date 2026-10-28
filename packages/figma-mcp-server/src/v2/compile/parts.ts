@@ -55,7 +55,11 @@ export interface BuildPartsInput {
    * `chapterTitle` 是「章节标题」那一块：部分项目（蛋仔）的标题是章节组之外的
    * 独立块，不并进章节产物就没有章节名。
    */
-  staged: Partial<Record<PartName, string>> & { chapterTitle?: string };
+  staged: Partial<Record<PartName, string>> & {
+    chapterTitle?: string;
+    topBanner?: string;
+    topIntro?: string;
+  };
   /** 库文件里最终组件落脚的页面 id。 */
   pageId: string;
   backend: FigmaBackend;
@@ -160,7 +164,14 @@ export async function buildParts(input: BuildPartsInput): Promise<BuildPartsResu
     // 只搬图区，说明栏用同属性空框（单次调用降到 1 秒级）。
     const slimmable = step.part === 'chapter' || step.part === 'cluster';
     let node: NodeInfo =
-      step.part === 'chapter' && backend.buildChapterShell
+      step.part === 'top' && backend.buildTopShell && (input.staged.topBanner || input.staged.topIntro)
+        ? await backend.buildTopShell({
+            sourceId: step.stagedNodeId,
+            parentId: pageId,
+            ...(input.staged.topBanner ? { bannerSourceId: input.staged.topBanner } : {}),
+            ...(input.staged.topIntro ? { introSourceId: input.staged.topIntro } : {})
+          })
+        : step.part === 'chapter' && backend.buildChapterShell
         ? await backend.buildChapterShell({
             sourceId: step.stagedNodeId,
             parentId: pageId,

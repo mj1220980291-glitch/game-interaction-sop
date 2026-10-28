@@ -36,7 +36,11 @@ export interface CompileInput {
   library: { fileKey: string; pageId: string };
   project: string;
   /** `_staging` 页上人工粘好的部件节点 id。 */
-  staged?: Partial<Record<PartName, string>> & { chapterTitle?: string };
+  staged?: Partial<Record<PartName, string>> & {
+    chapterTitle?: string;
+    topBanner?: string;
+    topIntro?: string;
+  };
   /** 收编出来的零件落到哪一页（库文件内）。 */
   partsPageId?: string;
   /** 散落标号模板用来补容器的 `1:14` `气泡` 节点 id。 */

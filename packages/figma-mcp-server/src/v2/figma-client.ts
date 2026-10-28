@@ -382,6 +382,14 @@ export interface FigmaBackend {
   clearFills?(nodeIds: string[]): Promise<void>;
 
   /**
+   * 把节点就地换成同样尺寸的占位矩形（灰底 + 虚线）。
+   *
+   * 部件里带着原稿截图（大尺寸实例）时，删掉会在版面上留洞、留着又会把上
+   * 一份需求的画面带进新文档；换占位是唯一两头都不占的做法。
+   */
+  replaceWithPlaceholder?(p: { nodeId: string; name: string }): Promise<boolean>;
+
+  /**
    * 给节点上纯色填充 / 描边。
    *
    * 多部件渲染的两个用途：文档根帧要白底（否则导出透出画布底色），
@@ -424,6 +432,20 @@ export interface FigmaBackend {
     name?: string;
     /** 章节标题块（在章节组之外的项目才需要）：并进产物，命名 `#Name`。 */
     titleSourceId?: string;
+  }): Promise<NodeInfo>;
+
+  /**
+   * 顶部合成：把 banner / 标题行 / 文档说明 三块拼成一个纵向自动布局的部件。
+   *
+   * 有的项目（蛋仔）把顶部拆成三块平铺在文档里，只取「标题」那块会丢掉 banner
+   * 和文档说明。合成后仍是一个 `top` 部件，渲染照旧只填 5 个字段。
+   */
+  buildTopShell?(p: {
+    sourceId: string;
+    bannerSourceId?: string;
+    introSourceId?: string;
+    parentId?: string;
+    name?: string;
   }): Promise<NodeInfo>;
 
   /** Set TEXT.characters. Loads font automatically. */

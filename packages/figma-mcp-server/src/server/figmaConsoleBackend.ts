@@ -559,6 +559,30 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 20000);
     },
 
+    async replaceWithPlaceholder({ nodeId, name }) {
+      const r = await run(`
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) return false;
+        const parent = n.parent;
+        if (!parent) return false;
+        const idx = parent.children.indexOf(n);
+        const w = Math.max(n.width, 1), h = Math.max(n.height, 1), x = n.x, y = n.y;
+        const rect = figma.createRectangle();
+        rect.name = ${JSON.stringify(name)};
+        rect.resize(w, h);
+        rect.fills = [{ type: 'SOLID', color: { r: 0.96, g: 0.96, b: 0.96 } }];
+        rect.strokes = [{ type: 'SOLID', color: { r: 0.75, g: 0.75, b: 0.75 } }];
+        rect.strokeWeight = 2;
+        rect.dashPattern = [12, 12];
+        parent.insertChild(idx, rect);
+        rect.x = x;
+        rect.y = y;
+        n.remove();
+        return true;
+      `, 20000);
+      return r === true;
+    },
+
     async setNodePaint({ nodeId, fill, stroke, strokeWeight = 1, dash }) {
       await run(`
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
@@ -891,6 +915,52 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         }
         return serNode(clone);
       `, 90000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async buildTopShell({ sourceId, bannerSourceId, introSourceId, parentId, name }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const titleSrc = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
+        if (!titleSrc) throw new Error('buildTopShell: source not found: ' + ${JSON.stringify(sourceId)});
+        const parent = ${parentId ? `await figma.getNodeByIdAsync(${JSON.stringify(parentId)})` : 'figma.currentPage'};
+        if (!parent) throw new Error('buildTopShell: parent not found');
+
+        const parts = [];
+        const banner = ${bannerSourceId ? `await figma.getNodeByIdAsync(${JSON.stringify(bannerSourceId)})` : 'null'};
+        if (banner) parts.push({ node: banner, name: 'Banner' });
+        parts.push({ node: titleSrc, name: '标题行' });
+        const intro = ${introSourceId ? `await figma.getNodeByIdAsync(${JSON.stringify(introSourceId)})` : 'null'};
+        if (intro) parts.push({ node: intro, name: '文档说明' });
+
+        const root = figma.createFrame();
+        root.name = ${JSON.stringify(name ?? '顶部')};
+        root.fills = [];
+        root.clipsContent = false;
+        root.resize(Math.max(...parts.map((p) => p.node.width), 1), 1);
+        parent.appendChild(root);
+
+        for (const part of parts) {
+          const clone = part.node.clone();
+          root.appendChild(clone);
+          clone.name = part.name;
+          if (clone.parent === root) { clone.x = 0; }
+        }
+
+        root.layoutMode = 'VERTICAL';
+        root.primaryAxisSizingMode = 'AUTO';
+        root.counterAxisSizingMode = 'FIXED';
+        root.itemSpacing = 0;
+        root.paddingTop = 0;
+        root.paddingBottom = 0;
+        root.paddingLeft = 0;
+        root.paddingRight = 0;
+        root.primaryAxisAlignItems = 'MIN';
+        root.counterAxisAlignItems = 'MIN';
+        root.layoutSizingVertical = 'HUG';
+        root.layoutSizingHorizontal = 'FIXED';
+        return serNode(root);
+      `, 60000) as Record<string, unknown>;
       return mapNode(r);
     },
 
