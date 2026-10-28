@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseV2 } from '../../src/v2/parser.js';
 import { parseTemplatePack } from '../../src/v2/template/schema.js';
-import { renderFromParts } from '../../src/v2/render/parts/index.js';
+import { renderFromParts, placeholderPaint } from '../../src/v2/render/parts/index.js';
 import type { FigmaBackend } from '../../src/v2/figma-client.js';
 import { BADGE_MASTER_NAME } from '../../src/v2/template-slots.js';
 import { partsBackend, type PNodeSpec, type PartsBackend } from './helpers/parts-backend.js';
@@ -218,6 +218,24 @@ describe('renderFromParts 自适应', () => {
     expect(placeholder?.dash).toBe(true);
   });
 
+  it('深色模板：根帧用 docBackground，占位块跟着变暗', async () => {
+    const { h, ir, pack } = setup();
+    addAutoLayout(h);
+    const paints = addPaint(h);
+
+    const r = await renderFromParts({
+      ir,
+      pack: { ...pack, docBackground: '#232429' },
+      pageId: 'page-root',
+      backend: h.backend
+    });
+
+    expect(paints.find((p) => p.nodeId === r.rootId)?.fill).toBe('#232429');
+    const placeholder = paints.find((p) => p.dash === true);
+    expect(placeholder?.fill).not.toBe('#F5F5F5');
+    expect(placeholder?.fill).toBe(placeholderPaint('#232429').fill);
+  });
+
   it('标号落在主图矩形内（主图不是 1920×1080 时）', async () => {
     // 蛋仔的真实几何：主图 1200×745 从 (0,807) 开始，气泡铺满 1920×1080。
     const { h, ir, pack } = setup({ imageY: 807 });
@@ -231,5 +249,30 @@ describe('renderFromParts 自适应', () => {
     expect(badge.x).toBeLessThanOrEqual(1200 - badge.width);
     expect(badge.y).toBeGreaterThanOrEqual(807);
     expect(badge.y).toBeLessThanOrEqual(807 + 745 - badge.height);
+  });
+});
+
+describe('placeholderPaint', () => {
+  it('没有 docBackground 时维持原来的中性灰', () => {
+    expect(placeholderPaint()).toEqual({ fill: '#F5F5F5', stroke: '#BFBFBF' });
+  });
+
+  it('深底往白里混：占位比底色亮，不再是一块白纸', () => {
+    const p = placeholderPaint('#232429');
+    expect(p.fill).not.toBe('#F5F5F5');
+    const base = 0x23;
+    const fill = Number.parseInt(p.fill.slice(1, 3), 16);
+    expect(fill).toBeGreaterThan(base);
+    expect(fill).toBeLessThan(0x60);
+  });
+
+  it('浅底往黑里混，仍然是接近白的浅灰', () => {
+    const p = placeholderPaint('#FFFFFF');
+    expect(p.fill).toBe('#F5F5F5');
+    expect(p.stroke).toBe('#BFBFBF');
+  });
+
+  it('非法值回落中性灰', () => {
+    expect(placeholderPaint('black').fill).toBe('#F5F5F5');
   });
 });

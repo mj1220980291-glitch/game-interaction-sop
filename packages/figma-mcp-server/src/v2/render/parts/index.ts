@@ -183,6 +183,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
         clusterKey: pack.components.cluster!,
         figures,
         warnings,
+        ...(pack.docBackground ? { docBackground: pack.docBackground } : {}),
         ...(input.pageId ? { pageId: input.pageId } : {})
       })
     );
@@ -361,6 +362,40 @@ interface FillChapterCtx {
   figures: FigureState;
   warnings: SoftWarning[];
   pageId?: string;
+  /** 文档底色，决定占位块的灰阶（深色稿上用白块等于贴了张白纸）。 */
+  docBackground?: string;
+}
+
+/**
+ * 占位块的填充与描边。
+ *
+ * 白底文档上 `#F5F5F5` 读作「这里将来放图」；同一块白放在深色稿（蛋仔
+ * `#232429`）里像贴了张白纸，比不留占位还刺眼。所以按文档底色的亮度取灰阶：
+ * 深底往白里混一点当面板，浅底往黑里混一点当阴影。
+ */
+export function placeholderPaint(docBackground?: string): { fill: string; stroke: string } {
+  const base = parseHex(docBackground);
+  if (!base) return { fill: '#F5F5F5', stroke: '#BFBFBF' };
+  const luma = (0.299 * base.r + 0.587 * base.g + 0.114 * base.b) / 255;
+  return luma < 0.5
+    ? { fill: mixHex(base, 255, 0.1), stroke: mixHex(base, 255, 0.3) }
+    : { fill: mixHex(base, 0, 0.04), stroke: mixHex(base, 0, 0.25) };
+}
+
+function parseHex(hex?: string): { r: number; g: number; b: number } | undefined {
+  if (!hex) return undefined;
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!m) return undefined;
+  const n = Number.parseInt(m[1]!, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function mixHex(base: { r: number; g: number; b: number }, toward: 0 | 255, t: number): string {
+  const ch = (v: number): string =>
+    Math.round(v + (toward - v) * t)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${ch(base.r)}${ch(base.g)}${ch(base.b)}`.toUpperCase();
 }
 
 async function fillChapter(
@@ -411,12 +446,14 @@ async function fillChapter(
       image = true;
     } else {
       if (backend.clearFills) await backend.clearFills([mainImage.id]);
-      // 原稿截图清掉之后不能留个空洞：中性灰 + 虚线，一眼看出这是占位。
+      // 原稿截图清掉之后不能留个空洞：一层中性色 + 虚线，一眼看出这是占位。
+      // 灰阶跟着文档底色走：深色稿（蛋仔 #232429）上刷白块比留空还扎眼。
       if (backend.setNodePaint) {
+        const paint = placeholderPaint(ctx.docBackground);
         await backend.setNodePaint({
           nodeId: mainImage.id,
-          fill: '#F5F5F5',
-          stroke: '#BFBFBF',
+          fill: paint.fill,
+          stroke: paint.stroke,
           strokeWeight: 2,
           dash: true
         });
