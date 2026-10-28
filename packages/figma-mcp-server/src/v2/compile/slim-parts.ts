@@ -62,6 +62,10 @@ export async function slimParts(input: SlimInput): Promise<SlimResult> {
     } else if (part === 'top' && input.capabilities?.overview === 'none') {
       cleared += await slimTop(backend, nodeId);
     }
+    if (part === 'top') {
+      const { nodes } = await backend.scanSubtree(nodeId, SCAN_BUDGET);
+      await centerTopTagRow(backend, nodes);
+    }
     cleared += await placeholderSlotTexts(backend, nodeId);
   }
 
@@ -257,6 +261,7 @@ async function slimCluster(
   deleted += await deleteAll(backend, drop);
 
   await unstickTitleFromNumber(backend, nodes);
+  await centerClusterHeading(backend, nodes);
   deleted += await slimClusterMedia(backend, nodes, figure);
 
   if (visibleBullets.length === 0) {
@@ -298,6 +303,81 @@ async function unstickTitleFromNumber(
   const delta = numberBox.x + numberBox.width + 8 - titleBox.x;
   if (delta <= 0.5) return;
   await backend.moveNode(title.id, title.x + delta, title.y);
+}
+
+/**
+ * 编号 + 簇标题整组水平居中（编译期给部件定版；渲染期还会按真实标题再居中一次）。
+ */
+async function centerClusterHeading(
+  backend: FigmaBackend,
+  nodes: ReadonlyArray<NodeInfo>
+): Promise<void> {
+  const title = nodes.find((n) => n.name === CLUSTER_SLOTS.title && !isSublayer(n.id));
+  const carrier = nodes.find(
+    (n) => n.name === CLUSTER_SLOTS.number && n.parentId === title?.parentId
+  );
+  if (!title || !carrier) return;
+  const parent = nodes.find((n) => n.id === title.parentId);
+  const parentW = parent?.absoluteBoundingBox?.width;
+  const tb = title.absoluteBoundingBox;
+  const nb = carrier.absoluteBoundingBox;
+  if (!parentW || !tb || !nb) return;
+  const left = Math.min(nb.x, tb.x);
+  const right = Math.max(nb.x + nb.width, tb.x + tb.width);
+  const parentLeft = parent?.absoluteBoundingBox?.x ?? 0;
+  await shiftPair(backend, [carrier, title], parentLeft + (parentW - (right - left)) / 2 - left);
+}
+
+/**
+ * 顶部「职能注意 + 标签行」整行水平居中。
+ *
+ * 蛋仔顶部这一行是自由排版的：左侧一个短标签，右侧一串职能标签实例，整体靠左。
+ * 归一并空壳化之后行宽是固定的，所以编译期一次算好。判定用结构（同一父级下
+ * 「短文本 + 装着多个实例的 FRAME」），不认图层名。
+ */
+async function centerTopTagRow(
+  backend: FigmaBackend,
+  nodes: ReadonlyArray<NodeInfo>
+): Promise<void> {
+  if (typeof backend.moveNode !== 'function') return;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const row = nodes.find((n) => {
+    if (n.type !== 'FRAME' || n.visible === false) return false;
+    const kids = (n.childIds ?? []).map((id) => byId.get(id)).filter(Boolean);
+    return kids.length >= 2 && kids.every((k) => k!.type === 'INSTANCE');
+  });
+  if (!row || !row.parentId) return;
+  const label = nodes
+    .filter(
+      (n) => n.type === 'TEXT' && n.parentId === row.parentId && n.visible !== false && n.absoluteBoundingBox
+    )
+    .filter((n) => (n.absoluteBoundingBox!.x ?? 0) + (n.absoluteBoundingBox!.width ?? 0) <= (row.absoluteBoundingBox?.x ?? 0) + 1)
+    .sort(
+      (a, b) => (b.absoluteBoundingBox!.x ?? 0) - (a.absoluteBoundingBox!.x ?? 0)
+    )[0];
+  if (!label) return;
+  const parent = byId.get(row.parentId);
+  const parentW = parent?.absoluteBoundingBox?.width;
+  const rb = row.absoluteBoundingBox;
+  const lb = label.absoluteBoundingBox;
+  if (!parentW || !rb || !lb) return;
+  const left = lb.x;
+  const right = rb.x + rb.width;
+  const parentLeft = parent?.absoluteBoundingBox?.x ?? 0;
+  await shiftPair(backend, [label, row], parentLeft + (parentW - (right - left)) / 2 - left);
+}
+
+/** 同一父级下的两个节点整体平移 `shift`（局部坐标加同样量）。 */
+async function shiftPair(
+  backend: FigmaBackend,
+  nodes: ReadonlyArray<NodeInfo>,
+  shift: number
+): Promise<void> {
+  if (typeof backend.moveNode !== 'function' || Math.abs(shift) < 0.5) return;
+  for (const n of nodes) {
+    if (typeof n.x !== 'number' || typeof n.y !== 'number') continue;
+    await backend.moveNode(n.id, n.x + shift, n.y);
+  }
 }
 
 /**

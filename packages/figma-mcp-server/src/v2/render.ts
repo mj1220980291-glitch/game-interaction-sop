@@ -1050,6 +1050,8 @@ export async function fillCluster(
     // 编号载体与标题常常挤在同一行：源稿的标题 x 是按原字体宽度定的，换成
     // Noto 后编号里的数字变宽，就会压住标题第一个字（蛋仔真机截图可见）。
     await pushTitleClearOfNumber(backend, titleMains[0], allDescendants);
+    // 编号 + 标题作为一个整体水平居中（标题长度每条都不同，只能写完再居中）。
+    await centerClusterHeading(backend, titleMains[0], allDescendants);
   }
 
   // #Title — the sub-group heading slot. The template ships 2 instances
@@ -2001,6 +2003,47 @@ async function paintRoleTokens(backend: FigmaBackend, clusterId: string): Promis
     if (ranges.length > 0) updates.push({ nodeId: n.id, ranges });
   }
   if (updates.length > 0) await backend.setTextRangeFills(updates);
+}
+
+/**
+ * 编号 + 标题整组居中。
+ *
+ * 标题每条字数不同，写完才知道整组多宽，所以只能在这一步算。两侧留白相等时
+ * 说明本来就居中，一跳都不动。
+ */
+async function centerClusterHeading(
+  backend: FigmaBackend,
+  title: NodeInfo,
+  allDescendants: NodeInfo[]
+): Promise<void> {
+  if (typeof backend.moveNode !== 'function') return;
+  const carrier = allDescendants.find(
+    (n) => n.name === SECTION_CHILD_NAMES.clusterNumberText && n.parentId === title.parentId
+  );
+  if (!carrier) return;
+  const fresh = await backend.getNodeInfo(title.id);
+  const width = fresh.absoluteBoundingBox?.width ?? title.absoluteBoundingBox?.width;
+  const parentId = title.parentId;
+  if (!parentId || !width) return;
+  const parent = await backend.getNodeInfo(parentId);
+  const parentWidth = parent.absoluteBoundingBox?.width;
+  if (!parentWidth) return;
+
+  const left = Math.min(carrier.absoluteBoundingBox?.x ?? 0, fresh.absoluteBoundingBox?.x ?? 0);
+  const right = Math.max(
+    (carrier.absoluteBoundingBox?.x ?? 0) + (carrier.absoluteBoundingBox?.width ?? 0),
+    (fresh.absoluteBoundingBox?.x ?? 0) + width
+  );
+  const parentLeft = parent.absoluteBoundingBox?.x ?? 0;
+  const targetLeft = parentLeft + (parentWidth - (right - left)) / 2;
+  const shift = targetLeft - left;
+  if (Math.abs(shift) < 0.5) return;
+
+  for (const node of [carrier, fresh]) {
+    if (typeof node.x === 'number' && typeof node.y === 'number') {
+      await backend.moveNode(node.id, node.x + shift, node.y);
+    }
+  }
 }
 
 /**
