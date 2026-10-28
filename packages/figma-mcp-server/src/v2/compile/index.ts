@@ -65,6 +65,8 @@ export interface CompileReport {
   renamed?: SlotRename[];
   /** 空壳化删掉的节点数。 */
   slimmed?: number;
+  /** 顶部被清空字符的文本数（原稿残留）。 */
+  cleared?: number;
   /** 加上了自适应外壳的部件（幂等：已是自动布局的为空）。 */
   adaptive?: AdaptiveApplied[];
   capabilities: Capabilities;
@@ -329,7 +331,8 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   const slim = await stage('slim', () =>
     slimParts({
       backend,
-      parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId }))
+      parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId })),
+      capabilities: source
     })
   );
   pushGaps(slim.gaps);
@@ -378,6 +381,7 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     sets: adopted.sets,
     renamed: normalized.renamed,
     slimmed: slim.deleted,
+    cleared: slim.cleared,
     adaptive: adaptive.applied,
     capabilities: verdict.capabilities,
     diffs: verdict.diffs,

@@ -175,6 +175,8 @@ export const SOFT_WARNING_CODES = {
   W_BADGE_UNPLACED: 'V2_W_BADGE_UNPLACED',
   /** render — 顶部部件里没有总览槽位，总览内容未写入 */
   W_OVERVIEW_SLOTS_MISSING: 'V2_W_OVERVIEW_SLOTS_MISSING',
+  /** 顶部部件缺「文档标题 / 设计师 / 需求组 / 单号 / 更新时间」某个槽位。 */
+  W_HEADER_SLOT_MISSING: 'V2_W_HEADER_SLOT_MISSING',
   /** render — 渲染产物与 IR 对不上，对应部分未打标记，之后无法同步 */
   W_STAMP_LAYOUT_MISMATCH: 'V2_W_STAMP_LAYOUT_MISMATCH',
   /** render — 打标记失败，文档可用但无法同步 */

@@ -290,9 +290,15 @@ async function fillTop(
   ]);
 
   const updates: Array<{ nodeId: string; characters: string }> = [];
+  // 槽位缺失不能静默：顶部整块旧文案会原样留在产物里（蛋仔真机踩过）。
+  const missing: string[] = [];
   const push = (name: string, text: string): void => {
     const node = named[name];
-    if (node && text) updates.push({ nodeId: node.id, characters: text });
+    if (!node) {
+      missing.push(name);
+      return;
+    }
+    if (text) updates.push({ nodeId: node.id, characters: text });
   };
   push(TOP_SLOTS.docTitle, ir.header.title);
   push(TOP_SLOTS.owner, ir.header.owner);
@@ -300,6 +306,12 @@ async function fillTop(
   push(TOP_SLOTS.ticketLink, ir.header.ticketLink);
   push(TOP_SLOTS.lastUpdate, ir.header.lastUpdate);
   if (updates.length > 0) await backend.setMultipleTextContents(updates);
+  if (missing.length > 0) {
+    warnings.push({
+      code: SOFT_WARNING_CODES.W_HEADER_SLOT_MISSING,
+      message: `顶部部件缺槽位：${missing.join(' / ')}——这些字段未写入，重编该项目的模板可补齐`
+    });
+  }
 
   if (overview === 'none') return;
 

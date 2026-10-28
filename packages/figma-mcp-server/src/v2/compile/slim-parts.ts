@@ -11,7 +11,15 @@
  */
 
 import type { FigmaBackend } from '../figma-client.js';
-import { BADGE_MASTER_NAME, CHAPTER_SLOTS, CLUSTER_SLOTS, type PartName } from '../template-slots.js';
+import {
+  BADGE_MASTER_NAME,
+  CHAPTER_SLOTS,
+  CLUSTER_SLOTS,
+  OVERVIEW_TEXT_SLOTS,
+  TOP_SLOTS,
+  type PartName
+} from '../template-slots.js';
+import type { Capabilities } from '../template/schema.js';
 import { COMPILE_CODES, compileError, type CompileGap } from './errors.js';
 
 const SCAN_BUDGET = 20000;
@@ -19,10 +27,14 @@ const SCAN_BUDGET = 20000;
 export interface SlimInput {
   backend: FigmaBackend;
   parts: ReadonlyArray<{ part: PartName; nodeId: string }>;
+  /** 产物能力：顶部清残留只在「没有总览区」时做（总览区的标题文本要留着）。 */
+  capabilities?: Pick<Capabilities, 'overview'>;
 }
 
 export interface SlimResult {
   deleted: number;
+  /** 清空字符的文本数（顶部残留值，保留版式骨架）。 */
+  cleared: number;
   gaps: CompileGap[];
 }
 
@@ -36,6 +48,7 @@ export async function slimParts(input: SlimInput): Promise<SlimResult> {
   }
 
   let deleted = 0;
+  let cleared = 0;
   const gaps: CompileGap[] = [];
 
   for (const { part, nodeId } of input.parts) {
@@ -43,10 +56,40 @@ export async function slimParts(input: SlimInput): Promise<SlimResult> {
       deleted += await slimChapter(backend, nodeId, gaps);
     } else if (part === 'cluster') {
       deleted += await slimCluster(backend, nodeId, gaps);
+    } else if (part === 'top' && input.capabilities?.overview === 'none') {
+      cleared += await slimTop(backend, nodeId);
     }
   }
 
-  return { deleted, gaps };
+  return { deleted, cleared, gaps };
+}
+
+/**
+ * 顶部：没有总览区时，顶部只剩 5 个元信息字段，其余原稿文案得清掉。
+ *
+ * 不清的后果：蛋仔顶部是自由排版（`局内相关交互` / `-未开始` / `/辉湟`），
+ * 归一化认不出这些字段，渲染找不到槽位就原样留在产物里——设计师看到的是上
+ * 一份需求的旧文案。
+ *
+ * 清字符而不是删节点：顶部版式靠这些文本的位置撑着，删了整块会塌。
+ */
+async function slimTop(backend: FigmaBackend, topId: string): Promise<number> {
+  const { nodes } = await backend.scanSubtree(topId, SCAN_BUDGET);
+  const keep = new Set<string>([
+    TOP_SLOTS.docTitle,
+    TOP_SLOTS.owner,
+    TOP_SLOTS.group,
+    TOP_SLOTS.ticketLink,
+    TOP_SLOTS.lastUpdate,
+    OVERVIEW_TEXT_SLOTS.body
+  ]);
+  const stale = nodes.filter(
+    (n) => n.type === 'TEXT' && n.visible !== false && (n.characters ?? '').trim() !== '' && !keep.has(n.name)
+  );
+  if (stale.length === 0) return 0;
+  if (typeof backend.setMultipleTextContents !== 'function') return 0;
+  await backend.setMultipleTextContents(stale.map((n) => ({ nodeId: n.id, characters: '' })));
+  return stale.length;
 }
 
 /** 章节：说明栏清空（只留容器），标号容器只留母版。 */

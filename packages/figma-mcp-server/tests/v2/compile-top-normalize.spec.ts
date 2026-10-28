@@ -1,0 +1,109 @@
+/**
+ * 顶部：自由排版（蛋仔式）的槽位识别 + 原稿残留清空。
+ *
+ * Spec: openspec/changes/template-adaptive-shell（top 归一化）/ template-compile
+ */
+
+import { describe, it, expect } from 'vitest';
+import { normalizeSlotNames } from '../../src/v2/compile/normalize-slots.js';
+import { slimParts } from '../../src/v2/compile/slim-parts.js';
+import { TOP_SLOTS } from '../../src/v2/template-slots.js';
+import { n, slotsBackend } from './helpers/slots-backend.js';
+
+/** 蛋仔顶部的真实形态：没有「标签：值」，标题/日期/UX 名字各自成块。 */
+function danziTop() {
+  return [
+    n('t', '顶部', 'COMPONENT', ['date', 'title', 'roleNote', 'uxLabel', 'uxValue', 'auditor', 'status'], {
+      w: 2205,
+      h: 321
+    }),
+    n('date', '2025/07/02', 'TEXT', [], { text: '2025/07/02', w: 198, h: 52 }),
+    n('title', '局内相关交互', 'TEXT', [], { text: '局内相关交互', w: 518, h: 125 }),
+    n('roleNote', '职能注意', 'TEXT', [], { text: '职能注意', w: 176, h: 71 }),
+    n('uxLabel', 'UX', 'TEXT', [], { text: 'UX', w: 60, h: 70 }),
+    n('uxValue', '/ 苗儿', 'TEXT', [], { text: '/ 苗儿', w: 126, h: 70 }),
+    n('auditor', '审核者', 'TEXT', [], { text: '审核者', w: 144, h: 70 }),
+    n('status', '-未开始', 'TEXT', [], { text: '-未开始', w: 169, h: 70 })
+  ];
+}
+
+describe('顶部自由排版归一化', () => {
+  it('认出日期 / 标题 / 设计师，并把名字改成统一槽位', async () => {
+    const h = slotsBackend(danziTop());
+    const r = await normalizeSlotNames({
+      backend: h.backend,
+      parts: [{ part: 'top', nodeId: 't' }]
+    });
+
+    const byId = new Map(r.renamed.map((x) => [x.nodeId, x.to]));
+    expect(byId.get('date')).toBe(TOP_SLOTS.lastUpdate);
+    expect(byId.get('title')).toBe(TOP_SLOTS.docTitle);
+    expect(byId.get('uxValue')).toBe(TOP_SLOTS.owner);
+  });
+
+  it('需求组 / 单号认不出来时记缺口', async () => {
+    const h = slotsBackend(danziTop());
+    const r = await normalizeSlotNames({
+      backend: h.backend,
+      parts: [{ part: 'top', nodeId: 't' }]
+    });
+
+    const whats = r.gaps.map((g) => g.what).join(' | ');
+    expect(whats).toContain(TOP_SLOTS.group);
+    expect(whats).toContain(TOP_SLOTS.ticketLink);
+  });
+
+  it('已是统一名的不再改（1:14 幂等）', async () => {
+    const h = slotsBackend([
+      n('t2', '顶部', 'COMPONENT', ['a', 'b'], { w: 3690, h: 761 }),
+      n('a', TOP_SLOTS.docTitle, 'TEXT', [], { text: '旧标题', w: 400, h: 100 }),
+      n('b', TOP_SLOTS.lastUpdate, 'TEXT', [], { text: '2025.01.01', w: 200, h: 50 })
+    ]);
+    const r = await normalizeSlotNames({
+      backend: h.backend,
+      parts: [{ part: 'top', nodeId: 't2' }]
+    });
+
+    expect(r.renamed.filter((x) => x.nodeId === 'a' || x.nodeId === 'b')).toEqual([]);
+  });
+});
+
+describe('顶部落残留空壳化', () => {
+  it('overview = none 时清空未归位的原稿文案，保留槽位文本', async () => {
+    const h = slotsBackend(danziTop());
+    // 真实链路里归一化先跑，标题已是统一槽位名。
+    h.store.get('title')!.name = TOP_SLOTS.docTitle;
+    (h.backend as unknown as { setMultipleTextContents: unknown }).setMultipleTextContents = async (
+      updates: Array<{ nodeId: string; characters: string }>
+    ) => {
+      for (const u of updates) {
+        const node = h.store.get(u.nodeId);
+        if (node) node.characters = u.characters;
+      }
+      return { applied: updates.length, boldUnavailable: [] };
+    };
+
+    const r = await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'top', nodeId: 't' }],
+      capabilities: { overview: 'none' }
+    });
+
+    expect(r.cleared).toBeGreaterThan(0);
+    expect(h.store.get('roleNote')!.characters).toBe('');
+    expect(h.store.get('status')!.characters).toBe('');
+    expect(h.store.get('title')!.characters).toBe('局内相关交互');
+  });
+
+  it('有总览区时不动顶部（总览标题要留着）', async () => {
+    const h = slotsBackend(danziTop());
+    const r = await slimParts({
+      backend: h.backend,
+      parts: [{ part: 'top', nodeId: 't' }],
+      capabilities: { overview: 'two-frames' }
+    });
+
+    expect(r.cleared).toBe(0);
+    expect(h.store.get('roleNote')!.characters).toBe('职能注意');
+  });
+});

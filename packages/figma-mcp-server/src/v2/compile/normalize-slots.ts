@@ -298,6 +298,13 @@ async function normalizeTop(
   rename: Rename,
   gap: (g: CompileGap) => void
 ): Promise<void> {
+  /** 已经归位到某个槽位的节点 id——自由排版那一段不能重复认领。 */
+  const taken = new Set<string>();
+  const take = async (node: ProbeNode, slot: string): Promise<void> => {
+    taken.add(node.id);
+    await rename('top', node, slot);
+  };
+
   // 总览：同级里有两块「短标题 + 长正文」的块，按 1:14 顺序取前两块。
   const blocks = findOverviewBlocks(tree.root);
   if (blocks.length >= 2 && blocks[0] && blocks[1]) {
@@ -307,6 +314,8 @@ async function normalizeTop(
       const body = longestText(block);
       if (body) await rename('top', body, OVERVIEW_TEXT_SLOTS.body);
     }
+    // 总览里的文本不算「自由排版」，否则正文会被当成文档标题认领。
+    for (const id of subtreeIds([blocks[0], blocks[1]])) taken.add(id);
   } else if (blocks.length === 1) {
     gap({
       what: '顶部只找到一块总览（短标题 + 长正文），未按两栏归一化',
@@ -315,15 +324,105 @@ async function normalizeTop(
     });
   }
 
-  // 顶部元信息：只处理「标签 + 值」成对出现的情况（1:14 直接是值文本，名字已统一）。
-  const used = new Set<string>();
-  for (const { slot, re } of HEADER_LABEL_PATTERNS) {
-    if (used.has(slot)) continue;
-    const pair = findLabelValuePair(tree.root, re);
-    if (!pair) continue;
-    await rename('top', pair.value, slot);
-    used.add(slot);
+  // 第一段：1:14 式「标签 + 值」成对出现。
+  const assigned = new Map<string, string>();
+  // 已经是统一名的直接算归位（1:14 的顶部文本就叫这些名字），不必再猜。
+  const HEADER_SLOTS = [
+    TOP_SLOTS.docTitle,
+    TOP_SLOTS.owner,
+    TOP_SLOTS.group,
+    TOP_SLOTS.ticketLink,
+    TOP_SLOTS.lastUpdate
+  ];
+  for (const slot of HEADER_SLOTS) {
+    const existing = structuredDescendants(tree.root).find((n) => n.type === 'TEXT' && n.name === slot);
+    if (existing) {
+      assigned.set(slot, existing.id);
+      taken.add(existing.id);
+    }
   }
+
+  for (const { slot, re } of HEADER_LABEL_PATTERNS) {
+    if (assigned.has(slot)) continue;
+    const pair = findLabelValuePair(tree.root, re);
+    if (!pair || taken.has(pair.value.id)) continue;
+    await take(pair.value, slot);
+    assigned.set(slot, pair.value.id);
+  }
+
+  // 第二段：自由排版（蛋仔式）——顶部没有「标签：值」，值各自成块。
+  // 只认三种可判定的形状，其余留给缺口，不靠坐标猜。
+  const freeTexts = structuredDescendants(tree.root).filter(
+    (n) => n.type === 'TEXT' && n.visible && !taken.has(n.id) && (n.characters ?? '').trim() !== ''
+  );
+
+  if (!assigned.has(TOP_SLOTS.lastUpdate)) {
+    const dateNode = freeTexts.find((n) => DATE_RE.test((n.characters ?? '').trim()));
+    if (dateNode) {
+      await take(dateNode, TOP_SLOTS.lastUpdate);
+      assigned.set(TOP_SLOTS.lastUpdate, dateNode.id);
+    }
+  }
+
+  if (!assigned.has(TOP_SLOTS.owner)) {
+    const ownerNode = findOwnerValue(tree.root);
+    if (ownerNode && !taken.has(ownerNode.id)) {
+      await take(ownerNode, TOP_SLOTS.owner);
+      assigned.set(TOP_SLOTS.owner, ownerNode.id);
+    }
+  }
+
+  if (!assigned.has(TOP_SLOTS.docTitle)) {
+    // 标题是顶部最大的那块文本；要求够长，避免把「职能注意」这类标签认成标题。
+    const titleNode = freeTexts
+      .filter((n) => !taken.has(n.id))
+      .filter((n) => (n.characters ?? '').trim().length >= 4)
+      .reduce<ProbeNode | undefined>((best, n) => {
+        const area = (n.box?.width ?? 0) * (n.box?.height ?? 0);
+        if (!best) return n;
+        const bestArea = (best.box?.width ?? 0) * (best.box?.height ?? 0);
+        return area > bestArea ? n : best;
+      }, undefined);
+    if (titleNode) {
+      await take(titleNode, TOP_SLOTS.docTitle);
+      assigned.set(TOP_SLOTS.docTitle, titleNode.id);
+    }
+  }
+
+  for (const slot of HEADER_SLOTS) {
+    if (assigned.has(slot)) continue;
+    gap({
+      what: `顶部没有认出槽位「${slot}」`,
+      impact: '该字段渲染时空着；顶部里对不上的原稿文案会被清空',
+      fix: '在库里给对应文本改成统一槽位名'
+    });
+  }
+}
+
+/** `2025/07/02`、`2025.7.2`、`2025年7月2日` 都算日期。 */
+const DATE_RE = /^\d{4}\s*[/.\-年]\s*\d{1,2}/;
+
+/**
+ * 自由排版的「设计师」：同一父级下，`UX` / `UI` 这类短标签后面跟着 `/ 名字`。
+ * 蛋仔顶部就是这样，名字前带斜杠。
+ */
+function findOwnerValue(root: ProbeNode): ProbeNode | undefined {
+  let found: ProbeNode | undefined;
+  walkStructured(root, (parent) => {
+    if (found) return false;
+    for (let i = 0; i < parent.children.length - 1; i += 1) {
+      const label = parent.children[i];
+      const value = parent.children[i + 1];
+      if (!label || !value) continue;
+      if (label.type !== 'TEXT' || value.type !== 'TEXT') continue;
+      if (!/^(UI|UX|设计|设计师)$/i.test((label.characters ?? '').trim())) continue;
+      if (!/^\/\s*\S+/.test((value.characters ?? '').trim())) continue;
+      found = value;
+      return false;
+    }
+    return undefined;
+  });
+  return found;
 }
 
 // --- structural helpers --------------------------------------------------
