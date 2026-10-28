@@ -249,6 +249,11 @@ describe('renderFromParts 自适应', () => {
     expect(badge.x).toBeLessThanOrEqual(1200 - badge.width);
     expect(badge.y).toBeGreaterThanOrEqual(807);
     expect(badge.y).toBeLessThanOrEqual(807 + 745 - badge.height);
+
+    // 气泡本身也缩到主图尺寸，否则 1920×1080 的框会盖住说明栏。
+    const bubble = h.byName(rootId, '气泡')[0]!;
+    expect(bubble.width).toBe(1200);
+    expect(bubble.height).toBe(745);
   });
 });
 

@@ -593,6 +593,15 @@ async function placeBadges(
   // 网格本身仍按 1920×1080 的目标位置定义，这里换算到主图的实际矩形。
   const rect = await imageRectInContainer(backend, chapter.id, container);
 
+  // 气泡自己也得跟主图一样大：留着 1920×1080 会盖住说明栏（选中框比图大一圈，
+  // 用户一眼就看出不对）。只有普通 FRAME 才动，自动布局容器一 resize 会翻 HUG。
+  if (backend.resizeNode && (container.layoutMode ?? 'NONE') === 'NONE') {
+    const needsResize =
+      Math.abs((container.absoluteBoundingBox?.width ?? 0) - rect.width) > 1 ||
+      Math.abs((container.absoluteBoundingBox?.height ?? 0) - rect.height) > 1;
+    if (needsResize) await backend.resizeNode(containerId, rect.width, rect.height);
+  }
+
   // 容器里可能还留着原稿的多个标号（`1:14` 就带 标号/1、标号/2）：
   // 只留母版，其余先删，避免产出一堆重复编号。
   const stale = children.filter((c) => isBadgeFrame(c.name) && c.id !== master.id).map((c) => c.id);

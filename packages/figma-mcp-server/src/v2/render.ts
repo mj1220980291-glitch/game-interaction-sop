@@ -47,7 +47,8 @@ import {
   SECTION_TEMPLATE,
   SECTION_CHILD_NAMES,
   DEFAULT_BUBBLE_GRID,
-  ROLE_TEXT_ORDER
+  ROLE_TEXT_ORDER,
+  ROLE_COLORS
 } from './template-map.js';
 import {
   resolveTemplateConfig,
@@ -1111,6 +1112,9 @@ export async function fillCluster(
 
   void clusterInfo;
 
+  // 职能标记上色：写 characters 会把原稿里彩色的 `@GUI` 区间冲掉，补回来。
+  await paintRoleTokens(backend, clusterNode.id);
+
   // Bubble: clone 标号/N inside 气泡 FRAME, set #Number TEXT.
   if (!bubbleFrame) return undefined;
   const bubbleFrameInfo = await backend.getNodeInfo(bubbleFrame.id);
@@ -1883,6 +1887,41 @@ async function pushTitleClearOfNumber(
   const delta = needed - titleBox.x;
   if (delta <= 0.5) return;
   await backend.moveNode(title.id, title.x + delta, title.y);
+}
+
+/** 职能标记 token：`@GUI` `@程序` … 与 `ROLE_COLORS` 的键一致。 */
+const ROLE_TOKEN_RE = new RegExp(`(?:${Object.keys(ROLE_COLORS).join('|')})`, 'g');
+
+/**
+ * 文本里 `@职能` 的区间与颜色。
+ *
+ * 蛋仔这类把职能写在条目句尾的模板，原稿里 `@GUI` 是带色的字。渲染是把 md 的
+ * 整行写进同一个 TEXT 节点，写 characters 会把原有字符样式全部冲掉，所以写完
+ * 再按区间把颜色补上。
+ */
+export function roleColorRanges(
+  text: string
+): Array<{ start: number; end: number; color: string }> {
+  const out: Array<{ start: number; end: number; color: string }> = [];
+  for (const m of text.matchAll(ROLE_TOKEN_RE)) {
+    const color = ROLE_COLORS[m[0]];
+    if (!color || m.index === undefined) continue;
+    out.push({ start: m.index, end: m.index + m[0].length, color });
+  }
+  return out;
+}
+
+/** 给簇里每条正文补上 `@职能` 的颜色。 */
+async function paintRoleTokens(backend: FigmaBackend, clusterId: string): Promise<void> {
+  if (typeof backend.setTextRangeFills !== 'function') return;
+  const { nodes } = await backend.scanSubtree(clusterId, 400);
+  const updates: Array<{ nodeId: string; ranges: ReturnType<typeof roleColorRanges> }> = [];
+  for (const n of nodes) {
+    if (n.type !== 'TEXT' || !n.characters) continue;
+    const ranges = roleColorRanges(n.characters);
+    if (ranges.length > 0) updates.push({ nodeId: n.id, ranges });
+  }
+  if (updates.length > 0) await backend.setTextRangeFills(updates);
 }
 
 /**

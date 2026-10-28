@@ -199,7 +199,10 @@ export const ROLE_COLORS: Record<string, string> = {
   '@动效': '#E121FF',
   '@美术': '#FF487C',
   '@策划': '#48FF70',
-  '@音频': '#9E7BFF'
+  '@音频': '#9E7BFF',
+  // 蛋仔的标签集用的是这两个写法（取自 `标签` 变体的底色）。
+  '@VX': '#571DFF',
+  '@音效': '#CC39FF'
 };
 
 /** Main image canvas size — 气泡 FRAME and 主图占位 share this rect. */

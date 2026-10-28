@@ -470,6 +470,14 @@ export interface FigmaBackend {
    */
   setMultipleTextContents(updates: TextUpdate[]): Promise<TextWriteResult>;
 
+  /**
+   * 给一段文本里的若干字符区间单独上色（`@GUI` 这类职能标记）。
+   *
+   * 写 characters 会把原来的彩色字符区间冲掉，所以写完再按区间补回来。
+   * 越界的区间会被夹到文本长度内；不支持的节点静默跳过。
+   */
+  setTextRangeFills?(updates: TextRangeFillUpdate[]): Promise<string[]>;
+
   /** Batch delete. */
   deleteNodes(nodeIds: string[]): Promise<void>;
 
@@ -652,6 +660,12 @@ export interface TextUpdate {
 export interface TextWriteResult {
   /** Font families with no loadable bold weight; their bold ranges were skipped. */
   boldUnavailable: string[];
+}
+
+/** 一段文本里要单独上色的字符区间（`start` 含、`end` 不含）。 */
+export interface TextRangeFillUpdate {
+  nodeId: string;
+  ranges: Array<{ start: number; end: number; color: string }>;
 }
 
 export type ReconcileOp =

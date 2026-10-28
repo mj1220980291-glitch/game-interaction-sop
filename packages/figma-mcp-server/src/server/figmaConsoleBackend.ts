@@ -1155,6 +1155,30 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return { boldUnavailable: r?.boldUnavailable ?? [] };
     },
 
+    async setTextRangeFills(updates) {
+      const r = await run(`
+        const hex = (h) => {
+          const n = parseInt(h.replace('#',''), 16);
+          return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
+        };
+        const done = [];
+        for (const { nodeId, ranges } of ${JSON.stringify(updates)}) {
+          const n = await figma.getNodeByIdAsync(nodeId);
+          if (!n || n.type !== 'TEXT') continue;
+          const len = n.characters.length;
+          for (const r of ranges) {
+            const s = Math.max(0, Math.min(r.start, len));
+            const e = Math.max(0, Math.min(r.end, len));
+            if (e <= s) continue;
+            n.setRangeFills(s, e, [{ type: 'SOLID', color: hex(r.color) }]);
+          }
+          done.push(nodeId);
+        }
+        return done;
+      `, 20000) as string[] | null;
+      return r ?? [];
+    },
+
     async deleteNodes(nodeIds) {
       await run(`
         const ids = ${JSON.stringify(nodeIds)};

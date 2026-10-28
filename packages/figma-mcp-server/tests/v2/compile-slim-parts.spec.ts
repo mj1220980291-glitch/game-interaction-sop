@@ -165,7 +165,7 @@ function top() {
 }
 
 describe('slimParts · 顶部残留', () => {
-  it('只剩标签的分组整组隐藏，带槽位的分组保留', async () => {
+  it('值清空后写占位符，标签与分组都保留', async () => {
     const h = slotsBackend(top());
     await slimParts({
       backend: h.backend,
@@ -173,7 +173,8 @@ describe('slimParts · 顶部残留', () => {
       capabilities: { overview: 'none', figure: 'none' }
     });
 
-    expect(h.writes).toContain('visible:row1:false');
+    expect(h.writes).toContain('text:v1:/待补充');
+    expect(h.writes).not.toContain('visible:row1:false');
     expect(h.writes).not.toContain('visible:row2:false');
     expect(h.childrenOf('row2').map((x) => x.name)).toEqual(['审核者', '设计师名称']);
   });
