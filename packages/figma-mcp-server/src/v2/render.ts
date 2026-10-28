@@ -1430,14 +1430,18 @@ async function finishBlockFigures(
   const updates = [...p.textUpdates];
   const toFill: Array<{ img: AppendedImage; key: string; asset: FigmaNodeAsset }> = [];
   const parts = new Map<string, { rectId?: string; hintId?: string }>();
+  /** 裸矩形配图槽：槽位本身就是要填图的矩形（蛋仔这类模板没有外层 GROUP）。 */
+  const bareSlots = new Set<string>();
   let blockWidth: number | undefined;
 
   const needScan = p.images.some((img) => img.desc || p.figures.lookup(p.keyPrefix, img.ordinal));
   if (needScan) {
     const { nodes: scanned, truncated } = await backend.scanSubtree(p.blockId);
     const all = truncated ? await scanAllDescendants(backend, p.blockId) : scanned;
+    const slotIds = new Set(p.images.map((img) => img.groupId));
     for (const n of all) {
       if (n.id === p.blockId) blockWidth = n.absoluteBoundingBox?.width;
+      if (n.type === 'RECTANGLE' && slotIds.has(n.id) && isFigureSlot(n)) bareSlots.add(n.id);
       if (!n.parentId) continue;
       const entry = parts.get(n.parentId) ?? {};
       if (n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholderHint) {
@@ -1466,7 +1470,9 @@ async function finishBlockFigures(
   if (updates.length > 0) p.figures.textWritten(await backend.setMultipleTextContents(updates));
 
   for (const { img, key, asset } of toFill) {
-    const { rectId, hintId } = parts.get(img.groupId) ?? {};
+    const entry = parts.get(img.groupId) ?? {};
+    const hintId = entry.hintId;
+    const rectId = figureRectId(entry, bareSlots.has(img.groupId), img.groupId);
     try {
       if (!backend.fillFigurePlaceholder) {
         throw new Error('backend lacks fillFigurePlaceholder');
@@ -1708,6 +1714,21 @@ export function isFigureSlot(n: NodeInfo): boolean {
     n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder &&
     (n.type === 'GROUP' || n.type === 'RECTANGLE' || n.type === 'FRAME')
   );
+}
+
+/**
+ * 真正被填图的那个矩形的 id。
+ *
+ * 官方形态是「GROUP 内含 `配图占位` 矩形」，蛋仔的槽位本身就是裸矩形 —— 后者的
+ * 槽位 id 就是矩形 id，直接拿来填。
+ */
+export function figureRectId(
+  entry: { rectId?: string } | undefined,
+  isBareSlot: boolean,
+  groupId: string
+): string | undefined {
+  if (entry?.rectId) return entry.rectId;
+  return isBareSlot ? groupId : undefined;
 }
 
 /**

@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { isFigureSlot } from '../../src/v2/render.js';
+import { isFigureSlot, figureRectId } from '../../src/v2/render.js';
 import type { NodeInfo } from '../../src/v2/figma-client.js';
 
 const slot = (type: NodeInfo['type'], name = '配图'): NodeInfo => ({ id: 'x', name, type });
@@ -26,5 +26,20 @@ describe('isFigureSlot', () => {
 
   it('文本节点即使同名也不算', () => {
     expect(isFigureSlot(slot('TEXT'))).toBe(false);
+  });
+});
+
+describe('figureRectId', () => {
+  it('GROUP 槽：用里面的「配图占位」矩形', () => {
+    expect(figureRectId({ rectId: 'inner' }, false, 'grp')).toBe('inner');
+  });
+
+  it('裸矩形槽：矩形自己就是要填图的节点', () => {
+    expect(figureRectId(undefined, true, 'rect-1')).toBe('rect-1');
+    expect(figureRectId({}, true, 'rect-1')).toBe('rect-1');
+  });
+
+  it('GROUP 槽里没有占位矩形 → undefined（走软告警，不瞎填）', () => {
+    expect(figureRectId({}, false, 'grp')).toBeUndefined();
   });
 });
