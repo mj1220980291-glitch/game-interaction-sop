@@ -129,7 +129,13 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     : undefined;
 
   const topInfo = await backend.getNodeInfo(top.id);
-  const width = topInfo.absoluteBoundingBox?.width ?? 1920;
+  // 根帧宽度取「最宽的部件」。必须在建帧时定好：根帧一旦 resize，Figma 会把
+  // HUG 高度翻成 FIXED，根帧高度就变成写死的 1。
+  let width = topInfo.absoluteBoundingBox?.width ?? 1920;
+  for (const part of [top, ...chapters, ...(footer ? [footer] : [])]) {
+    const info = part.id === top.id ? topInfo : await backend.getNodeInfo(part.id);
+    width = Math.max(width, info.absoluteBoundingBox?.width ?? 0);
+  }
   // 根帧也接上自适应：部件 append 进来就自动纵向排、根帧高度跟着长，
   // 不用再手工累加 y 然后一次性设总高（那个数一错就整篇错位）。
   const autoLayout = typeof backend.setAutoLayout === 'function';
@@ -218,17 +224,8 @@ async function layout(
   backend: FigmaBackend,
   autoLayout: boolean
 ): Promise<void> {
-  if (autoLayout) {
-    // 纵向位置与总高都由自动布局算，这里只把宽度撑到最宽的那个部件
-    // （顶部 2198 / 章节 2209 / 结尾 2198 各不相同）。
-    let width = 0;
-    for (const part of parts) {
-      const info = await backend.getNodeInfo(part.id);
-      width = Math.max(width, info.absoluteBoundingBox?.width ?? 0);
-    }
-    if (width > 0) await backend.resizeNode!(root.id, width, 1);
-    return;
-  }
+  // 自动布局路径下什么都不用做：位置与根帧高度都是算出来的，宽度在建帧时已定。
+  if (autoLayout) return;
   let y = 0;
   let width = 0;
   for (const part of parts) {
