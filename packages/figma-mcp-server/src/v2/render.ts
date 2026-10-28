@@ -1249,11 +1249,16 @@ async function fillBlockContent(
   // No 配图 wanted here: drop the template's (the section seed survives
   // until ImageSeed.flush).
   const existingImageGroups = allDescendants.filter(isFigureSlot);
-  if (existingImageGroups.length > 0 && !hasImageBullets) {
+  if (nestedShell) {
+    // 嵌套空壳：没有 seed 的概念，槽留着就是每簇一块白框 —— 直接删。
+    if (hasImageBullets) {
+      await fillNestedFigures(backend, p, existingImageGroups);
+    } else if (existingImageGroups.length > 0) {
+      await backend.deleteNodes(existingImageGroups.map((n) => n.id));
+    }
+  } else if (existingImageGroups.length > 0) {
     const doomed = imageSeed.filterDeletes(existingImageGroups.map((n) => n.id));
     if (doomed.length > 0) await backend.deleteNodes(doomed);
-  } else if (hasImageBullets) {
-    await fillNestedFigures(backend, p, existingImageGroups);
   }
 }
 
@@ -1283,6 +1288,16 @@ async function fillNestedFigures(
     figures: p.figures,
     keyPrefix
   });
+
+  // 正文是「原件 + 克隆」拼出来的，配图槽原本夹在中间，会落在两条正文之间。
+  // 挪到父级末尾，读起来才是「规则…规则 → 配图」。
+  if (typeof backend.reparentNode === 'function' && first?.parentId) {
+    await backend.reparentNode({
+      nodeId: first.id,
+      newParentId: first.parentId,
+      preserveAbsolutePosition: false
+    });
+  }
 }
 
 /**
