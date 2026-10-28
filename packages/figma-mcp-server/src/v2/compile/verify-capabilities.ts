@@ -82,23 +82,26 @@ export function deriveCapabilities(input: {
   }
 
   if (chapterDetect) {
-    caps.figure = detectFigure(chapterDetect.clusters);
-    caps.hiddenPool = detectHiddenPool(chapterDetect.clusters);
-
     // 标号容器是**结构证据**：说明栏被清空了也照样看得见，所以单独判。
-    if (chapterDetect.badgeGroup) {
-      caps.badgeSlot = 'container';
-    } else if (chapterDetect.clusters.length === 0) {
-      undecidable.push('badgeSlot');
-    } else {
-      caps.badgeSlot = chapterDetect.clusters.some((c) => c.numberKind !== 'none') ? 'manual' : 'none';
-    }
+    if (chapterDetect.badgeGroup) caps.badgeSlot = 'container';
 
     if (chapterDetect.clusters.length === 0) {
-      // 说明栏已被空壳化清空：这时候既判不出簇的编号形态，也判不出左右栏
-      // （标题块、图区、气泡摆在一起，任何结论都是猜）。一律保留源模板结论。
-      undecidable.push('column', 'numberBadge', 'clusterGroups');
+      // 说明栏已被空壳化清空：簇根本不在这棵树里，凡是从簇上看出来的结论
+      // （配图槽、隐藏池、编号形态、左右栏）都无从谈起——一律保留源模板结论，
+      // 不能因为「看不到」就把 figure 打成 none（蛋仔真机踩过：配图槽明明在
+      // 簇部件里，能力却被判成 none，渲染就把配图全丢了）。
+      undecidable.push('column', 'figure', 'hiddenPool', 'numberBadge', 'clusterGroups');
+      if (!chapterDetect.badgeGroup) undecidable.push('badgeSlot');
     } else {
+      caps.figure = detectFigure(chapterDetect.clusters);
+      caps.hiddenPool = detectHiddenPool(chapterDetect.clusters);
+
+      if (!chapterDetect.badgeGroup) {
+        caps.badgeSlot = chapterDetect.clusters.some((c) => c.numberKind !== 'none')
+          ? 'manual'
+          : 'none';
+      }
+
       caps.column = detectColumn(chapterDetect.chapters);
       const kinds = chapterDetect.clusters.map((c) => c.numberKind);
       caps.numberBadge = kinds.includes('instance')

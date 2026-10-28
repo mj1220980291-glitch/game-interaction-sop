@@ -78,4 +78,18 @@ describe('deriveCapabilities', () => {
     expect(gap.what).toContain('numberBadge');
     expect(r.capabilities.numberBadge).toBe(DEFAULT_CAPABILITIES.numberBadge);
   });
+
+  it('空壳化后的章节不会把 figure 判回 none（簇在簇部件里，不在这棵树里）', () => {
+    const chapter = tree('ch', [
+      { id: 'ch', name: '章节', type: 'FRAME', childIds: ['g', 't'] },
+      { id: 'g', name: '图', type: 'RECTANGLE', absoluteBoundingBox: { x: 0, y: 0, width: 1200, height: 600 } },
+      { id: 't', name: 'Text', type: 'FRAME', absoluteBoundingBox: { x: 1250, y: 0, width: 900, height: 600 } }
+    ]);
+    const source = { ...DEFAULT_CAPABILITIES, figure: 'named-group' as const };
+    const r = deriveCapabilities({ chapter, source });
+
+    expect(r.capabilities.figure).toBe('named-group');
+    expect(r.diffs.some((d) => d.key === 'figure')).toBe(false);
+    expect(r.gaps.find((g) => g.what.includes('无法从部件实测'))!.what).toContain('figure');
+  });
 });
