@@ -521,6 +521,9 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           const c = await figma.getNodeByIdAsync(id);
           if (c) abs.push({ node: c, x: c.x, y: c.y });
         }
+        // 开自动布局的那一瞬间，绝对定位子级还是普通子级，会把宽度一起撑大
+        // （蛋仔章节：1200 + 77 + 932 + 77 + 1920 = 4206）。原宽度先记下来。
+        const keepWidth = n.width;
 
         n.layoutMode = ${JSON.stringify(mode)};
         n.paddingTop = ${p.top ?? 0};
@@ -540,6 +543,8 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           node.x = x;
           node.y = y;
         }
+        // 宽度是模板身份（跨模板 2209 / 3382 / 3698 各不相同），不跟着内容走。
+        if (Math.abs(n.width - keepWidth) > 0.5) n.resize(keepWidth, n.height);
         return null;
       `, 20000);
     },
