@@ -145,7 +145,7 @@ describe('slimParts · 簇内原稿媒体', () => {
     expect(h.childrenOf('k').map((x) => x.name)).toEqual(['#Title_Main', '正文/规则', '隐藏池']);
   });
 
-  it('簇标题与编号：先让位再整组居中', async () => {
+  it('簇标题让位给编号，水平保持靠左，角标与文字按中线对齐', async () => {
     const h = slotsBackend([
       n('k', '簇', 'COMPONENT', ['g'], { w: 916, h: 400 }),
       n('g', 'Group', 'GROUP', ['title', 'num', 'b1'], { w: 916, h: 400 }),
@@ -159,14 +159,14 @@ describe('slimParts · 簇内原稿媒体', () => {
       capabilities: { overview: 'none', figure: 'none' }
     });
 
-    // 整组 251 宽（编号 63 + 间距 8 + 标题 180）居中到 916：(916-251)/2 = 332.5
-    expect(h.store.get('num')!.x).toBe(332.5);
-    expect(h.store.get('title')!.x).toBe(403.5);
-    // 标题仍然在编号右边，没有压字
-    expect(h.store.get('title')!.x).toBeGreaterThan(h.store.get('num')!.x + 63);
+    // 编号 0..63 + 8 间距 = 71：标题让位到 71，但整组仍贴左（不居中）。
+    expect(h.store.get('num')!.x).toBe(0);
+    expect(h.store.get('title')!.x).toBe(71);
+    // 标题 52 高、角标 63 高 → 角标上移 5.5 让两者中线对齐。
+    expect(h.store.get('num')!.y).toBe(-5.5);
   });
 
-  it('标题本来就在很右边时，也会被拉回居中', async () => {
+  it('标题本来就在右边时不动它的水平位置', async () => {
     const h = slotsBackend([
       n('k', '簇', 'COMPONENT', ['g'], { w: 916, h: 400 }),
       n('g', 'Group', 'GROUP', ['title', 'num', 'b1'], { w: 916, h: 400 }),
@@ -179,9 +179,8 @@ describe('slimParts · 簇内原稿媒体', () => {
       parts: [{ part: 'cluster', nodeId: 'k' }],
       capabilities: { overview: 'none', figure: 'none' }
     });
-    // 整组 300 宽居中到 916：(916-300)/2 = 308
-    expect(h.store.get('num')!.x).toBe(308);
-    expect(h.store.get('title')!.x).toBe(428);
+    expect(h.store.get('title')!.x).toBe(120);
+    expect(h.store.get('num')!.x).toBe(0);
   });
 });
 

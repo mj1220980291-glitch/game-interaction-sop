@@ -67,7 +67,7 @@ export async function slimParts(input: SlimInput): Promise<SlimResult> {
     // 就等于白算（真机踩过：簇标题偏了 18px）。
     const { nodes: fresh } = await backend.scanSubtree(nodeId, SCAN_BUDGET);
     if (part === 'top') await centerTopTagRow(backend, fresh);
-    if (part === 'cluster') await centerClusterHeading(backend, fresh);
+    if (part === 'cluster') await alignClusterHeading(backend, fresh);
   }
 
   return { deleted, cleared, gaps };
@@ -317,32 +317,29 @@ async function unstickTitleFromNumber(
 }
 
 /**
- * 编号 + 簇标题整组水平居中（编译期给部件定版；渲染期还会按真实标题再居中一次）。
+ * 编号角标与簇标题**垂直居中对齐**，水平方向保持模板的靠左排版。
+ *
+ * 角标是三角形（63 高），标题文字 52 高，两者都贴顶时文字看着往下掉一截；
+ * 按中线对齐才是一条水平线。
  */
-async function centerClusterHeading(
+async function alignClusterHeading(
   backend: FigmaBackend,
   nodes: ReadonlyArray<NodeInfo>
 ): Promise<void> {
-  const snapshotTitle = nodes.find((n) => n.name === CLUSTER_SLOTS.title && !isSublayer(n.id));
-  const snapshotCarrier = nodes.find(
-    (n) => n.name === CLUSTER_SLOTS.number && n.parentId === snapshotTitle?.parentId
+  if (typeof backend.moveNode !== 'function') return;
+  const title = nodes.find((n) => n.name === CLUSTER_SLOTS.title && !isSublayer(n.id));
+  const carrier = nodes.find(
+    (n) => n.name === CLUSTER_SLOTS.number && n.parentId === title?.parentId
   );
-  if (!snapshotTitle || !snapshotCarrier) return;
-  // 让位那一步刚挪过标题，扫描快照里的坐标是旧的 —— 必须重新读。
-  const [title, carrier] = await backend.getNodesInfo([snapshotTitle.id, snapshotCarrier.id]);
-  const parent = title?.parentId ? await backend.getNodeInfo(title.parentId) : undefined;
-  const parentW = parent?.absoluteBoundingBox?.width;
-  const tb = title?.absoluteBoundingBox;
-  const nb = carrier?.absoluteBoundingBox;
-  if (!parentW || !tb || !nb) return;
-  const left = Math.min(nb.x, tb.x);
-  const right = Math.max(nb.x + nb.width, tb.x + tb.width);
-  const parentLeft = parent?.absoluteBoundingBox?.x ?? 0;
-  await shiftPair(
-    backend,
-    [carrier!, title!],
-    parentLeft + (parentW - (right - left)) / 2 - left
-  );
+  if (!title || !carrier) return;
+  const [freshTitle, freshCarrier] = await backend.getNodesInfo([title.id, carrier.id]);
+  const tb = freshTitle?.absoluteBoundingBox;
+  const nb = freshCarrier?.absoluteBoundingBox;
+  if (!tb || !nb) return;
+  const delta = tb.y + (tb.height - nb.height) / 2 - nb.y;
+  if (Math.abs(delta) < 0.5) return;
+  if (typeof freshCarrier.x !== 'number' || typeof freshCarrier.y !== 'number') return;
+  await backend.moveNode(carrier.id, freshCarrier.x, freshCarrier.y + delta);
 }
 
 /**
