@@ -27,6 +27,11 @@ import {
   type ScratchRef
 } from './plan.js';
 import { buildSnapshot } from './snapshot.js';
+import { LEGACY_PROFILE, profileFor, type StructureProfile } from './structure.js';
+import { packHash } from '../template/pack-hash.js';
+import { loadPartsPack } from '../template-config.js';
+import { stampPartsDoc, type PartsDocLayout } from '../render/parts/stamp-parts.js';
+import { refreshChapterGeometry } from '../render/parts/geometry.js';
 import { SCRATCH_ROOT_NAME, type DocStamp } from './stamp.js';
 import type { TemplateRef } from '../template-config.js';
 import { Tree } from './tree.js';
@@ -68,9 +73,30 @@ export async function reconcileV2(
     );
   }
 
-  const snap = buildSnapshot(tree);
-  const planned = planReconcile(snap, ir, { scope: input.scope, assetMap: input.assetMap });
-  if (!planned.ok) return fail(planned.code, planned.message, parseWarnings);
+  const docStamp = tree.root.parsed as DocStamp;
+  const profile = profileFor(docStamp);
+  if (profile.id === 'parts') {
+    // 部件重编会改槽位名与能力；在旧结构上按新能力同步会删错节点。
+    const current = loadPartsPack()?.pack;
+    if (!current) {
+      return fail(
+        'V2_PACK_MISMATCH',
+        'this document was rendered from a template pack, but no pack is configured now — re-render it instead of syncing',
+        parseWarnings
+      );
+    }
+    const expected = docStamp.parts?.packHash;
+    if (expected && expected !== packHash(current)) {
+      return fail(
+        'V2_PACK_MISMATCH',
+        `the template pack changed since this document was rendered (${expected} → ${packHash(current)}); re-render instead of syncing`,
+        parseWarnings
+      );
+    }
+  }
+
+  const snap = buildSnapshot(tree, profile);
+  const planned = planReconcile(snap, ir, { scope: input.scope, assetMap: input.assetMap });  if (!planned.ok) return fail(planned.code, planned.message, parseWarnings);
   const plan = planned.plan;
   const warnings = [...parseWarnings, ...snap.warnings];
   const report = { changes: plan.changes, conflicts: plan.conflicts, preserved: plan.preserved };
@@ -110,7 +136,7 @@ export async function reconcileV2(
     if (plan.scratchSections.length > 0) {
       const scratch = await renderScratch(backend, ir, plan, input.assetMap, tree.pageId, (id) => {
         scratchRootId = id;
-      }, input.template);
+      }, input.template, profile);
       scratchRootId = scratch.rootId;
       resolver = scratch.resolver;
       warnings.push(...scratch.warnings);
@@ -135,6 +161,13 @@ export async function reconcileV2(
 
     const failedFills = await runFills(backend, plan.fills, warnings);
     done.add('fills');
+
+    // 多部件文档：簇集合一变，章节高度与左列贴合就得重算（否则多出一截空白）。
+    if (profile.id === 'parts') {
+      for (const nodeId of changedSectionNodes(plan.changes, ir, snap)) {
+        await refreshChapterGeometry(backend, nodeId);
+      }
+    }
 
     const docStamp: DocStamp = { ...plan.docStamp(resolver) };
     delete docStamp.lock;
@@ -176,7 +209,6 @@ export async function reconcileV2(
 }
 
 // --- Resolution -------------------------------------------------------------
-
 const directResolver: Resolver = {
   id(ref) {
     if (typeof ref === 'string') return ref;
@@ -190,6 +222,30 @@ const directResolver: Resolver = {
 interface Chunk {
   ops: ReconcileOp[];
   keys: string[];
+}
+
+/**
+ * 改动过的章节节点：`changes` 的路径是 `NN/...`，按界面序号找回画布上的章节。
+ * 用 markdown 里的界面名对位，不假定序号顺序没变（重排会打乱）。
+ */
+function changedSectionNodes(
+  changes: Array<{ path: string }>,
+  ir: DocIR,
+  snap: { sections: Array<{ W: string; node?: { id: string } }> }
+): string[] {
+  const touched = new Set<number>();
+  for (const c of changes) {
+    const m = /^(\d{2})(\/|$)/.exec(c.path);
+    if (m) touched.add(Number(m[1]));
+  }
+  const out: string[] = [];
+  for (const n of touched) {
+    const name = ir.sections[n - 1]?.name;
+    if (!name) continue;
+    const hit = snap.sections.find((s) => s.W === name && s.node);
+    if (hit?.node) out.push(hit.node.id);
+  }
+  return out;
 }
 
 function chunkBatches(batches: PlanBatch[], r: Resolver): Chunk[] {
@@ -238,7 +294,8 @@ async function renderScratch(
   assetMap: Record<string, AssetSpec> | undefined,
   pageId: string | undefined,
   onRoot: (id: string) => void,
-  template?: Partial<TemplateRef>
+  template?: Partial<TemplateRef>,
+  profile: StructureProfile = LEGACY_PROFILE
 ): Promise<{ rootId: string; resolver: Resolver; warnings: SoftWarning[] }> {
   const pos = new Map<number, number>();
   plan.scratchSections.forEach((s, p) => pos.set(s, p));
@@ -267,6 +324,7 @@ async function renderScratch(
 
   const figures = makeFigureState(remapped);
   let rootId: string | undefined;
+  let partsLayout: PartsDocLayout | undefined;
   rootId = await renderInner(
     scratchIr,
     { markdown: '', assetMap: remapped, target: { pageId }, template },
@@ -275,8 +333,44 @@ async function renderScratch(
     (id) => {
       rootId = id;
       onRoot(id);
+    },
+    undefined,
+    (layout) => {
+      partsLayout = layout;
     }
   );
+
+  if (profile.scratch === 'parts') {
+    const pack = loadPartsPack()?.pack;
+    if (!partsLayout || !pack) {
+      throw Object.assign(new Error('scratch render produced no parts layout'), {
+        code: 'V2_RECONCILE_SCRATCH_MISMATCH'
+      });
+    }
+    const { missing, written } = await stampPartsDoc(backend, partsLayout, scratchIr, pack);
+    if (missing.length > 0) {
+      throw Object.assign(new Error(`scratch render did not line up: ${missing.join('; ')}`), {
+        code: 'V2_RECONCILE_SCRATCH_MISMATCH'
+      });
+    }
+    const layoutRef = partsLayout;
+    const resolver: Resolver = {
+      id(ref: Ref): string {
+        if (typeof ref === 'string') return ref;
+        const id = scratchPartsId(layoutRef, pos, ref);
+        if (!id) throw new Error(`scratch node not found for ${JSON.stringify(ref)}`);
+        return id;
+      },
+      stampOf(ref: Ref) {
+        const id = resolver.id(ref);
+        const hit = written.get(id);
+        if (!hit) throw new Error(`scratch node ${id} carries no stamp`);
+        return hit as { [k: string]: unknown };
+      }
+    };
+    return { rootId, resolver, warnings: figures.warnings };
+  }
+
   const stamped = await stampRenderedDoc(backend, rootId, scratchIr, remapped);
   if (stamped.problems.length > 0) {
     throw Object.assign(new Error(`scratch render did not line up: ${stamped.problems.join('; ')}`), {
@@ -298,6 +392,30 @@ async function renderScratch(
     }
   };
   return { rootId, resolver, warnings: figures.warnings };
+}
+
+function scratchPartsId(
+  layout: PartsDocLayout,
+  pos: Map<number, number>,
+  ref: ScratchRef
+): string | undefined {
+  const p = pos.get(ref.s);
+  const sec = p === undefined ? undefined : layout.sections[p];
+  if (!sec) return undefined;
+  if (ref.part === 'section') return sec.nodeId;
+  const cl = ref.c === undefined ? undefined : sec.clusters[ref.c];
+  if (!cl) return undefined;
+  switch (ref.part) {
+    case 'block':
+      return cl.nodeId;
+    case 'bubble':
+      return cl.bubbleId;
+    case 'item':
+      return ref.i === undefined ? undefined : cl.items[ref.i]?.nodeId;
+    default:
+      // parts 的职能写在条目句尾（inline-suffix），没有职能标记框可搬。
+      return undefined;
+  }
 }
 
 function scratchId(

@@ -613,6 +613,8 @@ class Planner {
     const entries: Entry[] = [];
     let anchor: Ref | null = head;
     let ordinal = 0;
+    /** 条目落到哪一层：legacy 是簇节点，多部件是簇里的内容层。 */
+    const itemsParentId = oc.itemsParent?.id ?? oc.node!.id;
 
     seq.steps.forEach((step, i) => {
       const w = want[i]!;
@@ -621,7 +623,7 @@ class Planner {
       if (step.kind === 'insert') {
         this.scratch.add(n);
         const ref: ScratchRef = { s: n, c: k, i, part: 'item' };
-        seqOps.push({ op: 'place', node: ref, parentId: oc.node!.id, after: anchor });
+        seqOps.push({ op: 'place', node: ref, parentId: itemsParentId, after: anchor });
         this.change({ path, action: 'insert', detail: w.text });
         entries.push({ id: ref, t: w.t, text: w.text });
         anchor = ref;
@@ -640,7 +642,7 @@ class Planner {
         return;
       }
       if (step.kind === 'move') {
-        seqOps.push({ op: 'place', node: it.node.id, parentId: oc.node!.id, after: anchor });
+        seqOps.push({ op: 'place', node: it.node.id, parentId: itemsParentId, after: anchor });
         this.change({ path, action: 'move' });
         dirty = true;
       }
@@ -716,11 +718,14 @@ class Planner {
     ops: PlanOp[]
   ): string {
     const tree = this.snap.tree;
+    const bareSlot = this.snap.profile.figureSlot === 'rect';
     const group = it.node!;
-    const hint = tree.find(
-      group.id,
-      (x) => x.type === 'TEXT' && x.name === SECTION_CHILD_NAMES.optionalImagePlaceholderHint
-    );
+    const hint = bareSlot
+      ? undefined
+      : tree.find(
+          group.id,
+          (x) => x.type === 'TEXT' && x.name === SECTION_CHILD_NAMES.optionalImagePlaceholderHint
+        );
     let newW = it.W;
     if (w.text !== it.W) {
       if (hint) {
@@ -740,10 +745,13 @@ class Planner {
     if (asset?.type === 'figma_node' && !sameAsset(asset, stamp.asset)) {
       const F = tree.subtreeHash(group.id);
       if (F === (stamp.imageHash ?? null)) {
-        const rect = tree.find(
-          group.id,
-          (x) => x.type === 'RECTANGLE' && x.name === SECTION_CHILD_NAMES.optionalImageRect
-        );
+        // 单层矩形槽：条目节点自己就是要填图的那一层，没有内层占位矩形可找。
+        const rect = bareSlot
+          ? group
+          : tree.find(
+              group.id,
+              (x) => x.type === 'RECTANGLE' && x.name === SECTION_CHILD_NAMES.optionalImageRect
+            );
         this.fills.push({
           kind: 'figure',
           path,
@@ -775,6 +783,7 @@ class Planner {
     if (it.t !== 'figure') return (it.node.characters ?? '') === it.W;
     const tree = this.snap.tree;
     if (tree.subtreeHash(it.node.id) !== (it.stamp?.imageHash ?? null)) return false;
+    if (this.snap.profile.figureSlot === 'rect') return true;
     const hint = tree.find(
       it.node.id,
       (x) => x.type === 'TEXT' && x.name === SECTION_CHILD_NAMES.optionalImagePlaceholderHint

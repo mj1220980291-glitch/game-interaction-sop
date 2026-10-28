@@ -37,12 +37,26 @@ export interface ItemManifestEntry extends ManifestEntry {
   t: ItemType;
 }
 
+/**
+ * 多部件文档的指纹：部件 key + 能力。模板重编后 key 或能力会变，旧文档
+ * 上的同步必须拒绝——按新能力改旧结构会删错节点。
+ */
+export interface PartsFingerprint {
+  structure: 'parts';
+  packHash: string;
+  components: Record<string, string>;
+}
+
 export interface DocStamp {
   kind: 'doc';
   v: number;
   header: Partial<Record<HeaderKey, string>>;
   overview: Partial<Record<OverviewKey, string>>;
   sections: ManifestEntry[];
+  /** Absent = legacy `1:14` structure (documents rendered before this existed). */
+  structure?: 'legacy' | 'parts';
+  /** Present only for multi-part documents. */
+  parts?: PartsFingerprint;
   lock?: { runId: string; at: number };
 }
 

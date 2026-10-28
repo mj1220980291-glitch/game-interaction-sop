@@ -13,6 +13,7 @@ import { SOFT_WARNING_CODES, type SoftWarning } from '../ir.js';
 import { SECTION_CHILD_NAMES } from '../template-map.js';
 import { DEFAULT_LABEL_TEXT_NAME } from '../template-config.js';
 import { Tree, type TNode } from './tree.js';
+import { profileFor, type StructureProfile } from './structure.js';
 import {
   HEADER_KEYS,
   OVERVIEW_KEYS,
@@ -57,6 +58,11 @@ export interface SnapCluster {
   foreign: TNode[];
   /** Node new items go after when nothing precedes them; undefined = front. */
   headAnchorId?: string;
+  /**
+   * 条目实际挂在哪一层。legacy 是簇节点自身；多部件的条目套在 `Frame 808` 这类
+   * 内容层里，插入/移动必须落到这一层，否则锚点在父级里找不到。
+   */
+  itemsParent?: TNode;
 }
 
 export interface SnapSection {
@@ -80,6 +86,7 @@ export interface DocSnapshot {
   tree: Tree;
   root: TNode;
   stamp: DocStamp;
+  profile: StructureProfile;
   header: Partial<Record<HeaderKey, TNode>>;
   overview: Partial<Record<OverviewKey, TNode>>;
   sectionsContainer?: TNode;
@@ -91,6 +98,30 @@ export interface DocSnapshot {
 
 function slotRole(n: TNode): SlotRole | undefined {
   return n.parsed?.kind === 'slot' ? n.parsed.role : undefined;
+}
+
+/**
+ * 外壳节点：自己没标记，但里面装着引擎节点。
+ *
+ * 多部件结构里条目被包在 `Group 1253` / `Frame 808` 这类容器里（`1:14` 是直接
+ * 挂在说明块下），把外壳当"设计师手贴的东西"会让它随同步一起被保留、报一堆
+ * fake foreign。有下级的引擎内容就说明这层是结构，不是人加的。
+ */
+function hasStampedDescendant(tree: Tree, node: TNode): boolean {
+  return tree.find(node.id, (n) => n.id !== node.id && n.parsed !== undefined) !== undefined;
+}
+
+/** 深度优先的子孙节点（文档顺序）。 */
+function descendants(tree: Tree, nodeId: string): TNode[] {
+  const out: TNode[] = [];
+  const walk = (id: string): void => {
+    for (const c of tree.children(id)) {
+      out.push(c);
+      walk(c.id);
+    }
+  };
+  walk(nodeId);
+  return out;
 }
 
 /** Physical entries + tombstones, in sequence order. */
@@ -118,9 +149,10 @@ function mergeWithTombstones<P>(
   return out;
 }
 
-export function buildSnapshot(tree: Tree): DocSnapshot {
+export function buildSnapshot(tree: Tree, profile?: StructureProfile): DocSnapshot {
   const root = tree.root;
   const stamp = root.parsed as DocStamp;
+  const structure = profile ?? profileFor(stamp);
   const warnings: SoftWarning[] = [];
 
   // Which container lists which id, across the whole document.
@@ -154,8 +186,7 @@ export function buildSnapshot(tree: Tree): DocSnapshot {
     return o === undefined ? 'orphan' : 'listed';
   };
 
-  const header: DocSnapshot['header'] = {};
-  const overview: DocSnapshot['overview'] = {};
+  const header: DocSnapshot['header'] = {};  const overview: DocSnapshot['overview'] = {};
   for (const n of tree.byId.values()) {
     const r = slotRole(n);
     if (!r) continue;
@@ -163,14 +194,17 @@ export function buildSnapshot(tree: Tree): DocSnapshot {
     for (const k of OVERVIEW_KEYS) if (r === `overview.${k}` && !overview[k]) overview[k] = n;
   }
 
-  const sectionsContainer = tree.find(root.id, (n) => slotRole(n) === 'sections');
+  const sectionsContainer =
+    tree.find(root.id, (n) => slotRole(n) === 'sections') ??
+    // 多部件文档没有中间那层容器：`界面说明N` 直接是根帧的子级。
+    (structure.id === 'parts' ? root : undefined);
   const foreign: TNode[] = [];
   const presentSections: SnapSection[] = [];
   for (const c of sectionsContainer ? tree.children(sectionsContainer.id) : []) {
     const s = c.parsed;
     const ok = s?.kind === 'section' ? accept(s.sid, 'doc', c) : false;
     if (s?.kind === 'section' && ok) {
-      presentSections.push({ ...snapSection(tree, c, s, accept), orphan: ok === 'orphan' });
+      presentSections.push({ ...snapSection(tree, c, s, accept, structure), orphan: ok === 'orphan' });
     } else if (!s || s.kind === 'section') {
       foreign.push(c);
     }
@@ -182,12 +216,18 @@ export function buildSnapshot(tree: Tree): DocSnapshot {
     (e) => ({ sid: e.id, W: e.text, clusters: [], foreign: [] })
   );
 
-  return { tree, root, stamp, header, overview, sectionsContainer, sections, foreign, warnings };
+  return { tree, root, stamp, profile: structure, header, overview, sectionsContainer, sections, foreign, warnings };
 }
 
 type Accept = (id: string, containerKey: string, n: TNode) => 'listed' | 'orphan' | false;
 
-function snapSection(tree: Tree, node: TNode, stamp: SectionStamp, accept: Accept): SnapSection {
+function snapSection(
+  tree: Tree,
+  node: TNode,
+  stamp: SectionStamp,
+  accept: Accept,
+  profile: StructureProfile
+): SnapSection {
   const byRole = (role: SlotRole) => tree.find(node.id, (n) => slotRole(n) === role);
   const main = byRole('main');
   const mainHint = byRole('mainHint');
@@ -201,7 +241,7 @@ function snapSection(tree: Tree, node: TNode, stamp: SectionStamp, accept: Accep
       const s = c.parsed;
       const ok = s?.kind === 'cluster' ? accept(s.cid, stamp.sid, c) : false;
       if (s?.kind === 'cluster' && ok) {
-        clustersPresent.push({ ...snapCluster(tree, c, s, accept), orphan: ok === 'orphan' });
+        clustersPresent.push({ ...snapCluster(tree, c, s, accept, profile), orphan: ok === 'orphan' });
       } else if (!s || s.kind === 'cluster') {
         foreign.push(c);
       }
@@ -234,7 +274,11 @@ function snapSection(tree: Tree, node: TNode, stamp: SectionStamp, accept: Accep
       watch.add(part.parentId);
     }
   }
-  for (const w of watch) for (const c of tree.children(w)) if (!c.parsed) foreign.push(c);
+  for (const w of watch) {
+    for (const c of tree.children(w)) {
+      if (!c.parsed && !hasStampedDescendant(tree, c)) foreign.push(c);
+    }
+  }
 
   return {
     sid: stamp.sid,
@@ -257,13 +301,25 @@ function snapSection(tree: Tree, node: TNode, stamp: SectionStamp, accept: Accep
   };
 }
 
-function snapCluster(tree: Tree, node: TNode, stamp: ClusterStamp, accept: Accept): SnapCluster {
+function snapCluster(
+  tree: Tree,
+  node: TNode,
+  stamp: ClusterStamp,
+  accept: Accept,
+  profile: StructureProfile
+): SnapCluster {
   const byRole = (role: SlotRole) => tree.find(node.id, (n) => slotRole(n) === role);
   const present: SnapItem[] = [];
   const foreign: TNode[] = [];
   let headAnchorId: string | undefined;
   let lastStructural: string | undefined;
-  for (const c of tree.children(node.id)) {
+  // 多部件文档的条目套在 `Group 1253` / `Frame 808` 里，不在簇根节点的直接子级；
+  // legacy 的说明块是扁平结构，两种都按文档顺序遍历一遍即可。
+  const candidates =
+    profile.id === 'parts'
+      ? descendants(tree, node.id).filter((n) => n.parsed?.kind === 'item')
+      : tree.children(node.id);
+  for (const c of candidates) {
     const s = c.parsed;
     const ok = s?.kind === 'item' ? accept(s.iid, stamp.cid, c) : false;
     if (s?.kind === 'item' && ok) {
@@ -279,11 +335,18 @@ function snapCluster(tree: Tree, node: TNode, stamp: ClusterStamp, accept: Accep
       });
     } else if (s && s.kind === 'slot') {
       lastStructural = c.id;
-    } else {
+    } else if (!hasStampedDescendant(tree, c)) {
       foreign.push(c);
     }
   }
   if (present.length === 0) headAnchorId = lastStructural;
+
+  // 多部件的条目套在 `Frame 808` 这类内容层里：插入与移动要落到这一层，
+  // 否则锚点在簇根节点的子级里找不到。
+  const itemsParent =
+    profile.id === 'parts' && present[0]?.node?.parentId
+      ? tree.byId.get(present[0].node.parentId)
+      : undefined;
 
   return {
     cid: stamp.cid,
@@ -300,7 +363,8 @@ function snapCluster(tree: Tree, node: TNode, stamp: ClusterStamp, accept: Accep
       (e) => ({ iid: e.id, t: (e as { t?: ItemType }).t ?? 'rule', W: e.text })
     ),
     foreign,
-    headAnchorId
+    headAnchorId,
+    ...(itemsParent ? { itemsParent } : {})
   };
 }
 

@@ -1,6 +1,44 @@
-# 交接说明（2026-10-26）
+# 交接说明（2026-10-29）
 
-## 当前状态快照（2026-10-28 23:30，换对话先读这一节）
+## 当前状态快照（2026-10-29 04:00，换对话先读这一节）
+
+**一句话**：parts 文档现在**能同步了**（`target.rootId` 不再一律被 `V2_NOT_STAMPED` 拒），链路 A 全段真机跑通：渲染 → 手改一句 → 同步 → `preserved` 保住手改、`changes` 只含 md 改动的条目；模板重编后同步被 `V2_PACK_MISMATCH` 拒。
+
+**代码状态**：进行中的变更是 `openspec/changes/parts-doc-reconcile-sync`（proposal/design/specs/tasks 齐，代码已落，`npm run build` + `npm test` **431/431** 通过）。
+
+**这一轮做完的**：
+
+| 类别 | 内容 |
+|---|---|
+| 打标 | parts 渲染结束调 `stampPartsDoc`：`doc` 带 `structure:'parts'` + `parts.packHash`；章节 / 簇 / 条目 / 槽位（顶部 header.*、说明栏 column、`#Title_Main`、主图、气泡、标号、母版 template）全打 |
+| 结构档案 | `reconcile/structure.ts`：`LEGACY_PROFILE` / `PARTS_PROFILE`；`figureSlot` 区分「GROUP 包矩形」与「单层矩形」 |
+| 入口 | 按 `doc.structure` 分派；`packHash` 不一致 → `V2_PACK_MISMATCH`；无标记仍 `V2_NOT_STAMPED`（不实现 adopt） |
+| 快照 | parts 的条目在内容层里（`Group 1253` / `Frame 808`），按子孙遍历取条目；插入 / 移动落到 `itemsParent`；「有引擎子孙的外壳」不再算 foreign |
+| scratch | 新增界面 / 簇时用 parts 管线造临时文档并打标，不引 `1:14` |
+| 几何 | `parts/geometry.ts` 抽出章节高度、左列贴合、标号摆放；同步后对受影响章节重算 |
+| 稳定性 | 冷启动首次进子树（scan / 删隐藏池）会超 Bridge 10s → 读与删除都套 `retryTransient`，错误信息带方法名 |
+
+**已知小尾巴（不影响验收）**：
+- 标号 1/2 落在同一列（默认 8 气泡网格按 1920×1080 定义，缩到 1200×719 后会挤）—— 属网格数据，未动
+- `需求组名称` 槽位蛋仔模板本身没有，渲染会出软告警（`V2_W_HEADER_SLOT_MISSING`）
+- 顶部 `-未开始` 在零件实例内部，不可编辑，保持模板原样
+- 同步时画布上的 `标号/母版` 会被报成 foreign（新渲染的文档已把母版标成 `template`，旧文档重渲一次即消失）
+
+**下一步（下一个人从这里接）**：
+
+- **补测**：簇级新增 / 删除（走 scratch + 标号重排）、配图换图（`assetMap` 指新源）、删除条目后不重建——这三条只有逻辑，没有真机断言
+- **链路 B · 新项目生成模板**：拿 **官方1.14** 当被测，重粘 `_staging` → 干跑看缺口 → 实跑 → 人工发布 → 刷库 → `verify` 回填 → 写配置 → 渲染 → 与重编前对比
+- 每次改动前的门槛：`npm run build` + `npm test`（431）+ `openspec validate --all --strict`
+
+**这一轮新增的坑（别重踩）**：
+
+1. **`template.json` 带 BOM 会静默失效**：`loadTemplatePack` 读不出 → 回落 legacy 路径，报的是「缺少设计总览 / 缺 @角色 行」这类无关错误。改配置文件用不会加 BOM 的方式写
+2. 冷启动簇 key 后，第一次 `scanSubtree` / `deleteNodes` 会卡满 Bridge 10s；只重试读操作不够，**可重放的删除也要重试**（克隆重放会多一份，不能重试）
+3. `npm run build` 后 worker 换新，Bridge 常需 10~20s 重连（端口还会在 9223/9224 之间跳）；渲染前先 `figma_get_status` probe 一次
+4. 同步的 `place` 找不到锚点，多半是**条目容器层选错**：parts 的条目不在簇根节点下，插入要落到 `itemsParent`
+5. 部件计数 / 指纹类判断错了症状最隐蔽：不报错，而是把引擎自己的节点当成「设计师删掉了」记进 `preserved.designer-deleted`
+
+**旧快照（2026-10-28 23:30，仅作历史参考）**：
 
 **一句话**：蛋仔这套模板已经**跑通完整链路**（编译 → 发布 → 刷库 → verify 回填 → 渲染 → 截图逐项目视），并修完了那一轮返工暴露的全部结构问题；三项「防返工」改进也做完了。下一步是端到端验收（见文末「验收剧本」）。
 

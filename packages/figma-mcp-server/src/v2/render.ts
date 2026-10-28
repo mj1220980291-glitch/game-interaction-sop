@@ -57,6 +57,7 @@ import {
   type TemplateRef
 } from './template-config.js';
 import { renderFromParts } from './render/parts/index.js';
+import { stampPartsDoc, type PartsDocLayout } from './render/parts/stamp-parts.js';
 import { isRoleFrame } from './template-slots.js';
 import {
   findRoleBlockBody,
@@ -263,6 +264,8 @@ export async function renderV2MarkdownToFigma(
   const roleWarnings: SoftWarning[] = [];
   await targetBackend.commitUndoCheckpoint('v2-render-start');
   let rootInstanceId: string | undefined;
+  let partsLayout: PartsDocLayout | undefined;
+  const partsPack = loadPartsPack()?.pack;
   try {
     rootInstanceId = await renderInner(
       parsed.ir,
@@ -270,7 +273,8 @@ export async function renderV2MarkdownToFigma(
       targetBackend,
       figures,
       (id) => { rootInstanceId = id; },   // set as soon as root is created
-      (w) => roleWarnings.push(w)
+      (w) => roleWarnings.push(w),
+      (layout) => { partsLayout = layout; }
     );
   } catch (e) {
     const err = e as Error & { code?: string };
@@ -299,21 +303,29 @@ export async function renderV2MarkdownToFigma(
   // Phase C — Stamp. A failure here leaves a usable document that simply
   // cannot be synced later, so it is a warning, never a rollback.
   //
-  // 多部件渲染出的文档**不打标记**：它没有「说明块」这类可对位的槽位命名，
-  // 也没有实现 parts 文档的原地同步；硬打只会得到一排「对不上」的假警告。
+  // 两种结构两套打标入口：legacy 按 `1:14` 的图层名游标（`stampRenderedDoc`），
+  // parts 用渲染期收集的节点清单（章节 / 簇 / 条目 id 都是现成的）。
   const stampWarnings: SoftWarning[] = [];
-  if (loadPartsPack() === undefined) {
-    try {
+  try {
+    if (partsLayout && partsPack) {
+      const { missing } = await stampPartsDoc(targetBackend, partsLayout, parsed.ir, partsPack);
+      for (const m of missing) {
+        stampWarnings.push({
+          code: SOFT_WARNING_CODES.W_STAMP_LAYOUT_MISMATCH,
+          message: `多部件文档缺槽位 ${m}——该槽位不会参与同步`
+        });
+      }
+    } else {
       const { problems } = await stampRenderedDoc(targetBackend, rootInstanceId, parsed.ir, input.assetMap);
       for (const p of problems) {
         stampWarnings.push({ code: SOFT_WARNING_CODES.W_STAMP_LAYOUT_MISMATCH, message: p });
       }
-    } catch (e) {
-      stampWarnings.push({
-        code: SOFT_WARNING_CODES.W_STAMP_FAILED,
-        message: `document rendered but not stamped, so it cannot be synced later: ${(e as Error).message}`
-      });
     }
+  } catch (e) {
+    stampWarnings.push({
+      code: SOFT_WARNING_CODES.W_STAMP_FAILED,
+      message: `document rendered but not stamped, so it cannot be synced later: ${(e as Error).message}`
+    });
   }
 
   return {
@@ -426,7 +438,8 @@ export async function renderInner(
   backend: FigmaBackend,
   figures: FigureState,
   onRootCreated?: (id: string) => void,
-  report?: (w: SoftWarning) => void
+  report?: (w: SoftWarning) => void,
+  onPartsLayout?: (layout: PartsDocLayout) => void
 ): Promise<string> {
   // 1. Clone master template into target page.
   const template = resolveTemplateConfig(input.template);
@@ -454,6 +467,7 @@ export async function renderInner(
     });
     for (const w of partsResult.warnings) report?.(w);
     figures.placed += partsResult.summary.figuresPlaced;
+    onPartsLayout?.(partsResult.layout);
     return partsResult.rootId;
   }
 

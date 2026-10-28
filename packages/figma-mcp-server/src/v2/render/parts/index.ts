@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 多部件渲染 —— 按 key 导入 4 个部件，detach 后拼成一份文档。
  *
  * 与旧路径的区别只有组装方式：旧路径整份克隆 `1:14` 再按名字填；这里拿的是
@@ -17,20 +17,15 @@ import type { FigmaBackend, NodeInfo } from '../../figma-client.js';
 import type { DocIR, InterfaceSection, SemanticCluster, SoftWarning } from '../../ir.js';
 import { SOFT_WARNING_CODES } from '../../ir.js';
 import type { TemplatePack } from '../../template/schema.js';
-import { MAIN_IMAGE_SIZE } from '../../template-map.js';
 import {
-  BADGE_MASTER_NAME,
   CHAPTER_SLOTS,
   CLUSTER_SLOTS,
   OVERVIEW_TEXT_SLOTS,
   TOP_SLOTS,
-  isBadgeFrame,
-  isBadgeMaster,
   isRoleFrame
 } from '../../template-slots.js';
 import {
   applyAsset,
-  bubbleOffset,
   fillCluster,
   indexCloneByName,
   makeFigureState,
@@ -39,6 +34,14 @@ import {
   type FigureState
 } from '../../render.js';
 import { retryTransient } from '../../../server/retry.js';
+import { isImageBullet, stripImageBulletPrefix } from '../../reconcile/stamp.js';
+import {
+  clusterItems,
+  type PartsClusterLayout,
+  type PartsDocLayout,
+  type PartsSectionLayout
+} from './stamp-parts.js';
+import { placeBadges, refreshChapterGeometry } from './geometry.js';
 
 export const PARTS_RENDER_CODES = {
   LAYOUT_UNSUPPORTED: 'V2_RENDER_LAYOUT_UNSUPPORTED',
@@ -60,6 +63,8 @@ export interface PartsRenderInput {
 
 export interface PartsRenderResult {
   rootId: string;
+  /** 打标用的节点清单：章节 / 簇 / 条目，都是渲染期就知道的 id。 */
+  layout: PartsDocLayout;
   warnings: SoftWarning[];
   summary: {
     sectionCount: number;
@@ -91,26 +96,35 @@ async function stage<T>(name: string, fn: () => Promise<T>): Promise<T> {
 const PARTS_GAP = 0;
 
 /**
- * 只重试**只读**调用。
+ * 只重试**可重放**的调用。
  *
- * 真机：簇这个 key 冷启动 import 之后，第一次 `scanSubtree` 要在插件里等库数据
- * 落地，超过 Bridge 的 10s 上限就整轮渲染白跑（写操作不能重试——克隆重试会多出
- * 一份）。所以读操作套一层重试，写操作原样穿透。
+ * 真机：簇这个 key 冷启动 import 之后，第一次进子树（scan / 删隐藏池）要在插件里
+ * 等库数据落地，超过 Bridge 的 10s 上限就整轮渲染白跑。读操作重放无害；删除也
+ * 可重放（已删的 id 再删时取不到节点，直接跳过）。克隆重放会多出一份，所以
+ * 其它写操作不重试。
  */
-const RETRY_READ_METHODS = new Set(['getNodeInfo', 'getNodesInfo', 'scanSubtree']);
+const RETRY_SAFE_METHODS = new Set(['getNodeInfo', 'getNodesInfo', 'scanSubtree', 'deleteNodes']);
 
 function retriedReads(backend: FigmaBackend): FigmaBackend {
   return new Proxy(backend, {
     get(target, prop) {
       const value = Reflect.get(target, prop, target);
       if (typeof value !== 'function') return value;
-      if (!RETRY_READ_METHODS.has(String(prop))) return value.bind(target);
-      return (...args: unknown[]) =>
-        retryTransient(() => (value as (...a: unknown[]) => Promise<unknown>).apply(target, args), {
-          attempts: 3,
-          delayMs: 3000,
-          log: (message) => process.stderr.write(`[render] ${message}\n`)
-        });
+      if (!RETRY_SAFE_METHODS.has(String(prop))) return value.bind(target);
+      return async (...args: unknown[]) => {
+        try {
+          return await retryTransient(
+            () => (value as (...a: unknown[]) => Promise<unknown>).apply(target, args),
+            {
+              attempts: 3,
+              delayMs: 3000,
+              log: (message) => process.stderr.write(`[render] ${message}\n`)
+            }
+          );
+        } catch (e) {
+          throw new Error(`${String(prop)}: ${(e as Error).message}`);
+        }
+      };
     }
   }) as FigmaBackend;
 }
@@ -199,6 +213,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
 
   await stage('fill.top', () => fillTop(backend, top, ir, caps.overview, warnings));
 
+  const sections: PartsSectionLayout[] = [];
   for (let i = 0; i < ir.sections.length; i += 1) {
     const section = ir.sections[i];
     const chapter = chapters[i];
@@ -216,12 +231,21 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     );
     if (placed.image) imagesPlaced += 1;
     else placeholdersUsed += 1;
+    sections.push({ nodeId: chapters[i]!.id, name: section.name, clusters: placed.clusters });
   }
 
   await stage('layout', () => layout(root, parts, backend, autoLayout));
 
+  const layoutInfo: PartsDocLayout = {
+    rootId: root.id,
+    topNodeId: top.id,
+    ...(footer ? { footerNodeId: footer.id } : {}),
+    sections
+  };
+
   return {
     rootId: root.id,
+    layout: layoutInfo,
     warnings,
     summary: {
       sectionCount: ir.sections.length,
@@ -430,7 +454,7 @@ async function fillChapter(
   chapter: NodeInfo,
   section: InterfaceSection,
   ctx: FillChapterCtx
-): Promise<{ image: boolean }> {
+): Promise<{ image: boolean; clusters: PartsClusterLayout[] }> {
   const named = await indexCloneByName(backend, chapter.id, [
     CHAPTER_SLOTS.sectionTitle,
     CHAPTER_SLOTS.mainImage,
@@ -488,6 +512,7 @@ async function fillChapter(
     }
   }
 
+  const clusters: PartsClusterLayout[] = [];
   for (let i = 0; i < section.clusters.length; i += 1) {
     const cluster = section.clusters[i];
     if (!cluster) continue;
@@ -523,52 +548,49 @@ async function fillChapter(
         ctx.figures,
         undefined
       );
+      clusters.push(await collectClusterLayout(backend, node, effective));
     });
   }
 
-  await stage('chapter.badges', () => placeBadges(b, chapter, section, ctx));
-
-  // 章节高度贴合内容：模板原高常常远大于本次内容（蛋仔 6240 vs 内容 250），
-  // 留着就是一大片空白。宽度不动，只收高度。
-  // 部件自带自适应（编译期接上了 HUG 链）时高度是算出来的，写回去会打架，跳过。
-  await stage('chapter.fit', async () => {
-    if (typeof backend.resizeNode !== 'function') return;
-    const info = await backend.getNodeInfo(chapter.id);
-    if (info.layoutMode === 'HORIZONTAL' || info.layoutMode === 'VERTICAL') return;
-    const top = info.absoluteBoundingBox?.y ?? 0;
-    let bottom = 0;
-    for (const childId of info.childIds ?? []) {
-      const child = await backend.getNodeInfo(childId);
-      const box = child.absoluteBoundingBox;
-      if (!box) continue;
-      bottom = Math.max(bottom, box.y + box.height);
-    }
-    const height = Math.max(bottom - top, 1);
-    if (Math.abs(height - (info.absoluteBoundingBox?.height ?? 0)) > 1) {
-      await backend.resizeNode(chapter.id, info.absoluteBoundingBox?.width ?? 2209, height);
-    }
+  const bubbles = await stage('chapter.badges', () =>
+    placeBadges(backend, chapter.id, section.clusters.length, section.index, ctx.warnings, ctx.caps.badgeSlot)
+  );
+  bubbles.forEach((bubble, i) => {
+    const entry = clusters[i];
+    if (entry) entry.bubbleId = bubble.id;
   });
 
-  // 左列（标题 + 舞台）高度是模板写死的，说明栏随文案变长后两列底边不齐。
-  // 章节是自动布局时不能动父级，但拉伸子级没问题（HUG 会被 resize 改成 FIXED）。
-  await stage('chapter.stretch', async () => {
-    if (typeof backend.resizeNode !== 'function') return;
-    const info = await backend.getNodeInfo(chapter.id);
-    let taller = 0;
-    let left: NodeInfo | undefined;
-    for (const childId of info.childIds ?? []) {
-      const child = await backend.getNodeInfo(childId);
-      const box = child.absoluteBoundingBox;
-      if (!box) continue;
-      if (child.name === CHAPTER_SLOTS.leftColumn) left = child;
-      else taller = Math.max(taller, box.height);
-    }
-    const box = left?.absoluteBoundingBox;
-    if (!left || !box || taller <= box.height + 1) return;
-    await backend.resizeNode(left.id, box.width, taller);
-  });
+  // 章节高度贴合内容 + 左列与说明栏等高（同步改完簇集合也要跑这一步）。
+  await stage('chapter.fit', () => refreshChapterGeometry(backend, chapter.id));
 
-  return { image };
+  return { image, clusters };
+}
+
+/**
+ * 条目清单：渲染完读回节点上的实际文字。
+ *
+ * markdown 到画布中间有规范化（职能后缀、加粗标记、`配图：` 前缀），拿原文当
+ * 「上次写入的值」会让同步每次都判成"改过"。配图没有文字可读，用它在 md 里的
+ * 描述（顺序与 `配图：` 条目一致）。
+ */
+async function collectClusterLayout(
+  backend: FigmaBackend,
+  node: NodeInfo,
+  cluster: SemanticCluster
+): Promise<PartsClusterLayout> {
+  const { nodes } = await backend.scanSubtree(node.id, 20000);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const figureTexts = cluster.bullets.filter(isImageBullet).map(stripImageBulletPrefix);
+  let figureIndex = 0;
+  const items = clusterItems(nodes, node.id).map(({ id, t }) => {
+    if (t === 'figure') {
+      const text = figureTexts[figureIndex] ?? '';
+      figureIndex += 1;
+      return { nodeId: id, t, text };
+    }
+    return { nodeId: id, t, text: byId.get(id)?.characters ?? '' };
+  });
+  return { nodeId: node.id, title: cluster.title, roles: cluster.roles, items };
 }
 
 /**
@@ -602,131 +624,6 @@ function inlineSubtitles(
   return { ...cluster, groups: [{ title: null, bullets }], bullets };
 }
 
-async function placeBadges(
-  backend: FigmaBackend,
-  chapter: NodeInfo,
-  section: InterfaceSection,
-  ctx: FillChapterCtx
-): Promise<void> {
-  if (section.clusters.length === 0) return;
-  if (ctx.caps.badgeSlot !== 'container') {
-    ctx.warnings.push({
-      code: SOFT_WARNING_CODES.W_BADGE_UNPLACED,
-      message: `第 ${section.index} 章：模板不支持图上标号（badgeSlot = ${ctx.caps.badgeSlot}），标号未摆放`
-    });
-    return;
-  }
-
-  const containerId = await findNamed(backend, chapter.id, CHAPTER_SLOTS.badgeContainer);
-  if (!containerId) {
-    throw fail(
-      PARTS_RENDER_CODES.BADGE_MASTER_MISSING,
-      `第 ${section.index} 章：找不到标号容器「${CHAPTER_SLOTS.badgeContainer}」——重编该项目的模板`
-    );
-  }
-  const container = await backend.getNodeInfo(containerId);
-  const children = container.childIds ? await backend.getNodesInfo(container.childIds) : [];
-  const master =
-    children.find((c) => isBadgeMaster(c.name)) ?? children.find((c) => isBadgeFrame(c.name));
-  if (!master) {
-    throw fail(
-      PARTS_RENDER_CODES.BADGE_MASTER_MISSING,
-      `第 ${section.index} 章：标号容器里没有母版「${BADGE_MASTER_NAME}」——重编该项目的模板（编译会收口母版）`
-    );
-  }
-
-  // 标号要贴在主图上，而主图不一定是 1920×1080（蛋仔 1200×745）。
-  // 网格本身仍按 1920×1080 的目标位置定义，这里换算到主图的实际矩形。
-  const rect = await imageRectInContainer(backend, chapter.id, container);
-
-  // 气泡自己也得跟主图一样大：留着 1920×1080 会盖住说明栏（选中框比图大一圈，
-  // 用户一眼就看出不对）。只有普通 FRAME 才动，自动布局容器一 resize 会翻 HUG。
-  if (backend.resizeNode && (container.layoutMode ?? 'NONE') === 'NONE') {
-    const needsResize =
-      Math.abs((container.absoluteBoundingBox?.width ?? 0) - rect.width) > 1 ||
-      Math.abs((container.absoluteBoundingBox?.height ?? 0) - rect.height) > 1;
-    if (needsResize) await backend.resizeNode(containerId, rect.width, rect.height);
-  }
-
-  // 容器里可能还留着原稿的多个标号（`1:14` 就带 标号/1、标号/2）：
-  // 只留母版，其余先删，避免产出一堆重复编号。
-  const stale = children.filter((c) => isBadgeFrame(c.name) && c.id !== master.id).map((c) => c.id);
-  if (stale.length > 0) await backend.deleteNodes(stale);
-  if (master.visible !== false && backend.setNodeVisible) {
-    await backend.setNodeVisible(master.id, false);
-  }
-
-  for (let i = 0; i < section.clusters.length; i += 1) {
-    const bubble = await backend.cloneNode({ sourceId: master.id, parentId: containerId });
-    if (backend.renameNode) await backend.renameNode(bubble.id, `标号/${i + 1}`);
-    await setBadgeNumber(backend, bubble.id, i + 1);
-    const at = badgePosition(i, rect, master);
-    await backend.moveNode(bubble.id, at.x, at.y);
-    if (backend.setNodeVisible) await backend.setNodeVisible(bubble.id, true);
-  }
-}
-
-/**
- * 主图在标号容器里的矩形。
- *
- * 拿不到就回落到整个容器：那样标号至少还在画面上，只是位置不贴图。
- */
-async function imageRectInContainer(
-  backend: FigmaBackend,
-  chapterId: string,
-  container: NodeInfo
-): Promise<{ x: number; y: number; width: number; height: number }> {
-  const box = container.absoluteBoundingBox;
-  const fallback = { x: 0, y: 0, width: MAIN_IMAGE_SIZE.width, height: MAIN_IMAGE_SIZE.height };
-  if (!box) return fallback;
-  const imageId = await findNamed(backend, chapterId, CHAPTER_SLOTS.mainImage);
-  if (!imageId) return fallback;
-  const image = await backend.getNodeInfo(imageId);
-  const img = image.absoluteBoundingBox;
-  if (!img) return fallback;
-  return {
-    x: img.x - box.x,
-    y: img.y - box.y,
-    width: img.width,
-    height: img.height
-  };
-}
-
-/**
- * 第 i 个标号落在主图矩形里的位置。
- *
- * `bubbleOffset` 的网格是按 1920×1080 的主图定义的；这里按主图实际宽高等比
- * 缩放，并夹在矩形内，避免标号跑到图外（蛋仔的主图只有 1200×745）。
- */
-function badgePosition(
-  index: number,
-  rect: { x: number; y: number; width: number; height: number },
-  master: NodeInfo
-): { x: number; y: number } {
-  const base = bubbleOffset(index);
-  const w = master.absoluteBoundingBox?.width ?? 48;
-  const h = master.absoluteBoundingBox?.height ?? 48;
-  const x = rect.x + (base.x / MAIN_IMAGE_SIZE.width) * rect.width;
-  const y = rect.y + (base.y / MAIN_IMAGE_SIZE.height) * rect.height;
-  return {
-    x: Math.round(Math.min(Math.max(x, rect.x), rect.x + rect.width - w)),
-    y: Math.round(Math.min(Math.max(y, rect.y), rect.y + rect.height - h))
-  };
-}
-
-async function setBadgeNumber(
-  backend: FigmaBackend,
-  bubbleId: string,
-  value: number
-): Promise<void> {
-  const info = await backend.getNodeInfo(bubbleId);
-  if (!info.childIds || info.childIds.length === 0) return;
-  const children = await backend.getNodesInfo(info.childIds);
-  const text =
-    children.find((c) => c.type === 'TEXT' && c.name === '#Number') ??
-    children.find((c) => c.type === 'TEXT');
-  if (text) await backend.setTextContent(text.id, String(value));
-}
 
 async function findNamed(
   backend: FigmaBackend,
