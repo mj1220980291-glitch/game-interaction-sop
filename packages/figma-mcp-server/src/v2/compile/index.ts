@@ -99,6 +99,54 @@ async function stage<T>(name: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * 等桥接能应答再开工。
+ *
+ * 真机现象：部件刚克隆完（簇 1566 节点），插件还在算布局，紧接着的调用被
+ * figma-console 直接判「10 秒内连不上」，而插件其实只是忙。这里用一次极小
+ * 的读（`getNodeInfo`）反复探，直到它应答为止——探活失败不抛错，只是接着等。
+ */
+async function waitForBridge(
+  backend: FigmaBackend,
+  probeNodeId: string,
+  timeoutMs = 60000
+): Promise<void> {
+  const startedAt = Date.now();
+  for (;;) {
+    try {
+      await backend.getNodeInfo(probeNodeId);
+      return;
+    } catch {
+      if (Date.now() - startedAt > timeoutMs) return;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+}
+
+/**
+ * 桥接被占住时的重试——**只能给幂等阶段用**。
+ *
+ * 真机现象：部件刚克隆完（簇 1566 节点），插件还在算布局，紧接着的调用会被
+ * figma-console 判成「10 秒内连不上」；换个时间点手动重跑就过了。归一化 / 空壳化
+ * / 自适应三个阶段的重复执行结果一致（改名到同一个名字、删已删的节点、布局跳过），
+ * 所以可以安全重试。建部件、补标号容器、收编这些**不幂等**，绝不重试。
+ */
+async function stageRetry<T>(name: string, fn: () => Promise<T>, attempts = 4): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await stage(name, fn);
+    } catch (e) {
+      last = e;
+      const msg = (e as Error).message ?? '';
+      const transient = /Unable to establish connection|still busy|timed out/i.test(msg);
+      if (!transient || i === attempts - 1) throw e;
+      await new Promise((r) => setTimeout(r, 3000 * (i + 1)));
+    }
+  }
+  throw last;
+}
+
 async function verifyPhase(input: CompileInput): Promise<CompileReport> {
   const keys = input.components ?? {};
   const verified = await verifyPublished({ backend: input.backend, keys });
@@ -317,7 +365,9 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   gaps.push(...adopted.gaps);
 
   // 槽位命名归一化：渲染只按统一名取值，名字在这里一次改好（已是统一名则零改动）。
-  const normalized = await stage('normalize', () =>
+  // 先探活：部件刚克隆完时插件常还在算布局，直接开工会被判「连不上」。
+  await waitForBridge(backend, built.built[0]?.componentId ?? input.library.pageId);
+  const normalized = await stageRetry('normalize', () =>
     normalizeSlotNames({
       backend,
       parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId })),
@@ -328,7 +378,7 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
 
   // 空壳化：把克隆母版带进来的原稿簇 / 多余内容行删掉，只留样式载体。
   // 不做的后果是真机渲染时插件在大树里扫描删除，直接断连（蛋仔 7235 节点）。
-  const slim = await stage('slim', () =>
+  const slim = await stageRetry('slim', () =>
     slimParts({
       backend,
       parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId })),
@@ -338,7 +388,8 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   pushGaps(slim.gaps);
 
   // 自适应外壳：把根框接回 HUG 链，渲染期就不用再量一遍子级压高度。
-  const adaptive = await stage('adaptive', () =>
+  await waitForBridge(backend, built.built[0]?.componentId ?? input.library.pageId);
+  const adaptive = await stageRetry('adaptive', () =>
     applyAdaptiveLayout({
       backend,
       parts: built.built.map((p) => ({ part: p.part, nodeId: p.componentId }))
