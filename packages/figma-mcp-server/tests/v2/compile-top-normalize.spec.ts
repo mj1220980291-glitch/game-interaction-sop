@@ -53,6 +53,28 @@ describe('顶部自由排版归一化', () => {
     expect(whats).toContain(TOP_SLOTS.ticketLink);
   });
 
+  it('文档说明里的长单号不会被认成文档标题', async () => {
+    const h = slotsBackend([
+      n('t', '顶部', 'COMPONENT', ['row', 'intro'], { w: 2205, h: 1726 }),
+      n('row', '标题行', 'GROUP', ['title'], { w: 2205, h: 321 }),
+      n('title', '局内相关交互', 'TEXT', [], { text: '局内相关交互', w: 518, h: 125 }),
+      n('intro', '文档说明', 'FRAME', ['long'], { w: 2204, h: 591 }),
+      n('long', 'issue', 'TEXT', [], {
+        text: 'UI设计 #367218 【OGC2组】搜打撤局内界面 https://u5.pm.netease.com/v6/issues/367218',
+        w: 2007,
+        h: 65
+      })
+    ]);
+    const r = await normalizeSlotNames({
+      backend: h.backend,
+      parts: [{ part: 'top', nodeId: 't' }]
+    });
+
+    const byId = new Map(r.renamed.map((x) => [x.nodeId, x.to]));
+    expect(byId.get('title')).toBe(TOP_SLOTS.docTitle);
+    expect(byId.get('long')).toBeUndefined();
+  });
+
   it('已是统一名的不再改（1:14 幂等）', async () => {
     const h = slotsBackend([
       n('t2', '顶部', 'COMPONENT', ['a', 'b'], { w: 3690, h: 761 }),

@@ -401,6 +401,15 @@ async function normalizeTop(
 
   // 第二段：自由排版（蛋仔式）——顶部没有「标签：值」，值各自成块。
   // 只认三种可判定的形状，其余留给缺口，不靠坐标猜。
+  //
+  // `文档说明` 块先整块排除：那里面放的是需求链接 / 总览正文，最长的一条单号
+  // 有 2000 多像素宽，按「面积最大」会把真正的大标题挤掉（蛋仔真机踩过：渲染
+  // 出来大标题永远是模板里那句「局内相关交互」）。
+  for (const n of structuredDescendants(tree.root)) {
+    if (n.name !== '文档说明') continue;
+    for (const id of subtreeIds([n])) taken.add(id);
+  }
+
   const freeTexts = structuredDescendants(tree.root).filter(
     (n) => n.type === 'TEXT' && n.visible && !taken.has(n.id) && (n.characters ?? '').trim() !== ''
   );
