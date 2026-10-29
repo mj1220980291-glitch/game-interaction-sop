@@ -28,6 +28,7 @@ import { buildWeightMap, COMPILE_FONT_FAMILY } from './font-normalize.js';
 import { buildParts, PART_LABELS, planParts, type PartName } from './parts.js';
 import { preflight } from './preflight.js';
 import { deriveCapabilities, type CapabilityDiff } from './verify-capabilities.js';
+import { CHAPTER_SLOTS } from '../template-slots.js';
 import { COMPILE_CODES, compileError } from './errors.js';
 
 export interface CompileInput {
@@ -339,12 +340,17 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   // 标号容器：散落标号的模板补一个 1:14 形态的空容器。
   const chapter = built.built.find((p) => p.part === 'chapter');
   if (chapter) {
+    // 按**产物实测**判断有没有容器，而不是按能力表：章节走「造壳」路径时
+    // 气泡不会跟着搬过来，能力表却还是 container，结果两处都说"有"，成图没标号。
+    const chapterScan = await backend.scanSubtree(chapter.componentId, 4000);
+    const alreadyHasContainer = chapterScan.nodes.some(
+      (n) => n.name === CHAPTER_SLOTS.badgeContainer
+    );
     const badge = await stage('badge.container', () =>
       ensureBadgeContainer({
         backend,
         chapterComponentId: chapter.componentId,
-        // 源模板本来就带标号容器（badgeSlot=container，如 1:14）时不要补第二个。
-        alreadyHasContainer: source.badgeSlot === 'container',
+        alreadyHasContainer,
         ...(input.badgeContainerSourceId ? { containerSourceId: input.badgeContainerSourceId } : {})
       })
     );

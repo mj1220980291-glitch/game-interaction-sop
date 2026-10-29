@@ -121,13 +121,27 @@ export async function stampPartsDoc(
       [TOP_SLOTS.owner, 'header.owner'],
       [TOP_SLOTS.group, 'header.group'],
       [TOP_SLOTS.ticketLink, 'header.ticketLink'],
-      [TOP_SLOTS.lastUpdate, 'header.lastUpdate'],
-      [TOP_SLOTS.overviewBackground, 'overview.background'],
-      [TOP_SLOTS.overviewCore, 'overview.coreInteraction']
+      [TOP_SLOTS.lastUpdate, 'header.lastUpdate']
     ];
     for (const [name, role] of headerRoles) {
       const hit = nodes.find((n) => n.name === name);
       if (hit) slots.push({ nodeId: hit.id, role });
+    }
+    // 总览标的是**正文 TEXT**（`#Content` / `#Body`），不是外层框：
+    // 同步按「上次写入的正文」比对，标到框上会让每次同步都判成设计师手改。
+    const overviewRoles: Array<[string, SlotRole]> = [
+      [TOP_SLOTS.overviewBackground, 'overview.background'],
+      [TOP_SLOTS.overviewCore, 'overview.coreInteraction']
+    ];
+    for (const [name, role] of overviewRoles) {
+      const frame = nodes.find((n) => n.name === name);
+      if (!frame) continue;
+      const inside = nodes.filter((n) => n.parentId === frame.id && n.type === 'TEXT');
+      const body =
+        inside.find((n) => n.name === '#Content') ??
+        inside.find((n) => n.name === '#Body') ??
+        inside[inside.length - 1];
+      if (body) slots.push({ nodeId: body.id, role });
     }
     slots.push({ nodeId: layout.topNodeId, role: 'template' });
   }
