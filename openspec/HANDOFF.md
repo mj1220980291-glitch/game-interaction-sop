@@ -1,6 +1,80 @@
 # 交接说明（2026-10-29）
 
-## 当前状态快照（2026-10-29 04:00，换对话先读这一节）
+## 当前状态快照（2026-10-29 18:00，换对话先读这一节）
+
+**一句话**：parts 文档的**同步**（上一轮）与**几何/色彩采集**（这一轮）都已跑通真机；`官方1.14` 已按新流程重编并发布，渲染出来的底色 / 占位色 / 标号点位与模板一致。**卡住的下一块**是「簇的 run 结构」：编译瘦身把模板里的 run 拆坏了，渲染因此拿不到「小标题组 + 职能标签 + 正文 + 配图」的包裹关系。
+
+**代码状态**：`npm run build` + `npm test` **437/437** 通过，`openspec validate --all --strict` 17/17 通过。最新提交 `db7d912`。
+
+**这一轮做完的（都已提交）**：
+
+| 类别 | 内容 |
+|---|---|
+| 同步（上一轮归档） | `parts-doc-reconcile-sync` 已 archive：parts 文档可 `target.rootId` 同步，手改保留 / 只改变化 / `V2_PACK_MISMATCH` 全验过 |
+| 几何采集 | 新变更 `template-geometry-capture`（未归档）：`pack.geometry` 存 `docBackground` / `chapterWidth` / `mainImage` / `placeholder` / `bubbleGrid`（比例）/ `badgeSize` / `rootGap`；编译期实测 + sidecar 传给 verify 写 pack；渲染优先用、缺项回落旧常量 |
+| 官方1.14 重编 | 顶部 `94:3785` / 章节 `94:3793` / 簇 `94:3829`，keys 已回填 `官方1.14.json`（旧包 `.bak`，旧组件改名带「（旧）」保留） |
+| 编译修正 | 标号容器改为**扫产物**判断（造壳会丢 `气泡`）；`overview.*` 标打在 `#Content` 正文而非外层框 |
+| 渲染修正 | 根帧 `counterAlign: CENTER`（部件宽度不同时不再贴左）；未使用的 `配图` 槽按**填充类型**判断后隐藏（有 IMAGE 的绝不能被藏）；总览 / 正文去掉 md 项目符号，避免「· - 文本」 |
+| 渲染实测 | `85:1372`：底色 `#1E1E1E`、主图与配图占位 `#454545`、标号落模板点位 (761,164)/(636,267)、章节宽 3382 |
+
+**下一个对话的第一件事：开变更 `slot-run-contract`（用户已同意方向，代码未动）**
+
+已确认的缺陷（对比 `Agent草稿 / 1:44 说明块01` 与编译产物 `94:3829`）：
+
+1. **`配图` GROUP 被拍平成 RECTANGLE**，`配图占位文案` 丢失 → 渲染没有占位文案、结构不符
+2. **run 内正文从 ×2 变 ×1**：瘦身按「一条」收，没按 run 长度
+3. **第二个职能帧 `Frame 427319721` 既没改名也没删**（孤儿节点）
+4. **第二组的 `#Title` / 配图全删**，但不是按「保留一个完整 run、删整个多余 run」的方式
+
+根因：`run` 概念只存在于渲染端的私有函数 `splitSlotRuns`（`render.ts`），编译端的 `slimParts` 完全不知道它。
+
+提议的方案（写进新变更）：
+
+- 新增共享模块 `src/v2/template/runs.ts`：`splitRuns(children)` 作为**唯一**边界规则
+  - run 起始 `#Title`，内容 `职能标记` + `正文/规则`(≥1) + 可选 `配图`(GROUP)
+  - `clusterGroups=none` → 整簇一个 run；`inline-subtitle` → `#Title` 当正文首行前缀，不产生 run
+- 编译瘦身：**保留第一个完整 run**，其余整个 run 连根删；run 内条目数量保持模板原样；`配图` 必须保 GROUP + 占位文案
+- 渲染填充：档数 = md `####` 组数，不够克隆 run、多了删 run
+- 探针拦截：识别不出 run / run 内无正文 / 配图被拍平 → `phase=compile` 直接报 gap，不产出半截组件
+- 测试固化：把 `1:14` 的两 run 形状做成 fixture（同 `danzi-shapes.ts` 套路），断言编译后=一个完整 run、渲染两档=两个 run、配图 GROUP 不被拍平
+
+**做这个变更要付出的手工步骤**：改完 `slimParts` / 新增 `runs.ts` 后，需要**重编 `官方1.14` → 用户在 Assets 面板发布一次 → 回填新 key**（`phase=verify` 工具当前不可用，见坑 12，改用「key 在沙盒 import 冒烟 + 手写 pack」）。
+
+**Figma 现场（接手先核对）**：
+
+| 位置 | 现状 |
+|---|---|
+| `交互SOP模板库` / `部件` `0:1` | `官方1.14 / 顶部|章节|簇`（新，published）+ 三个带「（旧）」的旧组件 |
+| `交互SOP模板库` / `_staging` `3:10` | `官方1.14 模板（_staging）` `94:3500`（含 标题组件 `94:3501` / 设计总览组件 `94:3518` / 说明说明1 `94:3530` / 说明块01 `94:3532` / 章节标题 `94:3608` / 气泡 `94:3599`）+ 蛋仔原稿 `5:5495` + 蛋仔模板 `6:8172` |
+| `SOP 校验沙盒` `0eoR7aPlpzIva8IdWATWkL` / `Page 1` | `素材占位（验收用）` `63:59`（assetMap 用的假图源）+ 最近一次渲染 `85:1372` |
+| `~/.game-interaction-sop/templates/官方1.14.json` | 新 keys + `geometry` 段（这是本轮的可见成果） |
+| `.interaction-sop/template.json` | 当前指向**蛋仔**；做官方1.14 相关实验前先换过去（改完记得换回，且**不能带 BOM**） |
+
+**已知坑（这一轮新增的，都踩过）**：
+
+1. `npm run build` 后 worker 换新，Bridge 常掉线；渲染前先 `figma_get_status` probe 一次。若 probe 正常但渲染报 `Cannot connect`，是 worker 侧客户端失效 → 需要用户重启 MCP（本轮重启过一次才恢复）
+2. **`phase=verify` 走 worker 连接，插件重连后必报 `Cannot connect`**；等价做法：拿 key 在沙盒 `importComponentByKeyAsync` 冒烟 + 手写 pack
+3. 发布后库同步期 `importComponentByKeyAsync` 会假死；沙盒看不到新库版本时，用户需在 `Assets → Libraries` 刷新或关标签页重开
+4. `figma_capture_screenshot` / `exportNodeImage` 对整篇大图经常 10s 超时；可靠做法是 `figma_execute` 里 `exportAsync`（缩到 ≤1200px），输出会被持久化成文件，再用 PowerShell 解码成 PNG
+5. 编译「补标号容器」不能按能力表判断，要扫产物（造壳会丢 `气泡`）
+6. `overview.*` 必须标在 `#Content` 正文 TEXT 上，标到外层框 → 每次同步都报 `preserved: hand-edit`
+7. 模板常驻空槽（配图 / 隐藏标号 / 主图占位文案）一律标 `template`，打成 `item` 会让同步每轮生成空 `delete` 或报 foreign
+8. 判断「哪个配图槽放了图」必须按**填充类型**，按序号猜会藏掉真图
+9. 簇级改动路径两种形态：插入 `01/3`、删除 `01/-簇四`
+10. 标号网格是 1920×1080 定义的（第 3 个在 1700,280），缩放后 (1063,186) 是**正常值**
+
+**待办清单（按优先级）**：
+
+- [ ] 开 `slot-run-contract` 变更并实现（run 语法 + 共享 `splitRuns` + 瘦身按 run 裁剪 + 探针拦截 + fixture 测试）
+- [ ] 重编 `官方1.14` → 发布 → 回填 key → 渲染对比（配图 GROUP、两档 run、职能 chip）
+- [ ] 职能标签做成模板那种「彩色 chip」：现渲染是彩色文字，模板是带底色的标签（可加圆角背景填充，或回填 `roleBlock` 组件变体）
+- [ ] 蛋仔包补 `geometry`（它的原稿标号被收口，量不到点位，其余项可采）
+- [ ] `官方1.14` 的三个「（旧）」组件确认无回滚需求后删除
+- [ ] `template-geometry-capture` 变更收尾：tasks 4.2–4.4，然后 archive
+
+**门槛**：`npm run build` + `npm test`（437）+ `openspec validate --all --strict`（17）
+
+## 旧快照（2026-10-29 04:00）
 
 **一句话**：parts 文档现在**能同步了**（`target.rootId` 不再一律被 `V2_NOT_STAMPED` 拒），链路 A 全段真机跑通：渲染 → 手改一句 → 同步 → `preserved` 保住手改、`changes` 只含 md 改动的条目；模板重编后同步被 `V2_PACK_MISMATCH` 拒。
 
