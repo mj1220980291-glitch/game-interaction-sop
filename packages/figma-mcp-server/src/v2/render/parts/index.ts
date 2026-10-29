@@ -39,6 +39,7 @@ import {
   clusterItems,
   type PartsClusterLayout,
   type PartsDocLayout,
+  type PartsItemLayout,
   type PartsSectionLayout
 } from './stamp-parts.js';
 import { placeBadges, refreshChapterGeometry } from './geometry.js';
@@ -581,15 +582,29 @@ async function collectClusterLayout(
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const figureTexts = cluster.bullets.filter(isImageBullet).map(stripImageBulletPrefix);
   let figureIndex = 0;
-  const items = clusterItems(nodes, node.id).map(({ id, t }) => {
+  const items: PartsItemLayout[] = [];
+  const loose: string[] = [];
+  for (const { id, t } of clusterItems(nodes, node.id)) {
     if (t === 'figure') {
-      const text = figureTexts[figureIndex] ?? '';
+      // 模板里的配图槽是常驻的空壳：md 没写 `配图：` 时它还在，但**不是条目**。
+      // 当成条目打标，同步就会每次都想去删一条空条目。
+      if (figureIndex >= figureTexts.length) {
+        loose.push(id);
+        continue;
+      }
+      items.push({ nodeId: id, t, text: figureTexts[figureIndex] ?? '' });
       figureIndex += 1;
-      return { nodeId: id, t, text };
+      continue;
     }
-    return { nodeId: id, t, text: byId.get(id)?.characters ?? '' };
-  });
-  return { nodeId: node.id, title: cluster.title, roles: cluster.roles, items };
+    items.push({ nodeId: id, t, text: byId.get(id)?.characters ?? '' });
+  }
+  return {
+    nodeId: node.id,
+    title: cluster.title,
+    roles: cluster.roles,
+    items,
+    ...(loose.length > 0 ? { looseNodes: loose } : {})
+  };
 }
 
 /**

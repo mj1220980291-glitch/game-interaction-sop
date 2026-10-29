@@ -44,6 +44,8 @@ export interface PartsClusterLayout {
   items: PartsItemLayout[];
   /** `标号/N` clone that points at this cluster. */
   bubbleId?: string;
+  /** 模板自带、但 md 没用到配图的空槽：标成 template，不算条目。 */
+  looseNodes?: string[];
 }
 
 export interface PartsSectionLayout {
@@ -151,6 +153,9 @@ export async function stampPartsDoc(
     ] as const) {
       if (!find(name)) missing.push(`${role}@${s.name}`);
     }
+    // 占位文案是模板残留，不是设计师贴进来的东西。
+    const hint = find(CHAPTER_SLOTS.mainImageHint);
+    if (hint) slots.push({ nodeId: hint.id, role: 'template' });
 
     const badgeNodes = bubbleFrame
       ? (await backend.scanSubtree(bubbleFrame.id, 20000)).nodes.filter(
@@ -161,11 +166,15 @@ export async function stampPartsDoc(
     const master = badgeNodes.find((n) => isBadgeMasterName(n.name));
     if (master) slots.push({ nodeId: master.id, role: 'template' });
     const badges = badgeNodes.filter((n) => n.id !== master?.id);
+    const usedBadges = new Set<string>();
 
     const clusterStamps: ClusterStamp[] = s.clusters.map((cl, ci) => {
       const cid = newId('c');
       const bubble = cl.bubbleId ? { id: cl.bubbleId } : badges[ci];
-      if (bubble) slots.push({ nodeId: bubble.id, role: 'bubble', cid });
+      if (bubble) {
+        slots.push({ nodeId: bubble.id, role: 'bubble', cid });
+        usedBadges.add(bubble.id);
+      }
       // 清单里记的是条目自己的 iid，不是节点 id：快照按 stamp id 归属，
       // 记错会让引擎把自己的节点当成「设计师删掉了」。
       const entries = cl.items.map((it) => {
@@ -179,6 +188,7 @@ export async function stampPartsDoc(
         });
         return { id: iid, t: it.t, text: it.text };
       });
+      for (const id of cl.looseNodes ?? []) slots.push({ nodeId: id, role: 'template' });
       clusterWrites.push({
         nodeId: cl.nodeId,
         stamp: {
@@ -191,6 +201,11 @@ export async function stampPartsDoc(
       });
       return { kind: 'cluster', cid, title: cl.title, roles: cl.roles, items: entries };
     });
+
+    // 没用到的标号（模板多带 / 隐藏的）也是引擎残留，标 template 免得被报 foreign。
+    for (const b of badges) {
+      if (!usedBadges.has(b.id)) slots.push({ nodeId: b.id, role: 'template' });
+    }
 
     sections.push({
       nodeId: s.nodeId,
