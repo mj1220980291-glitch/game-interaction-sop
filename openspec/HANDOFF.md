@@ -15,8 +15,23 @@
 | 入口 | 按 `doc.structure` 分派；`packHash` 不一致 → `V2_PACK_MISMATCH`；无标记仍 `V2_NOT_STAMPED`（不实现 adopt） |
 | 快照 | parts 的条目在内容层里（`Group 1253` / `Frame 808`），按子孙遍历取条目；插入 / 移动落到 `itemsParent`；「有引擎子孙的外壳」不再算 foreign |
 | scratch | 新增界面 / 簇时用 parts 管线造临时文档并打标，不引 `1:14` |
-| 几何 | `parts/geometry.ts` 抽出章节高度、左列贴合、标号摆放；同步后对受影响章节重算 |
-| 稳定性 | 冷启动首次进子树（scan / 删隐藏池）会超 Bridge 10s → 读与删除都套 `retryTransient`，错误信息带方法名 |
+| 几何 | `parts/geometry.ts` 抽出章节高度、左列贴合、标号摆放；同步后对受影响章节重算，簇集合变了再 `relayoutBadges`（只重摆本次新增的标号，设计师挪过的不动） |
+| 稳定性 | 冷启动首次进子树（scan / 删隐藏池）会超 Bridge 10s → 读操作套 `retryTransient`；隐藏池逐个删、删不掉只记 `V2_W_HIDDEN_POOL_LEFT` 软告警，不再整篇失败 |
+
+**本轮真机验收（2026-10-29 午间，沙盒 `0eoR7…`，文档 `69:269`）**：
+
+| 场景 | 期望 | 实测 |
+|---|---|---|
+| 打标对位 | 2 章 3 簇 4 条目 | `structure:parts` / `packHash` / section×2 / cluster×3 / item×4 ✓ |
+| 无变化同步 | `changes: []` | ✓ |
+| 手改保留 | `preserved: hand-edit` | ✓ |
+| 改文字 | `update` 只动那一条 | ✓ |
+| 换图 | `asset`，哈希 9d800e→a9785d，描边清空 | ✓ |
+| 删条不重建 | `designer-deleted` 且跨多次同步粘住 | ✓ |
+| 新增簇 | `01/3 insert`，标号 +1 在网格位 | ✓ |
+| 删除簇 | 标号随之减少 | ✓ |
+| 拖动标号 | 后续同步坐标不变 | ✓ |
+| 包指纹变化 | `V2_PACK_MISMATCH` | ✓ |
 
 **已知小尾巴（不影响验收）**：
 - 标号 1/2 落在同一列（默认 8 气泡网格按 1920×1080 定义，缩到 1200×719 后会挤）—— 属网格数据，未动
@@ -26,7 +41,7 @@
 
 **下一步（下一个人从这里接）**：
 
-- **补测**：簇级新增 / 删除（走 scratch + 标号重排）、配图换图（`assetMap` 指新源）、删除条目后不重建——这三条只有逻辑，没有真机断言
+- 本变更已验收归档；`openspec/specs/render-reconcile-parts/` 是新的主 spec
 - **链路 B · 新项目生成模板**：拿 **官方1.14** 当被测，重粘 `_staging` → 干跑看缺口 → 实跑 → 人工发布 → 刷库 → `verify` 回填 → 写配置 → 渲染 → 与重编前对比
 - 每次改动前的门槛：`npm run build` + `npm test`（431）+ `openspec validate --all --strict`
 
@@ -37,6 +52,9 @@
 3. `npm run build` 后 worker 换新，Bridge 常需 10~20s 重连（端口还会在 9223/9224 之间跳）；渲染前先 `figma_get_status` probe 一次
 4. 同步的 `place` 找不到锚点，多半是**条目容器层选错**：parts 的条目不在簇根节点下，插入要落到 `itemsParent`
 5. 部件计数 / 指纹类判断错了症状最隐蔽：不报错，而是把引擎自己的节点当成「设计师删掉了」记进 `preserved.designer-deleted`
+6. 配图 `item` 标必须 `captureHash`：不记 `imageHash` 的话，换图每次都被判成 conflict
+7. 簇级改动路径有两种形态：插入 `01/3`、删除 `01/-簇四`；判定「簇集合变了」要用 `^\d{2}\/[^/]+$`，只认 `NN/N` 会漏掉删除
+8. 标号网格是 1920×1080 定义的（第 3 个在 1700,280），换算到 1200 宽主图后是 (1063,186)——**不是** bug，别当缺陷改
 
 **旧快照（2026-10-28 23:30，仅作历史参考）**：
 

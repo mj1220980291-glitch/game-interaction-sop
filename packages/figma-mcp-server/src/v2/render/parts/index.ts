@@ -96,14 +96,13 @@ async function stage<T>(name: string, fn: () => Promise<T>): Promise<T> {
 const PARTS_GAP = 0;
 
 /**
- * 只重试**可重放**的调用。
+ * 只重试**只读**调用。
  *
- * 真机：簇这个 key 冷启动 import 之后，第一次进子树（scan / 删隐藏池）要在插件里
- * 等库数据落地，超过 Bridge 的 10s 上限就整轮渲染白跑。读操作重放无害；删除也
- * 可重放（已删的 id 再删时取不到节点，直接跳过）。克隆重放会多出一份，所以
- * 其它写操作不重试。
+ * 真机：簇这个 key 冷启动 import 之后，第一次进子树（scan）要在插件里等库数据
+ * 落地，超过 Bridge 的 10s 上限就整轮渲染白跑。写操作不重试（克隆重放会多出
+ * 一份）；删除那点超时在 `resetHiddenPool` 里单独兜底——删不掉只留隐藏节点。
  */
-const RETRY_SAFE_METHODS = new Set(['getNodeInfo', 'getNodesInfo', 'scanSubtree', 'deleteNodes']);
+const RETRY_SAFE_METHODS = new Set(['getNodeInfo', 'getNodesInfo', 'scanSubtree']);
 
 function retriedReads(backend: FigmaBackend): FigmaBackend {
   return new Proxy(backend, {
@@ -525,7 +524,7 @@ async function fillChapter(
     await stage(`chapter.cluster${i + 1}`, async () => {
       const node = await instantiate(b, ctx.clusterKey, cluster.title, ctx.pageId);
       await b.reparentNode({ nodeId: node.id, newParentId: host.id });
-      await resetHiddenPool(backend, node, ctx.caps.hiddenPool);
+      await resetHiddenPool(backend, node, ctx.caps.hiddenPool, ctx.warnings);
       // 职能/编号的写法差异：不是组件变体 / 不显示编号时，簇里的载体没有意义，
       // 留着只会把原稿角色一起带进产物。
       if (ctx.caps.roleAnnotation !== 'component-variant') {
@@ -600,12 +599,28 @@ async function collectClusterLayout(
 async function resetHiddenPool(
   backend: FigmaBackend,
   cluster: NodeInfo,
-  policy: TemplatePack['capabilities']['hiddenPool']
+  policy: TemplatePack['capabilities']['hiddenPool'],
+  warnings: SoftWarning[]
 ): Promise<void> {
   if (policy === 'reuse') return;
   const { nodes } = await backend.scanSubtree(cluster.id, 400);
   const hidden = nodes.filter((n) => n.visible === false && n.id !== cluster.id).map((n) => n.id);
-  if (hidden.length > 0) await backend.deleteNodes(hidden);
+  // 逐个删：整批删一个藏着别的库实例的隐藏节点时，插件会卡过 Bridge 的 10s 上限。
+  // 删不掉也只是留个隐藏节点（不可见、不参与成图），不该让整篇渲染失败。
+  let left = 0;
+  for (const id of hidden) {
+    try {
+      await backend.deleteNodes([id]);
+    } catch {
+      left += 1;
+    }
+  }
+  if (left > 0) {
+    warnings.push({
+      code: SOFT_WARNING_CODES.W_HIDDEN_POOL_LEFT,
+      message: `「${cluster.name}」的隐藏备用池有 ${left} 个节点没删掉（Bridge 超时），它们仍是隐藏状态，不影响成图`
+    });
+  }
 }
 
 /** `inline-subtitle`：`####` 不占槽位，作为该组首行的前缀写入。 */

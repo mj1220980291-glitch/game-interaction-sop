@@ -31,7 +31,7 @@ import { LEGACY_PROFILE, profileFor, type StructureProfile } from './structure.j
 import { packHash } from '../template/pack-hash.js';
 import { loadPartsPack } from '../template-config.js';
 import { stampPartsDoc, type PartsDocLayout } from '../render/parts/stamp-parts.js';
-import { refreshChapterGeometry } from '../render/parts/geometry.js';
+import { refreshChapterGeometry, relayoutBadges } from '../render/parts/geometry.js';
 import { SCRATCH_ROOT_NAME, type DocStamp } from './stamp.js';
 import type { TemplateRef } from '../template-config.js';
 import { Tree } from './tree.js';
@@ -162,10 +162,22 @@ export async function reconcileV2(
     const failedFills = await runFills(backend, plan.fills, warnings);
     done.add('fills');
 
-    // 多部件文档：簇集合一变，章节高度与左列贴合就得重算（否则多出一截空白）。
-    if (profile.id === 'parts') {
-      for (const nodeId of changedSectionNodes(plan.changes, ir, snap)) {
-        await refreshChapterGeometry(backend, nodeId);
+    // 多部件文档：簇集合一变，章节高度、左列贴合、标号数量与位置都得重算。
+    const partsPack = profile.id === 'parts' ? loadPartsPack()?.pack : undefined;
+    if (partsPack) {
+      for (const hit of await changedSections(plan.changes, ir, snap)) {
+        await refreshChapterGeometry(backend, hit.nodeId);
+        if (hit.clusterChanged) {
+          await relayoutBadges(
+            backend,
+            hit.nodeId,
+            hit.index,
+            hit.clusterCount,
+            hit.previousClusterCount,
+            partsPack.capabilities.badgeSlot,
+            warnings
+          );
+        }
       }
     }
 
@@ -225,25 +237,53 @@ interface Chunk {
 }
 
 /**
- * 改动过的章节节点：`changes` 的路径是 `NN/...`，按界面序号找回画布上的章节。
+ * 改动过的章节：`changes` 的路径是 `NN/...`，按界面序号找回画布上的章节。
  * 用 markdown 里的界面名对位，不假定序号顺序没变（重排会打乱）。
+ *
+ * `clusterChanged` 表示这一章的簇集合动了（路径正好是 `NN/C`，没有更深的 `/#N`），
+ * 那种情况标号数量与位置都要重排。
  */
-function changedSectionNodes(
+async function changedSections(
   changes: Array<{ path: string }>,
   ir: DocIR,
-  snap: { sections: Array<{ W: string; node?: { id: string } }> }
-): string[] {
-  const touched = new Set<number>();
+  snap: { sections: Array<{ W: string; node?: { id: string }; stamp?: { clusters?: unknown[] } }> }
+): Promise<
+  Array<{
+    nodeId: string;
+    index: string;
+    clusterChanged: boolean;
+    clusterCount: number;
+    previousClusterCount: number;
+  }>
+> {
+  const touched = new Map<number, boolean>();
   for (const c of changes) {
-    const m = /^(\d{2})(\/|$)/.exec(c.path);
-    if (m) touched.add(Number(m[1]));
+    const m = /^(\d{2})/.exec(c.path);
+    if (!m) continue;
+    const n = Number(m[1]);
+    // 簇级改动的路径只有一段（`01/3` 插入、`01/-簇四` 删除）；条目级会更深。
+    const clusterLevel = /^\d{2}\/[^/]+$/.test(c.path);
+    touched.set(n, (touched.get(n) ?? false) || clusterLevel);
   }
-  const out: string[] = [];
-  for (const n of touched) {
-    const name = ir.sections[n - 1]?.name;
-    if (!name) continue;
-    const hit = snap.sections.find((s) => s.W === name && s.node);
-    if (hit?.node) out.push(hit.node.id);
+  const out: Array<{
+    nodeId: string;
+    index: string;
+    clusterChanged: boolean;
+    clusterCount: number;
+    previousClusterCount: number;
+  }> = [];
+  for (const [n, clusterChanged] of touched) {
+    const section = ir.sections[n - 1];
+    if (!section) continue;
+    const hit = snap.sections.find((s) => s.W === section.name && s.node);
+    if (!hit?.node) continue;
+    out.push({
+      nodeId: hit.node.id,
+      index: section.index,
+      clusterChanged,
+      clusterCount: section.clusters.length,
+      previousClusterCount: hit.stamp?.clusters?.length ?? 0
+    });
   }
   return out;
 }

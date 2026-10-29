@@ -183,7 +183,9 @@ export const SOFT_WARNING_CODES = {
   /** render — 打标记失败，文档可用但无法同步 */
   W_STAMP_FAILED: 'V2_W_STAMP_FAILED',
   /** reconcile — 多个节点携带同一个标记 id（设计师复制了节点），只认第一个 */
-  W_DUPLICATE_STAMP: 'V2_W_DUPLICATE_STAMP'
+  W_DUPLICATE_STAMP: 'V2_W_DUPLICATE_STAMP',
+  /** render — 隐藏备用池没删干净（Bridge 超时），节点仍隐藏，不影响成图 */
+  W_HIDDEN_POOL_LEFT: 'V2_W_HIDDEN_POOL_LEFT'
 } as const;
 
 export type SoftWarningCode =

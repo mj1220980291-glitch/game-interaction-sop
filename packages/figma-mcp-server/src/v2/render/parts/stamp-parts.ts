@@ -109,7 +109,7 @@ export async function stampPartsDoc(
   const missing: string[] = [];
   const slots: Array<{ nodeId: string; role: SlotRole; cid?: string }> = [];
   const sections: Array<{ nodeId: string; stamp: SectionStamp }> = [];
-  const writeItems: Array<{ nodeId: string; stamp: Record<string, unknown> }> = [];
+  const writeItems: Array<{ nodeId: string; stamp: Record<string, unknown>; captureHash?: boolean }> = [];
   const clusterWrites: Array<{ nodeId: string; stamp: Record<string, unknown> }> = [];
 
   if (layout.topNodeId) {
@@ -172,7 +172,10 @@ export async function stampPartsDoc(
         const iid = newId('i');
         writeItems.push({
           nodeId: it.nodeId,
-          stamp: { kind: 'item', iid, t: it.t, text: it.text }
+          stamp: { kind: 'item', iid, t: it.t, text: it.text },
+          // 配图要记下这次写入的图片哈希：下次同步靠它区分「md 换了图」与
+          // 「设计师自己换了图」，没有哈希一律算冲突。
+          ...(it.t === 'figure' ? { captureHash: true } : {})
         });
         return { id: iid, t: it.t, text: it.text };
       });

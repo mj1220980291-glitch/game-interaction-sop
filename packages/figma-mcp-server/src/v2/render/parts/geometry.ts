@@ -170,6 +170,38 @@ export async function placeBadges(
   return out;
 }
 
+/**
+ * 同步后重排标号：只重摆本次新增的那几个。
+ *
+ * `keepCount` 是同步前的簇数——它的标号位置是设计师的和渲染期的，不能动；
+ * 之后的按网格克隆。scratch 搬过来的标号带的是临时文档的坐标，不能留。
+ */
+export async function relayoutBadges(
+  backend: FigmaBackend,
+  chapterId: string,
+  chapterIndex: string,
+  clusterCount: number,
+  keepCount: number,
+  badges: 'container' | 'manual' | 'none',
+  warnings: SoftWarning[]
+): Promise<void> {
+  if (badges !== 'container') return;
+  const containerId = await findNamed(backend, chapterId, CHAPTER_SLOTS.badgeContainer);
+  if (!containerId) return;
+  const container = await backend.getNodeInfo(containerId);
+  const children = container.childIds ? await backend.getNodesInfo(container.childIds) : [];
+  const ordered = children
+    .filter((c) => isBadgeFrame(c.name) && !isBadgeMaster(c.name))
+    .sort((a, b) => badgeOrdinal(a.name) - badgeOrdinal(b.name));
+  const kept = ordered.filter((b) => badgeOrdinal(b.name) <= keepCount).slice(0, clusterCount);
+  await placeBadges(backend, chapterId, clusterCount, chapterIndex, warnings, badges, kept);
+}
+
+function badgeOrdinal(name: string): number {
+  const m = /(\d+)\s*$/.exec(name);
+  return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+}
+
 async function imageRectInContainer(
   backend: FigmaBackend,
   chapterId: string,

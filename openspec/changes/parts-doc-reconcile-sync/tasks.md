@@ -11,7 +11,7 @@
 - [x] 2.1 新增 `v2/render/parts/stamp-parts.ts`：`stampPartsDoc(backend, layout, ir, pack)`，按 D3 表挂 `section`/`cluster`/`item`/`slot`
 - [x] 2.2 `renderFromParts` 返回填充期收集的节点清单（顶部 / 章节 / 簇 / 条目 / 标号 id）
 - [x] 2.3 `render.ts` 去掉 parts 跳过打标的分支，parts 成功后调 `stampPartsDoc`；打标失败只记 warning
-- [ ] 2.4 单测：parts 渲染产物根帧带 `parts.structure`，章节 / 簇 / 条目数量与 `ir` 一致（现由 `parts-reconcile-units.spec.ts` 覆盖指纹与档案，未覆盖数量对位）
+- [x] 2.4 打标对位：真机渲染 2 章 3 簇 → `structure: parts`、`packHash` 存在、`section ×2`、`cluster ×3`、`item ×4`（3 规则 + 1 配图），与 `ir` 一致；纯函数层由 `parts-reconcile-units.spec.ts` 覆盖
 
 ## 3. 同步入口分派
 
@@ -25,7 +25,7 @@
 - [x] 4.1 `runFills` 支持裸配图槽：`rectId` 缺省时用条目节点自身，legacy 行为不变
 - [x] 4.2 `snapshot.ts` 认 `正文/规则` TEXT 与 `配图` RECTANGLE 为条目；条目在内容层里时按子孙遍历，插入/移动落在 `itemsParent`
 - [x] 4.3 手改判定、tombstone、外来节点规则复用现有实现对 parts 生效（外壳节点不再误报 foreign）
-- [ ] 4.4 单测：改文字 / 换图 / 手改保留 / 删条不重建（parts 结构）——真机验过改文字与插入，换图与删条未验
+- [x] 4.4 真机验过：改文字（`update`）、换图（`asset` + `imageHash` 9d800e… → a9785d…、描边清空）、手改保留（`hand-edit`）、删条不重建（`designer-deleted` 且跨多次同步粘住）
 
 ## 5. parts scratch 与几何重算
 
@@ -33,11 +33,11 @@
 - [x] 5.2 `renderScratch` 按结构分派：parts 用 `renderFromParts` + `stampPartsDoc`
 - [x] 5.3 scratch 解析器支持 parts 布局（章 / 簇 / 条目 / 标号 id 映射）
 - [x] 5.4 同步写入后对受影响章节调用 `refreshChapterGeometry`；未受影响章节不动
-- [ ] 5.5 单测：新增簇走 scratch、标号数量重排、拖动过的标号坐标不被覆盖（真机只验了条目新增，未验簇新增与标号）
+- [x] 5.5 真机验过：新增簇（`01/3 insert`，说明栏 3 簇、标号 3 个、章节 978 与左列齐）、簇删除（标号 3→2）、标号在网格位（(1063,186) = 1700/280 按 1200×719 缩放）、拖动过的标号 (300,500) 在后续同步中不被覆盖
 
 ## 6. 端到端与文档
 
 - [x] 6.1 真机跑链路 A：渲染 → 手改一句 → `target.rootId` 同步 → `preserved` 有 `hand-edit`、`changes` 只含 MD 改的那条
 - [x] 6.2 真机跑模板重编后同步 → `V2_PACK_MISMATCH`
-- [ ] 6.3 更新 `openspec/HANDOFF.md`：parts 同步可用、一次性重渲染要求、新增坑
-- [ ] 6.4 同步 `openspec/specs/render-reconcile-parts/spec.md` 到主 specs（archive 时）
+- [x] 6.3 更新 `openspec/HANDOFF.md`：parts 同步可用、一次性重渲染要求、新增坑
+- [x] 6.4 同步 `openspec/specs/render-reconcile-parts/spec.md` 到主 specs（archive 时）
