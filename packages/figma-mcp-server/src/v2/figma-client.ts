@@ -392,6 +392,16 @@ export interface FigmaBackend {
   clearFills?(nodeIds: string[]): Promise<void>;
 
   /**
+   * 读节点的纯色填充 / 描边（第一个可见 SOLID）。
+   *
+   * 编译期靠它把模板的底色、占位色抄进 pack —— 这些是模板身份的一部分，
+   * 让渲染去猜（按亮度算灰阶）就会得到「深色稿白底白字」这种结果。
+   */
+  readPaints?(nodeIds: string[]): Promise<
+    Array<{ nodeId: string; fill?: string; stroke?: string }>
+  >;
+
+  /**
    * 把节点就地换成同样尺寸的占位矩形（灰底 + 虚线）。
    *
    * 部件里带着原稿截图（大尺寸实例）时，删掉会在版面上留洞、留着又会把上

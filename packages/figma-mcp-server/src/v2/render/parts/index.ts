@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 多部件渲染 —— 按 key 导入 4 个部件，detach 后拼成一份文档。
  *
  * 与旧路径的区别只有组装方式：旧路径整份克隆 `1:14` 再按名字填；这里拿的是
@@ -43,6 +43,7 @@ import {
   type PartsSectionLayout
 } from './stamp-parts.js';
 import { placeBadges, refreshChapterGeometry } from './geometry.js';
+import type { TemplateGeometry } from '../../template/schema.js';
 
 export const PARTS_RENDER_CODES = {
   LAYOUT_UNSUPPORTED: 'V2_RENDER_LAYOUT_UNSUPPORTED',
@@ -145,6 +146,9 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
   }
 
   const caps = pack.capabilities;
+  // 间距是模板身份之一（部件自带留白 vs 靠间距拼），编译期实测写进 geometry。
+  const gap = pack.geometry?.rootGap ?? PARTS_GAP;
+  const docBackground = pack.docBackground ?? pack.geometry?.docBackground;
   const figures = makeFigureState(input.assetMap);
   const warnings: SoftWarning[] = [];
 
@@ -192,13 +196,13 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
       await backend.setAutoLayout!({
         nodeId: frame.id,
         mode: 'VERTICAL',
-        itemSpacing: PARTS_GAP,
+        itemSpacing: gap,
         hugHeight: true
       });
     }
     // 文档底色：模板自带深色底（蛋仔 #232429）时不能刷白，否则整篇文字看不清。
     if (backend.setNodePaint) {
-      await backend.setNodePaint({ nodeId: frame.id, fill: pack.docBackground ?? '#FFFFFF' });
+      await backend.setNodePaint({ nodeId: frame.id, fill: docBackground ?? '#FFFFFF' });
     }
     return frame;
   });
@@ -210,7 +214,6 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
       await backend.reparentNode({ nodeId: part.id, newParentId: root.id });
     }
   });
-
   await stage('fill.top', () => fillTop(backend, top, ir, caps.overview, warnings));
 
   const sections: PartsSectionLayout[] = [];
@@ -225,7 +228,8 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
         clusterKey: pack.components.cluster!,
         figures,
         warnings,
-        ...(pack.docBackground ? { docBackground: pack.docBackground } : {}),
+        ...(docBackground ? { docBackground } : {}),
+        ...(pack.geometry ? { geometry: pack.geometry } : {}),
         ...(input.pageId ? { pageId: input.pageId } : {})
       })
     );
@@ -234,7 +238,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     sections.push({ nodeId: chapters[i]!.id, name: section.name, clusters: placed.clusters });
   }
 
-  await stage('layout', () => layout(root, parts, backend, autoLayout));
+  await stage('layout', () => layout(root, parts, backend, autoLayout, gap));
 
   const layoutInfo: PartsDocLayout = {
     rootId: root.id,
@@ -279,7 +283,8 @@ async function layout(
   root: NodeInfo,
   parts: NodeInfo[],
   backend: FigmaBackend,
-  autoLayout: boolean
+  autoLayout: boolean,
+  gap: number
 ): Promise<void> {
   // 自动布局路径下什么都不用做：位置与根帧高度都是算出来的，宽度在建帧时已定。
   if (autoLayout) return;
@@ -290,7 +295,7 @@ async function layout(
     const h = info.absoluteBoundingBox?.height ?? 0;
     width = Math.max(width, info.absoluteBoundingBox?.width ?? 0);
     await backend.moveNode(part.id, 0, y);
-    y += h + PARTS_GAP;
+    y += h + gap;
   }
   await backend.resizeNode!(root.id, width, Math.max(y, 1));
 }
@@ -415,6 +420,8 @@ interface FillChapterCtx {
   pageId?: string;
   /** 文档底色，决定占位块的灰阶（深色稿上用白块等于贴了张白纸）。 */
   docBackground?: string;
+  /** 模板实测几何（章节宽度兜底、标号网格、占位色）。 */
+  geometry?: TemplateGeometry;
 }
 
 /**
@@ -424,7 +431,12 @@ interface FillChapterCtx {
  * `#232429`）里像贴了张白纸，比不留占位还刺眼。所以按文档底色的亮度取灰阶：
  * 深底往白里混一点当面板，浅底往黑里混一点当阴影。
  */
-export function placeholderPaint(docBackground?: string): { fill: string; stroke: string } {
+export function placeholderPaint(
+  docBackground?: string,
+  override?: { fill: string; stroke: string }
+): { fill: string; stroke: string } {
+  // 模板自带的占位色就是标准答案；采到了就不猜。
+  if (override) return override;
   const base = parseHex(docBackground);
   if (!base) return { fill: '#F5F5F5', stroke: '#BFBFBF' };
   const luma = (0.299 * base.r + 0.587 * base.g + 0.114 * base.b) / 255;
@@ -500,7 +512,7 @@ async function fillChapter(
       // 原稿截图清掉之后不能留个空洞：一层中性色 + 虚线，一眼看出这是占位。
       // 灰阶跟着文档底色走：深色稿（蛋仔 #232429）上刷白块比留空还扎眼。
       if (backend.setNodePaint) {
-        const paint = placeholderPaint(ctx.docBackground);
+        const paint = placeholderPaint(ctx.docBackground, ctx.geometry?.placeholder);
         await backend.setNodePaint({
           nodeId: mainImage.id,
           fill: paint.fill,
@@ -553,7 +565,16 @@ async function fillChapter(
   }
 
   const bubbles = await stage('chapter.badges', () =>
-    placeBadges(backend, chapter.id, section.clusters.length, section.index, ctx.warnings, ctx.caps.badgeSlot)
+    placeBadges(
+      backend,
+      chapter.id,
+      section.clusters.length,
+      section.index,
+      ctx.warnings,
+      ctx.caps.badgeSlot,
+      [],
+      ctx.geometry
+    )
   );
   bubbles.forEach((bubble, i) => {
     const entry = clusters[i];
@@ -561,7 +582,7 @@ async function fillChapter(
   });
 
   // 章节高度贴合内容 + 左列与说明栏等高（同步改完簇集合也要跑这一步）。
-  await stage('chapter.fit', () => refreshChapterGeometry(backend, chapter.id));
+  await stage('chapter.fit', () => refreshChapterGeometry(backend, chapter.id, ctx.geometry));
 
   return { image, clusters };
 }

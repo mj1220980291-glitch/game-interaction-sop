@@ -558,6 +558,32 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 20000);
     },
 
+    async readPaints(nodeIds) {
+      const r = await run(`
+        const hex = (c) => '#' + [c.r, c.g, c.b]
+          .map((v) => Math.round(v * 255).toString(16).padStart(2, '0'))
+          .join('')
+          .toUpperCase();
+        const first = (list) => {
+          if (!Array.isArray(list)) return undefined;
+          for (const p of list) {
+            if (p && p.type === 'SOLID' && p.visible !== false && p.color) return hex(p.color);
+          }
+          return undefined;
+        };
+        const out = [];
+        for (const id of ${JSON.stringify(nodeIds)}) {
+          const n = await figma.getNodeByIdAsync(id);
+          if (!n) continue;
+          const fill = 'fills' in n ? first(n.fills) : undefined;
+          const stroke = 'strokes' in n ? first(n.strokes) : undefined;
+          out.push({ nodeId: id, ...(fill ? { fill } : {}), ...(stroke ? { stroke } : {}) });
+        }
+        return out;
+      `, 20000) as Array<{ nodeId: string; fill?: string; stroke?: string }> | null;
+      return r ?? [];
+    },
+
     async clearFills(nodeIds) {
       await run(`
         for (const id of ${JSON.stringify(nodeIds)}) {

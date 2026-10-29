@@ -18,6 +18,7 @@ import {
   isBadgeMaster
 } from '../../template-slots.js';
 import { bubbleOffset } from '../../render.js';
+import type { TemplateGeometry } from '../../template/schema.js';
 
 export const PARTS_GEOMETRY_CODES = {
   BADGE_MASTER_MISSING: 'V2_RENDER_BADGE_MASTER_MISSING'
@@ -28,7 +29,7 @@ function fail(code: string, message: string): Error {
 }
 
 /** 章节高度贴合内容；自动布局的章节高度是算出来的，跳过。 */
-export async function fitChapterHeight(backend: FigmaBackend, chapterId: string): Promise<void> {
+export async function fitChapterHeight(backend: FigmaBackend, chapterId: string, geom?: TemplateGeometry): Promise<void> {
   if (typeof backend.resizeNode !== 'function') return;
   const info = await backend.getNodeInfo(chapterId);
   if (info.layoutMode === 'HORIZONTAL' || info.layoutMode === 'VERTICAL') return;
@@ -42,7 +43,7 @@ export async function fitChapterHeight(backend: FigmaBackend, chapterId: string)
   }
   const height = Math.max(bottom - top, 1);
   if (Math.abs(height - (info.absoluteBoundingBox?.height ?? 0)) > 1) {
-    await backend.resizeNode(chapterId, info.absoluteBoundingBox?.width ?? 2209, height);
+    await backend.resizeNode(chapterId, info.absoluteBoundingBox?.width ?? geom?.chapterWidth ?? 2209, height);
   }
 }
 
@@ -70,9 +71,10 @@ export async function stretchLeftColumn(backend: FigmaBackend, chapterId: string
 /** 章节的两条几何收尾，渲染与同步共用。 */
 export async function refreshChapterGeometry(
   backend: FigmaBackend,
-  chapterId: string
+  chapterId: string,
+  geom?: TemplateGeometry
 ): Promise<void> {
-  await fitChapterHeight(backend, chapterId);
+  await fitChapterHeight(backend, chapterId, geom);
   await stretchLeftColumn(backend, chapterId);
 }
 
@@ -98,7 +100,8 @@ export async function placeBadges(
   chapterIndex: string,
   warnings: SoftWarning[],
   badges: 'container' | 'manual' | 'none',
-  known: NodeInfo[] = []
+  known: NodeInfo[] = [],
+  geom?: TemplateGeometry
 ): Promise<NodeInfo[]> {
   if (clusterCount === 0) return [];
   if (badges !== 'container') {
@@ -156,7 +159,7 @@ export async function placeBadges(
       (await (async () => {
         const created = await backend.cloneNode({ sourceId: master.id, parentId: containerId });
         if (backend.renameNode) await backend.renameNode(created.id, `标号/${i + 1}`);
-        const at = badgePosition(i, rect, master);
+        const at = badgePosition(i, rect, master, geom);
         await backend.moveNode(created.id, at.x, at.y);
         if (backend.setNodeVisible) await backend.setNodeVisible(created.id, true);
         return created;
@@ -183,7 +186,8 @@ export async function relayoutBadges(
   clusterCount: number,
   keepCount: number,
   badges: 'container' | 'manual' | 'none',
-  warnings: SoftWarning[]
+  warnings: SoftWarning[],
+  geom?: TemplateGeometry
 ): Promise<void> {
   if (badges !== 'container') return;
   const containerId = await findNamed(backend, chapterId, CHAPTER_SLOTS.badgeContainer);
@@ -194,7 +198,7 @@ export async function relayoutBadges(
     .filter((c) => isBadgeFrame(c.name) && !isBadgeMaster(c.name))
     .sort((a, b) => badgeOrdinal(a.name) - badgeOrdinal(b.name));
   const kept = ordered.filter((b) => badgeOrdinal(b.name) <= keepCount).slice(0, clusterCount);
-  await placeBadges(backend, chapterId, clusterCount, chapterIndex, warnings, badges, kept);
+  await placeBadges(backend, chapterId, clusterCount, chapterIndex, warnings, badges, kept, geom);
 }
 
 function badgeOrdinal(name: string): number {
@@ -227,17 +231,40 @@ async function imageRectInContainer(
 function badgePosition(
   index: number,
   rect: { x: number; y: number; width: number; height: number },
-  master: NodeInfo
+  master: NodeInfo,
+  geom?: TemplateGeometry
 ): { x: number; y: number } {
-  const base = bubbleOffset(index);
-  const w = master.absoluteBoundingBox?.width ?? 48;
-  const h = master.absoluteBoundingBox?.height ?? 48;
-  const x = rect.x + (base.x / MAIN_IMAGE_SIZE.width) * rect.width;
-  const y = rect.y + (base.y / MAIN_IMAGE_SIZE.height) * rect.height;
+  const [nx, ny] = gridRatio(index, geom);
+  const w = master.absoluteBoundingBox?.width ?? geom?.badgeSize?.width ?? 48;
+  const h = master.absoluteBoundingBox?.height ?? geom?.badgeSize?.height ?? 48;
+  const x = rect.x + nx * rect.width;
+  const y = rect.y + ny * rect.height;
   return {
     x: Math.round(Math.min(Math.max(x, rect.x), rect.x + rect.width - w)),
     y: Math.round(Math.min(Math.max(y, rect.y), rect.y + rect.height - h))
   };
+}
+
+/**
+ * 第 i 个标号的**比例坐标**。
+ *
+ * 优先用模板实测网格（`geometry.bubbleGrid`，编译期从 `气泡` 里量出来的比例），
+ * 没有就退回 `DEFAULT_BUBBLE_GRID`（按 1920×1080 定义）。超出网格长度的按最后
+ * 一格的步长延续，避免全叠在同一处。
+ */
+function gridRatio(index: number, geom?: TemplateGeometry): [number, number] {
+  const grid = geom?.bubbleGrid;
+  if (grid && grid.length > 0) {
+    if (index < grid.length) return [grid[index]!.x, grid[index]!.y];
+    const last = grid[grid.length - 1]!;
+    const prev = grid.length > 1 ? grid[grid.length - 2]! : last;
+    const step = index - (grid.length - 1);
+    return [last.x + (last.x - prev.x) * step, last.y + (last.y - prev.y) * step];
+  }
+  const base = bubbleOffset(index);
+  const w = geom?.mainImage?.width ?? MAIN_IMAGE_SIZE.width;
+  const h = geom?.mainImage?.height ?? MAIN_IMAGE_SIZE.height;
+  return [base.x / w, base.y / h];
 }
 
 async function setBadgeNumber(

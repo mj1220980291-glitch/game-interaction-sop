@@ -94,6 +94,8 @@ export interface BuildPackInput {
   mdContract?: string;
   /** 文档底色 `#rrggbb`（模板身份，深色稿渲染时根帧用它）。 */
   docBackground?: string;
+  /** 编译期实测的几何与色彩。 */
+  geometry?: TemplatePack['geometry'];
 }
 
 /** 组装 `template.json`，并用既有的 `parseTemplatePack` 自检一遍。 */
@@ -111,6 +113,7 @@ export function buildTemplatePack(input: BuildPackInput): TemplatePack {
     capabilities: input.capabilities,
     anchors: input.anchors ?? {},
     ...(input.docBackground ? { docBackground: input.docBackground } : {}),
+    ...(input.geometry ? { geometry: input.geometry } : {}),
     ...(input.mdContract ? { mdContract: input.mdContract } : {})
   };
 

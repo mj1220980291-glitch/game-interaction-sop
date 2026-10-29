@@ -86,6 +86,22 @@ export interface TemplateSource {
   fingerprint?: string;
 }
 
+/**
+ * 几何与色彩：不算能力，但决定观感。
+ *
+ * 全部可缺省——缺了就用手里的常量，老包因此零影响。
+ * `bubbleGrid` 按**主图比例**（0–1）存，模板换尺寸时网格自动跟着缩放。
+ */
+export interface TemplateGeometry {
+  docBackground?: string;
+  chapterWidth?: number;
+  mainImage?: { width: number; height: number };
+  placeholder?: { fill: string; stroke: string };
+  bubbleGrid?: Array<{ x: number; y: number }>;
+  badgeSize?: { width: number; height: number };
+  rootGap?: number;
+}
+
 export interface TemplatePack {
   schema_version: number;
   project?: string;
@@ -98,6 +114,8 @@ export interface TemplatePack {
    * 文字都看不清。不写在配置里就得靠渲染去猜，所以由编译期从原稿根节点抄下来。
    */
   docBackground?: string;
+  /** 几何与色彩（编译期实测；缺省 = 渲染期默认值）。 */
+  geometry?: TemplateGeometry;
   /** Relative path of the human-readable writing contract. */
   mdContract?: string;
 }
@@ -115,6 +133,79 @@ export interface ParseTemplatePackErr {
 }
 
 export type ParseTemplatePackResult = ParseTemplatePackOk | ParseTemplatePackErr;
+
+/**
+ * `geometry` 逐项解析：坏字段只丢自己，不能连累整份包。
+ * 未知字段记 warning（多半是手写配置时拼错）。
+ */
+function parseGeometry(raw: unknown, warnings: string[]): TemplateGeometry | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    warnings.push('geometry must be an object; ignored');
+    return undefined;
+  }
+  const out: TemplateGeometry = {};
+  const drop = (key: string): void => {
+    warnings.push(`geometry.${key} is malformed; ignored`);
+  };
+
+  const hex = (v: unknown): string | undefined => {
+    const s = readString(v);
+    return s && /^#[0-9a-fA-F]{6}$/.test(s) ? s : undefined;
+  };
+  const size = (v: unknown): { width: number; height: number } | undefined => {
+    if (!isRecord(v)) return undefined;
+    const w = v['width'];
+    const h = v['height'];
+    if (typeof w !== 'number' || typeof h !== 'number' || w <= 0 || h <= 0) return undefined;
+    return { width: w, height: h };
+  };
+
+  const bg = hex(raw['docBackground']);
+  if (bg) out.docBackground = bg;
+  else if (raw['docBackground'] !== undefined) drop('docBackground');
+
+  const cw = raw['chapterWidth'];
+  if (typeof cw === 'number' && cw > 0) out.chapterWidth = cw;
+  else if (cw !== undefined) drop('chapterWidth');
+
+  const mi = size(raw['mainImage']);
+  if (mi) out.mainImage = mi;
+  else if (raw['mainImage'] !== undefined) drop('mainImage');
+
+  const ph = raw['placeholder'];
+  if (isRecord(ph)) {
+    const fill = hex(ph['fill']);
+    const stroke = hex(ph['stroke']);
+    if (fill && stroke) out.placeholder = { fill, stroke };
+    else drop('placeholder');
+  } else if (ph !== undefined) drop('placeholder');
+
+  const grid = raw['bubbleGrid'];
+  if (Array.isArray(grid)) {
+    const points = grid
+      .map((p) => {
+        if (!isRecord(p)) return undefined;
+        const x = p['x'];
+        const y = p['y'];
+        if (typeof x !== 'number' || typeof y !== 'number') return undefined;
+        return { x, y };
+      })
+      .filter((p): p is { x: number; y: number } => p !== undefined);
+    if (points.length === grid.length && points.length > 0) out.bubbleGrid = points;
+    else drop('bubbleGrid');
+  } else if (grid !== undefined) drop('bubbleGrid');
+
+  const bs = size(raw['badgeSize']);
+  if (bs) out.badgeSize = bs;
+  else if (raw['badgeSize'] !== undefined) drop('badgeSize');
+
+  const rg = raw['rootGap'];
+  if (typeof rg === 'number' && rg >= 0) out.rootGap = rg;
+  else if (rg !== undefined) drop('rootGap');
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 // --- parsing -------------------------------------------------------------
 
@@ -258,6 +349,8 @@ export function parseTemplatePack(raw: unknown): ParseTemplatePackResult {
     anchors
   };
   if (docBackground) pack.docBackground = docBackground;
+  const geometry = parseGeometry(raw['geometry'], warnings);
+  if (geometry) pack.geometry = geometry;
   const project = readString(raw['project']);
   if (project) pack.project = project;
   if (source) pack.source = source;

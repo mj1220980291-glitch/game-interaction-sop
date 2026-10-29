@@ -29,6 +29,8 @@ import { buildParts, PART_LABELS, planParts, type PartName } from './parts.js';
 import { preflight } from './preflight.js';
 import { deriveCapabilities, type CapabilityDiff } from './verify-capabilities.js';
 import { CHAPTER_SLOTS } from '../template-slots.js';
+import { captureGeometry, captureGeometryFromKeys, readGeometrySidecar, writeGeometrySidecar } from './geometry.js';
+import type { TemplateGeometry } from '../template/schema.js';
 import { COMPILE_CODES, compileError } from './errors.js';
 
 export interface CompileInput {
@@ -157,6 +159,31 @@ async function stageRetry<T>(name: string, fn: () => Promise<T>, attempts = 4): 
 async function verifyPhase(input: CompileInput): Promise<CompileReport> {
   const keys = input.components ?? {};
   const verified = await verifyPublished({ backend: input.backend, keys });
+
+  // 几何只能在库文件里量（部件在那儿），底色在源模板文件里抄：
+  // verify 的后端绑在「非库文件」上做 import 冒烟，所以这里再绑两次。
+  const libraryBackend =
+    input.backend.withFileKey && input.library.fileKey
+      ? input.backend.withFileKey(input.library.fileKey)
+      : undefined;
+  const sourceBackend =
+    input.backend.withFileKey && input.source.fileKey
+      ? input.backend.withFileKey(input.source.fileKey)
+      : undefined;
+  const geoGaps: CompileGap[] = [];
+  let geometry: TemplateGeometry | undefined = readGeometrySidecar(input.project);
+  if (!geometry && libraryBackend) {
+    const captured = await captureGeometryFromKeys({
+      libraryBackend,
+      ...(sourceBackend ? { sourceBackend } : {}),
+      chapterKey: verified.chapter ?? null,
+      sourceRootId: input.source.nodeId,
+      ...(input.docBackground ? { docBackground: input.docBackground } : {})
+    });
+    geometry = captured.geometry;
+    geoGaps.push(...captured.gaps);
+  }
+
   const pack = buildTemplatePack({
     project: input.project,
     source: {
@@ -168,6 +195,7 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
     capabilities: input.capabilities ?? { ...DEFAULT_CAPABILITIES },
     anchors: {},
     ...(input.docBackground ? { docBackground: input.docBackground } : {}),
+    ...(geometry ? { geometry } : {}),
     mdContract: MD_CONTRACT_RELATIVE_PATH
   });
   const mdContract = buildMdContract(pack);
@@ -365,6 +393,24 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
       })
     );
     gaps.push(...master.gaps);
+
+    // 几何：标号点位只有**粘进来的原稿**还带着（产物里被收口成只剩母版），
+    // 所以优先量 staged 章节，量不到再退回产物。
+    const geoSourceId =
+      typeof (input.staged ?? {}).chapter === 'string' ? input.staged!.chapter! : chapter.componentId;
+    const captured = await stage('geometry.capture', () =>
+      captureGeometry({
+        backend,
+        chapterComponentId: geoSourceId,
+        sourceRootId: input.source.nodeId,
+        ...(input.docBackground ? { docBackground: input.docBackground } : {}),
+        ...(input.source.fileKey && backend.withFileKey
+          ? { sourceBackend: backend.withFileKey(input.source.fileKey) }
+          : {})
+      })
+    );
+    gaps.push(...captured.gaps);
+    writeGeometrySidecar(input.project, captured.geometry);
   }
 
   const adopted = await stage('adopt', () =>
