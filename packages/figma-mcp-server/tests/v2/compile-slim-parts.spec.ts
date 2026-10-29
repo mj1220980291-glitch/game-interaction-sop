@@ -54,18 +54,19 @@ describe('slimParts', () => {
     expect(r.deleted).toBe(3 + 2);
   });
 
-  it('簇只留一条可见内容行，隐藏池保留', async () => {
+  it('run 内的正文条数保持模板原样，隐藏池保留', async () => {
     const h = slotsBackend(cluster());
     const r = await slimParts({
       backend: h.backend,
       parts: [{ part: 'cluster', nodeId: 'k' }]
     });
 
-    console.log('kids', h.childrenOf('k').map(x=>x.name+':'+x.visible));
     const bullets = h.childrenOf('k').filter((x) => x.name === '正文/规则');
-    expect(bullets.filter((x) => x.visible !== false)).toHaveLength(1);
+    expect(bullets.filter((x) => x.visible !== false)).toHaveLength(3);
     expect(bullets.filter((x) => x.visible === false)).toHaveLength(1);
-    expect(r.deleted).toBe(2);
+    expect(r.deleted).toBe(0);
+    // 没有 #Title：切不出 run，编译期会拒绝，这里只记缺口。
+    expect(r.gaps.some((g) => g.what.includes('切不出完整 run'))).toBe(true);
   });
 
   it('缺说明栏时只记缺口，不动画布', async () => {
@@ -110,7 +111,7 @@ describe('slimParts · 簇内原稿媒体', () => {
     expect(h.writes.filter((w) => w.startsWith('placeholder:'))).toEqual([]);
   });
 
-  it('有配图位：只留最大的一个，其余删掉', async () => {
+  it('有配图位：只留最大的一个，并归一成 GROUP', async () => {
     const h = slotsBackend([
       n('k', '簇', 'COMPONENT', ['title', 'b1', 'small', 'big'], { w: 916, h: 1417 }),
       n('title', '#Title_Main', 'TEXT', [], { text: '撤离', w: 72, h: 52 }),
@@ -124,8 +125,14 @@ describe('slimParts · 簇内原稿媒体', () => {
       capabilities: { overview: 'none', figure: 'named-group' }
     });
 
-    expect(h.childrenOf('k').map((x) => x.name)).toEqual(['#Title_Main', '正文/规则', 'Frame 632']);
-    expect(h.writes).toContain('placeholder:big:配图');
+    expect(h.childrenOf('k').map((x) => x.name)).toEqual(['#Title_Main', '正文/规则', '配图']);
+    const group = h.childrenOf('k').find((x) => x.name === '配图')!;
+    expect(group.type).toBe('GROUP');
+    expect(h.childrenOf(group.id).map((x) => x.name)).toEqual([
+      '配图占位',
+      '配图占位文案'
+    ]);
+    expect(h.writes).toContain('group:' + group.id + ':配图');
   });
 
   it('隐藏备用池里的媒体不动', async () => {

@@ -59,6 +59,7 @@ import {
 import { renderFromParts } from './render/parts/index.js';
 import { stampPartsDoc, type PartsDocLayout } from './render/parts/stamp-parts.js';
 import { isRoleFrame } from './template-slots.js';
+import { splitRuns, runMemberIds } from './template/runs.js';
 import {
   findRoleBlockBody,
   loadRoleBlocks,
@@ -1536,7 +1537,10 @@ async function finishBlockFigures(
     if (hintId && img.desc) updates.push({ nodeId: hintId, characters: `配图占位：${img.desc}` });
   }
 
-  if (updates.length > 0) p.figures.textWritten(await backend.setMultipleTextContents(updates));
+  if (updates.length > 0) {
+    p.figures.textWritten(await backend.setMultipleTextContents(updates));
+    await growHintTexts(backend, updates.map((u) => u.nodeId));
+  }
 
   for (const { img, key, asset } of toFill) {
     const entry = parts.get(img.groupId) ?? {};
@@ -1619,7 +1623,7 @@ async function fillGroupSlots(
     ? await backend.getNodesInfo(blockInfo.childIds)
     : [];
 
-  const runs = splitSlotRuns(children);
+  const { runs } = splitRuns(children);
   const prototype = runs[0];
   if (!prototype) {
     // Non-canonical block with no `#Title` at all — nothing to slot on.
@@ -1638,20 +1642,11 @@ async function fillGroupSlots(
     return;
   }
 
-  const protoTitle = prototype.find(
-    (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle
-  );
-  const protoRoleFrame = prototype.find(
-    (n) =>
-      n.type === 'FRAME' && n.name.startsWith(SECTION_CHILD_NAMES.roleTagsFramePrefix)
-  );
-  const protoBullet = prototype.find(
-    (n) => n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText
-  );
+  const protoTitle = prototype.title;
+  const protoRoleFrame = prototype.roleFrame;
+  const protoBullet = prototype.body[0];
   const protoImage =
-    prototype.find(
-      (n) => isFigureSlot(n)
-    ) ??
+    prototype.figure ??
     (ctx.imageSeed.id ? ({ id: ctx.imageSeed.id } as NodeInfo) : undefined);
 
   const textUpdates: TextUpdate[] = [];
@@ -1696,7 +1691,8 @@ async function fillGroupSlots(
   // the freshly composed ones remain. The 标题 header is not part of any
   // run and therefore survives — and so does the section's seed 配图 if it
   // happens to live in one of these runs (see ImageSeed).
-  const originalIds = ctx.imageSeed.filterDeletes(runs.flat().map((n) => n.id));
+  // 整段删：多出来的职能帧 / 配图槽也在这里，不留孤儿节点。
+  const originalIds = ctx.imageSeed.filterDeletes(runs.flatMap(runMemberIds));
   if (originalIds.length > 0) {
     await backend.deleteNodes(originalIds);
   }
@@ -1711,26 +1707,32 @@ async function fillGroupSlots(
 }
 
 /**
- * Split a 说明块's direct children into slot runs.
+ * 把配图占位文案的框放宽到组宽、并允许换行。
  *
- * A run starts at each `#Title` TEXT and extends to the node before the next
- * one. Anything before the first `#Title` is the cluster header (标题 GROUP)
- * and is deliberately excluded — callers must never clone or delete it.
+ * 模板给的框是定宽单行，长描述会被省略号截掉（`配图占位：准备阶段与猎人…`）。
+ * 只拉宽不换行没用——`textAutoResize = NONE` 会按框裁剪；改成 `HEIGHT` 后
+ * 高度跟着行数长，两行正好够。
  */
-function splitSlotRuns(children: NodeInfo[]): NodeInfo[][] {
-  const runs: NodeInfo[][] = [];
-  let current: NodeInfo[] | undefined;
-  for (const child of children) {
-    const isTitle =
-      child.type === 'TEXT' && child.name === SECTION_CHILD_NAMES.clusterSubTitle;
-    if (isTitle) {
-      current = [child];
-      runs.push(current);
-    } else if (current) {
-      current.push(child);
+async function growHintTexts(
+  backend: FigmaBackend,
+  hintIds: ReadonlyArray<string>
+): Promise<void> {
+  if (typeof backend.resizeNode !== 'function' || typeof backend.setTextAutoResize !== 'function') {
+    return;
+  }
+  for (const hintId of hintIds) {
+    try {
+      const hint = await backend.getNodeInfo(hintId);
+      const group = hint.parentId ? await backend.getNodeInfo(hint.parentId) : undefined;
+      const groupWidth = group?.absoluteBoundingBox?.width ?? 0;
+      const width = Math.max(groupWidth > 0 ? groupWidth - 40 : 0, 480);
+      const height = Math.max(hint.absoluteBoundingBox?.height ?? 0, 96);
+      await backend.resizeNode(hintId, width, height * 2);
+      await backend.setTextAutoResize({ nodeId: hintId, mode: 'HEIGHT' });
+    } catch {
+      /* 文案框拉不开不影响成图 */
     }
   }
-  return runs;
 }
 
 /** `- **文本**` → `文本`. The template TEXT does not interpret markdown. */

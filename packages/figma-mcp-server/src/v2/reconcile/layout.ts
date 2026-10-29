@@ -13,6 +13,8 @@ import type { DocIR, SemanticCluster } from '../ir.js';
 import type { AssetSpec } from '../render.js';
 import type { FigmaBackend, StampEntry } from '../figma-client.js';
 import { SECTION_CHILD_NAMES } from '../template-map.js';
+import { isFigure } from '../template/runs.js';
+import { isRoleFrame as isRoleFrameName } from '../template-slots.js';
 import { DEFAULT_VARIANT_PREFIX } from '../template-config.js';
 import { parseRoleBullet } from '../role-block.js';
 import { Tree, type TNode } from './tree.js';
@@ -118,13 +120,14 @@ const isText = (name: string) => (n: TNode) => n.type === 'TEXT' && n.name === n
 export function itemTypeOf(n: TNode): ItemType | undefined {
   if (n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText) return 'rule';
   if (n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterSubTitle) return 'subtitle';
-  if (n.type === 'GROUP' && n.name === SECTION_CHILD_NAMES.optionalImagePlaceholder) return 'figure';
+  // 配图槽的判定与编译 / 渲染共用一份：新包是 GROUP，旧包是裸矩形。
+  if (isFigure(n)) return 'figure';
   if (n.type === 'INSTANCE' && n.name.startsWith(DEFAULT_VARIANT_PREFIX)) return 'role';
   return undefined;
 }
 
 export function isRoleFrame(n: TNode): boolean {
-  return n.type === 'FRAME' && n.name.startsWith(SECTION_CHILD_NAMES.roleTagsFramePrefix);
+  return n.type === 'FRAME' && isRoleFrameName(n.name);
 }
 
 /** The body TEXT of an overview frame — same rule as the renderer's fillOverviewBody. */

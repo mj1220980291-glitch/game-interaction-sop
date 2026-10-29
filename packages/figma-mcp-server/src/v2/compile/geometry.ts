@@ -87,6 +87,12 @@ export interface CaptureGeometryInput {
   sourceBackend?: FigmaBackend;
   /** 调用方显式给的底色，优先于实测。 */
   docBackground?: string;
+  /**
+   * `_staging` 上的原稿章节 id。用它的祖先链量「章节外框内边距」——
+   * 编译产出的章节只取最里层，外层 `Comp_1` / `需求目标` 的 padding 会丢，
+   * 那正是模板的黑色边距。
+   */
+  sectionSourceId?: string;
 }
 
 export async function captureGeometry(input: CaptureGeometryInput): Promise<{
@@ -111,6 +117,19 @@ export async function captureGeometry(input: CaptureGeometryInput): Promise<{
   const chapter = await backend.getNodeInfo(chapterComponentId);
   const chapterWidth = chapter.absoluteBoundingBox?.width;
   if (chapterWidth && chapterWidth > 0) geometry.chapterWidth = Math.round(chapterWidth);
+
+  if (input.sectionSourceId) {
+    const chain = await measureSectionShell(backend, input.sectionSourceId);
+    if (chain.length > 0) {
+      geometry.sectionShell = chain;
+    } else {
+      gaps.push({
+        what: '章节外面没有带内边距 / 填充的外框',
+        impact: '渲染时章节上下会贴边，章节卡片底色也会缺（模板本来靠外框留黑边）',
+        fix: '确认 _staging 上粘的是完整模板层级（外框一起粘），或接受无留白'
+      });
+    }
+  }
 
   const { nodes } = await backend.scanSubtree(chapterComponentId, 20000);
   const main = nodes.find((n) => n.name === CHAPTER_SLOTS.mainImage);
@@ -176,6 +195,45 @@ export async function captureGeometry(input: CaptureGeometryInput): Promise<{
 function badgeOrdinal(name: string): number {
   const m = /(\d+)\s*$/.exec(name);
   return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * 从原稿章节向上走到页面，收每一层外框（外 → 内）：内边距 + 纯色填充。
+ *
+ * 模板的黑色边距与卡片底色就是这些外框给的：`官方1.14` 是 `Comp_1`
+ * pad 64 / `#000000`，`需求目标` pad 64 / `#161616`。只收「有 padding 或有
+ * 填充」的层，都没有就返回空数组（模板本来就不留边）。
+ */
+async function measureSectionShell(
+  backend: FigmaBackend,
+  childId: string
+): Promise<Array<{ padding: { top: number; right: number; bottom: number; left: number }; fill?: string }>> {
+  const chain: Array<{
+    padding: { top: number; right: number; bottom: number; left: number };
+    fill?: string;
+  }> = [];
+  let cur = (await backend.getNodeInfo(childId)).parentId;
+  while (cur) {
+    const parent = await backend.getNodeInfo(cur);
+    const pad = parent.padding ?? { top: 0, right: 0, bottom: 0, left: 0 };
+    let fill: string | undefined;
+    if (backend.readPaints) {
+      const [paint] = await backend.readPaints([cur]);
+      fill = paint?.fill;
+    }
+    const hasPad = pad.top || pad.right || pad.bottom || pad.left;
+    if ((hasPad || fill) && !isRootOf(parent)) {
+      chain.unshift(fill ? { padding: pad, fill } : { padding: pad });
+    }
+    if (parent.type === 'PAGE' || !parent.parentId) break;
+    cur = parent.parentId;
+  }
+  return chain;
+}
+
+/** 模板根节点自己的填充是文档底色，不能当成章节外框。 */
+function isRootOf(node: { parentType?: string }): boolean {
+  return node.parentType === 'PAGE';
 }
 
 function round4(v: number): number {

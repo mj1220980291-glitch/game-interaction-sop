@@ -62,7 +62,7 @@ describe('蛋仔形状 · 顶部', () => {
 });
 
 describe('蛋仔形状 · 簇', () => {
-  it('3 张大截图 + 1 张小图收成 1 个配图槽，正文只留一条', async () => {
+  it('3 张大截图 + 1 张小图收成 1 个配图 GROUP', async () => {
     const h = slotsBackend(danziCluster());
     await slimParts({
       backend: h.backend,
@@ -73,9 +73,14 @@ describe('蛋仔形状 · 簇', () => {
     const body = h.childrenOf('body');
     const names = body.map((x) => x.name);
     expect(names.filter((x) => x === '正文/规则')).toHaveLength(1);
-    // 只留一个媒体载体，而且它被换成同尺寸虚线占位（名字统一成「配图」）。
+    // 只留一个媒体载体，而且它被包成 GROUP（配图 + 配图占位 + 配图占位文案）。
     expect(body).toHaveLength(2);
-    expect(h.writes.filter((w) => w.endsWith(':配图'))).toHaveLength(1);
+    const group = body.find((x) => x.name === '配图')!;
+    expect(group.type).toBe('GROUP');
+    expect(h.childrenOf(group.id).map((x) => x.name)).toEqual([
+      '配图占位',
+      '配图占位文案'
+    ]);
     // 原稿的截图与小图不该再被留下
     expect(names.some((x) => x.startsWith('image '))).toBe(false);
   });

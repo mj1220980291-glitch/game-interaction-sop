@@ -311,8 +311,8 @@ async function normalizeCluster(
     if (hint) await rename('cluster', hint, CLUSTER_SLOTS.figureHint);
   }
 
-  const roleFrame = findRoleFrame(root);
-  if (roleFrame) await rename('cluster', roleFrame, CLUSTER_SLOTS.roleFrame);
+  const roleFrames = findRoleFrames(root);
+  for (const frame of roleFrames) await rename('cluster', frame, CLUSTER_SLOTS.roleFrame);
 
   // 分组槽必须在内容行之前定下来，否则 `小标题1` 这类短标题会被当成内容行。
   const groupSlots = texts(root).filter(
@@ -327,7 +327,19 @@ async function normalizeCluster(
     });
   }
 
-  const excluded = subtreeIds([title, figure, roleFrame, carrier?.node, ...groupSlots]);
+  // 每一段 run 都可能带自己的配图槽；只排除第一个的话，第二段里的
+  // `配图占位文案` 会被当成内容行改名成 `正文/规则`（真机踩过）。
+  const figureRoots = structuredDescendants(root).filter(
+    (n) => n.name === CLUSTER_SLOTS.figure && n !== figure
+  );
+  const excluded = subtreeIds([
+    title,
+    figure,
+    carrier?.node,
+    ...groupSlots,
+    ...roleFrames,
+    ...figureRoots
+  ]);
   const bullets = contentLinesOf(root, title).filter((t) => !excluded.has(t.id));
   for (const bullet of bullets) await rename('cluster', bullet, CLUSTER_SLOTS.bullet);
 }
@@ -592,17 +604,23 @@ function findFigure(
   return found;
 }
 
-function findRoleFrame(root: ProbeNode): ProbeNode | undefined {
-  let found: ProbeNode | undefined;
+/**
+ * 簇里的全部职能标签帧。
+ *
+ * 每段 run 各带一个（`1:14` 是 `Frame 427319720` / `Frame 427319721`）。以前只认
+ * 第一个，第二个既没改名也没删，渲染时成了孤儿节点，把上一份文档的角色标签一起
+ * 带进产物。改名后由瘦身按 run 决定留谁。
+ */
+function findRoleFrames(root: ProbeNode): ProbeNode[] {
+  const found: ProbeNode[] = [];
   walkStructured(root, (n) => {
-    if (found) return false;
     if (isRoleFrame(n.name)) {
-      found = n;
+      found.push(n);
       return false;
     }
     if (n.children.length < 3) return undefined;
     if (n.children.every((c) => c.type === 'TEXT' && isRoleText(c))) {
-      found = n;
+      found.push(n);
       return false;
     }
     return undefined;

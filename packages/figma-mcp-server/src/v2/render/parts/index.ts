@@ -208,7 +208,49 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     return frame;
   });
 
-  const parts: NodeInfo[] = [top, ...chapters, ...(footer ? [footer] : [])];
+  // 章节外面的「壳」链（外 → 内）：模板的黑色边距和章节卡片底色都在这几层上，
+  // 编译只产出了最里层的章节，这里按采集到的层数一层层套回去。没有采集值就
+  // 保持原样（老包 / 本来就不留边距的模板）。
+  const sectionShell = pack.geometry?.sectionShell ?? [];
+  const parts: NodeInfo[] = [top];
+  if (autoLayout && sectionShell.length > 0) {
+    await stage('section.wrap', async () => {
+      for (const chapter of chapters) {
+        let outer: NodeInfo | undefined;
+        let inner: NodeInfo | undefined;
+        let containerWidth = width;
+        for (const layer of sectionShell) {
+          const frame = await backend.createFrame!({
+            ...(input.pageId ? { parentId: input.pageId } : {}),
+            name: '章节外框',
+            width: containerWidth,
+            height: 1
+          });
+          if (inner) await backend.reparentNode({ nodeId: frame.id, newParentId: inner.id });
+          await backend.setAutoLayout!({
+            nodeId: frame.id,
+            mode: 'VERTICAL',
+            itemSpacing: 0,
+            padding: layer.padding,
+            hugHeight: true,
+            counterAlign: 'MIN'
+          });
+          if (layer.fill && backend.setNodePaint) {
+            await backend.setNodePaint({ nodeId: frame.id, fill: layer.fill });
+          }
+          outer ??= frame;
+          inner = frame;
+          containerWidth -= layer.padding.left + layer.padding.right;
+        }
+        if (inner) await backend.reparentNode({ nodeId: chapter.id, newParentId: inner.id });
+        if (outer) parts.push(outer);
+      }
+    });
+  } else {
+    parts.push(...chapters);
+  }
+  if (footer) parts.push(footer);
+
   input.onRootCreated?.(root.id);
   await stage('reparent', async () => {
     for (const part of parts) {
@@ -567,26 +609,23 @@ async function fillChapter(
       const layout = await collectClusterLayout(backend, node, effective);
       clusters.push(layout);
       // md 没写 `配图：` 时，模板常驻的配图槽不该在版面上占一块空灰板。
-      // 只藏**没图**的那几个：有 IMAGE 填充的是这次真正放进去的图，藏错了就是图不见了。
+      // `loose` 已经是「没被任何 `配图：` 认领」的槽，直接藏整组——组里还有
+      // 占位文案，只藏矩形会把「配图占位：待手动替换」留在图上（真机踩过）。
       const loose = layout.looseNodes ?? [];
       if (loose.length > 0 && backend.setNodeVisible) {
-        const paints = backend.readPaints ? await backend.readPaints(loose) : [];
-        const empty = new Set(paints.filter((p) => p.fill).map((p) => p.nodeId));
-        for (const id of loose) {
-          if (empty.has(id) || paints.length === 0) await backend.setNodeVisible(id, false);
-        }
+        for (const id of loose) await backend.setNodeVisible(id, false);
       }
-      if (backend.readPaints && backend.setNodePaint) {
-        // 没放图的配图槽也要跟文档底色走：编译产物里的 `配图` 是浅灰，
-        // 贴在深色稿上就是一块白板。有图的槽是 IMAGE 填充，读不到 SOLID，跳过。
+      if (backend.setNodePaint) {
+        // 没放图的配图槽要自己补上占位灰板：编译期把图清空了，GROUP 本身又没有
+        // 填充，只靠模板原样会是一块全透明的洞。判据是矩形有没有 IMAGE 填充。
         const paint = placeholderPaint(ctx.docBackground, ctx.geometry?.placeholder);
         const { nodes: inCluster } = await backend.scanSubtree(node.id, 4000);
-        const slots = inCluster.filter((n) => n.name === CLUSTER_SLOTS.figure);
-        const paints = await backend.readPaints(slots.map((n) => n.id));
-        for (const p of paints) {
-          if (!p.fill) continue;
+        const empty = inCluster.filter(
+          (n) => n.name === CLUSTER_SLOTS.figureRect && n.hasImageFill !== true
+        );
+        for (const rect of empty) {
           await backend.setNodePaint({
-            nodeId: p.nodeId,
+            nodeId: rect.id,
             fill: paint.fill,
             stroke: paint.stroke,
             strokeWeight: 2,
@@ -636,16 +675,38 @@ async function collectClusterLayout(
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const figureTexts = cluster.bullets.filter(isImageBullet).map(stripImageBulletPrefix);
   const ordered = clusterItems(nodes, node.id);
-  const figureIds = ordered.filter((x) => x.t === 'figure').map((x) => x.id);
 
-  // 哪个配图槽是真的放了图？看填充：IMAGE 的读不到 SOLID。
-  // 不能按「第几个配图槽」猜——填充逻辑会把图放到新克隆的槽上，
-  // 按序号猜会把有图的那个判成多余的直接藏掉（真机踩过）。
+  // 哪个配图槽是真的放了图？看组里 `配图占位` 矩形的 IMAGE 填充。
+  // 不能按「第几个配图槽」猜——填充逻辑会把图放到新克隆的槽上，按序号猜会把
+  // 有图的那个判成多余；也不能读 GROUP 自己的 fills（组没有填充，恒为空）。
   const withImage = new Set<string>();
-  if (backend.readPaints && figureIds.length > 0) {
-    const paints = await backend.readPaints(figureIds);
-    for (const p of paints) if (!p.fill) withImage.add(p.nodeId);
+  for (const n of nodes) {
+    if (n.name !== CLUSTER_SLOTS.figureRect || n.hasImageFill !== true) continue;
+    let cur = n.parentId;
+    while (cur && cur !== node.id) {
+      const parent = byId.get(cur);
+      if (parent?.name === CLUSTER_SLOTS.figure) {
+        withImage.add(cur);
+        break;
+      }
+      cur = parent?.parentId;
+    }
   }
+
+  // 配图槽的「占位文案」，用来认领哪个槽是这次真正用到的。
+  // 不能按序号猜：克隆出来的槽追加在末尾，母版自带的空槽反而排在前头。
+  const hintOf = (figureId: string): string | undefined => {
+    let cur = figureId;
+    for (;;) {
+      const kids = nodes.filter((n) => n.parentId === cur);
+      const text = kids.find((n) => n.type === 'TEXT');
+      if (text) return text.characters ?? '';
+      if (kids.length === 0) return undefined;
+      const next = kids.find((n) => n.type === 'GROUP' || n.type === 'FRAME');
+      if (!next) return undefined;
+      cur = next.id;
+    }
+  };
 
   const items: PartsItemLayout[] = [];
   const loose: string[] = [];
@@ -655,12 +716,15 @@ async function collectClusterLayout(
       items.push({ nodeId: id, t, text: byId.get(id)?.characters ?? '' });
       continue;
     }
-    const isUsed = withImage.size > 0 ? withImage.has(id) : figureIndex < figureTexts.length;
-    if (!isUsed || figureIndex >= figureTexts.length) {
+    const wants = figureTexts[figureIndex];
+    // 有 IMAGE 填充的必须算用到；没图时（`figma_node` 缺失等）用占位文案对账。
+    const used =
+      withImage.has(id) || (wants !== undefined && hintOf(id) === `配图占位：${wants}`);
+    if (!used || wants === undefined) {
       loose.push(id);
       continue;
     }
-    items.push({ nodeId: id, t, text: figureTexts[figureIndex] ?? '' });
+    items.push({ nodeId: id, t, text: wants });
     figureIndex += 1;
   }
   return {

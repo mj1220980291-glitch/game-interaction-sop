@@ -28,7 +28,9 @@ export const COMPILE_CODES = {
   /** 关键槽位定位不到（统一命名归一化失败） */
   SLOT_UNMAPPED: 'V2_COMPILE_SLOT_UNMAPPED',
   /** `phase=contract` 时该项目没有登记的模板包 */
-  PARTS_NOT_REGISTERED: 'V2_COMPILE_PARTS_NOT_REGISTERED'
+  PARTS_NOT_REGISTERED: 'V2_COMPILE_PARTS_NOT_REGISTERED',
+  /** 簇的槽位段（run）结构不成立：切不出 run / 没正文 / 配图不是 GROUP */
+  RUN_CONTRACT_BROKEN: 'V2_COMPILE_RUN_CONTRACT_BROKEN'
 } as const;
 
 export type CompileCode = (typeof COMPILE_CODES)[keyof typeof COMPILE_CODES];

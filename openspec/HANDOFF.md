@@ -1,6 +1,57 @@
 # 交接说明（2026-10-29）
 
-## 当前状态快照（2026-10-29 18:00，换对话先读这一节）
+## 当前状态快照（2026-10-29 20:10，换对话先读这一节）
+
+**一句话**：簇的 run 契约已落地并真机验收——编译保留**一个完整 run**（正文不裁、配图 GROUP 保住矩形+占位文案、孤儿职能帧清零），渲染未使用的配图槽**整组隐藏**；`官方1.14` 已重编、发布、回填 key，沙盒渲染 `87:583` 结构正确。
+
+**代码状态**：`npm run build` + `npm test` **454/454** 通过，`openspec validate --all --strict` **18/18** 通过。变更 `slot-run-contract` 四件产物齐（tasks 1–5 全勾，6.1–6.4 已验）。**尚未提交 git**。
+
+| 类别 | 内容 |
+|---|---|
+| 共享规则 | 新增 `src/v2/template/runs.ts`：`splitRuns()` 唯一边界规则 + `isCompleteRun` / `firstCompleteRun` / `runMemberIds` / `isFigure`；编译 / 渲染 / 同步三端共用 |
+| 编译瘦身 | `slimParts` 按 run 保留第一个完整 run，其余连根删；取消「正文裁到 1 条 / `#Title` 裁到 1 个」 |
+| 配图归一 | 产物里的 `配图` 一律 GROUP（矩形 + 占位文案）；新增后端 `groupNodes` / `createText`，裸矩形包壳；删掉 `replaceWithPlaceholder` |
+| 探针 | `compile/run-contract.ts` 两段：写画布前预检原稿、瘦身后校验产物；违反 → `V2_COMPILE_RUN_CONTRACT_BROKEN`（瘦身后失败会留下已建组件，报告列 id） |
+| 渲染 | `fillGroupSlots` 用共享规则；未使用的配图槽按「矩形 IMAGE 填充 + 占位文案对账」判定后**整组隐藏**（只藏矩形会留下「配图占位：待手动替换」） |
+| 官方1.14 | 顶部 `103:297` / 章节 `103:306` / 簇 `103:342`，keys `105c8a75…` / `96173277…` / `76c4ed91…`，已回填 `官方1.14.json` 与 `.interaction-sop/template.json`（无 BOM）；`94:*` / `100:*` / `102:*` 三组旧组件已删除 |
+| 章节外框 | 模板的「黑色边距 + 卡片底色」来自两层外框（`Comp_1` pad 64 / `#000000`，`需求目标` pad 64 / `#161616`）。`TemplateGeometry.sectionShell` 采集 padding + 填充，渲染按层建框并刷色（3690 → 3562 → 3382，左右 128/180，上下各 128，段间 256）；无采集值的老包不受影响 |
+| 标题间距 | `buildChapterShell` 的 `左列 itemSpacing`：标题在章节内时按「主图顶 − 标题底」算（官方1.14 = 40），不再写死 24 |
+| 渲染实测 | 真机文档 `变色龙通用HUD规范` → 沙盒 `90:2985`：1 章 7 簇、16 个配图占位（与 md `配图：` 数一致）、2 个无图簇的空槽全隐藏、标号 1–7 不重叠、主图占位文案在位 |
+| 配图文案 | 占位文案框从定宽单行改成「组宽 − 40 + `textAutoResize = HEIGHT`」，长描述不再被省略号截断（`setTextAutoResize` 是新增后端方法） |
+
+**Figma 现场（接手先核对）**：
+
+| 位置 | 现状 |
+|---|---|
+| `交互SOP模板库` / `部件` `0:1` | `官方1.14` 新三件（`100:*`，published）+ 三个 `94:*（旧）` 回滚点 |
+| `交互SOP模板库` / `_staging` `3:10` | `官方1.14 模板（_staging）` `94:3500`（标题 `94:3501` / 总览 `94:3518` / 界面说明1 `94:3530` / 说明块01 `94:3532` / 章节标题 `94:3608` / 气泡 `94:3599`）+ 蛋仔原稿 `5:5495` + 蛋仔模板 `6:8172` |
+| `SOP 校验沙盒` `0eoR7aPlpzIva8IdWATWkL` / `Page 1` | 素材占位 `63:59`、真机验收稿 `90:2985`（其余实验产物已删） |
+| `~/.game-interaction-sop/templates/官方1.14.json` | 新 keys + geometry；上一版备份 `官方1.14.json.bak-20261029` |
+| `.interaction-sop/template.json` | 当前为 `官方1.14`（本轮已从蛋仔切过来） |
+
+**本轮新增坑（都踩过）**：
+
+11. `cloneSlimPart` 在插件里还有一份「按名字裁簇」的旧逻辑（`bullets.slice(1)` / `#Title slice(1)`），会在引擎瘦身之前先把 run 裁坏 → 已删掉该分支，簇只由 `slimParts` 处理
+12. 归一化的「内容行」判定只排除**第一个**配图槽，第二段 run 的 `配图占位文案` 会被改名成 `正文/规则` → 现在排除全部 `配图` 子树
+13. 配图槽的「用没用上」不能读 GROUP 的 fills（组恒为空），也不能只按序号 → 用「组内 `配图占位` 矩形 `hasImageFill`」+「占位文案是否等于 `配图占位：<md 描述>`」对账
+14. 编译给「散落标号」模板补容器时，能力值必须传 `badgeSlot: manual` + `badgeContainerSourceId`，传 `container` 会跳过补容器并留下 `V2_RENDER_BADGE_MASTER_MISSING`
+15. `phase=verify` 仍不可用（坑 2），本轮用「沙盒 import 三个 key + 手写 pack」；`figma_capture_screenshot` 要先把 active file 切到沙盒（`figma_navigate`），否则报 `Node not found`
+16. 「章节没有黑色边距」的根因不是渲染丢了 padding，而是**编译只产出了最里层 `界面说明1`**，外面两层带 padding 的框（`Comp_1` / `需求目标`）没被带出来；修法是把这条 padding 链采进 `geometry.sectionPadding`，渲染套回
+17. `buildChapterShell` 里标题与主图的间距旧公式只在「标题在章节外」时成立（`src.y - titleBottom`），标题本来就在章节内时会算成负数并回落到写死的 24 → 现在补了「主图顶 − 标题底」分支（官方1.14 = 40）
+18. 配图占位文案的框是模板给的定宽单行，长描述会被省略号截掉；写入后要 `resizeNode` 到组宽并 `textAutoResize = HEIGHT`，否则「配图占位：准备阶段与猎人…」这种一眼看不到关键信息
+19. 编译必须在**库文件为 active file** 时跑：active 在沙盒时 `staged` 节点会全部报「在库文件里找不到」（节点其实还在）；渲染则相反，要切回目标文件
+
+**待办清单（按优先级）**：
+
+- [ ] 提交本变更代码 + 归档 `slot-run-contract`（tasks 全勾后 `archive`）
+- [ ] 小变更 `bridge-port-stability`：`npm run build` 换 worker 时旧进程仍占着 9223，新服务退到 9224 → 插件（只认 9223）永久失联，只能人工重开插件。目标：新 worker 启动前清掉占端口的旧进程 / 固定 9223，让插件自动重连
+- [ ] 蛋仔包重编（它的簇仍是 `figure=none`，不受 run 契约影响，但配图 GROUP 化改造没在它身上验过）
+- [ ] 职能标签做成模板那种「彩色 chip」（现渲染是彩色文字）
+- [ ] `template-geometry-capture` 变更收尾：tasks 4.2–4.4，然后 archive
+
+**门槛**：`npm run build` + `npm test`（454）+ `openspec validate --all --strict`（18）
+
+## 上一轮快照（2026-10-29 18:00）
 
 **一句话**：parts 文档的**同步**（上一轮）与**几何/色彩采集**（这一轮）都已跑通真机；`官方1.14` 已按新流程重编并发布，渲染出来的底色 / 占位色 / 标号点位与模板一致。**卡住的下一块**是「簇的 run 结构」：编译瘦身把模板里的 run 拆坏了，渲染因此拿不到「小标题组 + 职能标签 + 正文 + 配图」的包裹关系。
 

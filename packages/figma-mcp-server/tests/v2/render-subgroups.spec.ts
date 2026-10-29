@@ -220,6 +220,9 @@ describe('renderV2MarkdownToFigma — #### sub-groups render as slot runs', () =
     expect(textsIn(store, block.id, '配图占位文案')).toEqual([
       '配图占位：升级特效示意'
     ]);
+    // 克隆源必须是 GROUP 形态：编译产物统一成 GROUP + 配图占位 + 占位文案。
+    const figure = block.children.map((id) => store[id]!).find((n) => n.name === '配图')!;
+    expect(figure.type).toBe('GROUP');
   });
 
   it('mixed free bullets + ####: the leading run carries no heading', async () => {

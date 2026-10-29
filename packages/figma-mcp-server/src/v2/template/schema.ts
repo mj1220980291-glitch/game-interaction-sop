@@ -100,6 +100,17 @@ export interface TemplateGeometry {
   bubbleGrid?: Array<{ x: number; y: number }>;
   badgeSize?: { width: number; height: number };
   rootGap?: number;
+  /**
+   * 章节外面的「壳」链（外 → 内）。
+   *
+   * 模板的黑色边距与章节卡片底色都不是画在章节里的：外面套了几层带 padding
+   * 和填充的框（`官方1.14`：`Comp_1` pad 64 / `#000000`，`需求目标` pad 64 /
+   * `#161616`）。编译只拿最里层的章节时这些都会丢，渲染必须按这份数据套回去。
+   */
+  sectionShell?: Array<{
+    padding: { top: number; right: number; bottom: number; left: number };
+    fill?: string;
+  }>;
 }
 
 export interface TemplatePack {
@@ -203,6 +214,27 @@ function parseGeometry(raw: unknown, warnings: string[]): TemplateGeometry | und
   const rg = raw['rootGap'];
   if (typeof rg === 'number' && rg >= 0) out.rootGap = rg;
   else if (rg !== undefined) drop('rootGap');
+
+  const shell = raw['sectionShell'];
+  if (Array.isArray(shell)) {
+    const chain = shell.filter(
+      (
+        s
+      ): s is {
+        padding: { top: number; right: number; bottom: number; left: number };
+        fill?: string;
+      } =>
+        isRecord(s) &&
+        isRecord(s['padding']) &&
+        ['top', 'right', 'bottom', 'left'].every(
+          (k) => typeof (s['padding'] as Record<string, unknown>)[k] === 'number' &&
+            ((s['padding'] as Record<string, unknown>)[k] as number) >= 0
+        ) &&
+        (s['fill'] === undefined || /^#[0-9a-fA-F]{6}$/.test(String(s['fill'])))
+    );
+    if (chain.length === shell.length && chain.length > 0) out.sectionShell = chain;
+    else drop('sectionShell');
+  } else if (shell !== undefined) drop('sectionShell');
 
   return Object.keys(out).length > 0 ? out : undefined;
 }

@@ -146,6 +146,9 @@ function serNode(n) {
     characters: chars === null ? null : chars.slice(0, 400),
     visible: typeof n.visible === 'boolean' ? n.visible : true,
     layoutMode: ('layoutMode' in n) ? n.layoutMode : null,
+    padding: ('paddingTop' in n)
+      ? { top: n.paddingTop, right: n.paddingRight, bottom: n.paddingBottom, left: n.paddingLeft }
+      : null,
     hasImageFill: ('fills' in n && Array.isArray(n.fills)) ? n.fills.some(f => f.type === 'IMAGE') : false,
     x: typeof n.x === 'number' ? n.x : null,
     y: typeof n.y === 'number' ? n.y : null
@@ -198,8 +201,13 @@ function toNodeType(t: string): FigmaNodeType {
   return map[t] ?? 'OTHER';
 }
 
-function mapNode(raw: Record<string, unknown>): NodeInfo {
-  return {
+function isPadding(v: unknown): v is { top: number; right: number; bottom: number; left: number } {
+  if (typeof v !== 'object' || v === null) return false;
+  const p = v as Record<string, unknown>;
+  return ['top', 'right', 'bottom', 'left'].every((k) => typeof p[k] === 'number');
+}
+
+function mapNode(raw: Record<string, unknown>): NodeInfo {  return {
     id: String(raw['id'] ?? ''),
     name: String(raw['name'] ?? ''),
     type: toNodeType(String(raw['type'] ?? '')),
@@ -214,6 +222,7 @@ function mapNode(raw: Record<string, unknown>): NodeInfo {
         ? (raw['layoutMode'] as NodeInfo['layoutMode'])
         : undefined,
     hasImageFill: typeof raw['hasImageFill'] === 'boolean' ? (raw['hasImageFill'] as boolean) : undefined,
+    padding: isPadding(raw['padding']) ? raw['padding'] : undefined,
     x: typeof raw['x'] === 'number' ? (raw['x'] as number) : undefined,
     y: typeof raw['y'] === 'number' ? (raw['y'] as number) : undefined
   };
@@ -515,6 +524,15 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 15000);
     },
 
+    async setTextAutoResize({ nodeId, mode }) {
+      await run(`
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) throw new Error('setTextAutoResize: node not found: ' + ${JSON.stringify(nodeId)});
+        if ('textAutoResize' in n) n.textAutoResize = ${JSON.stringify(mode)};
+        return null;
+      `, 15000);
+    },
+
     async setAutoLayout({ nodeId, mode, itemSpacing, padding, hugHeight, absoluteChildIds, counterAlign }) {
       const p = padding ?? {};
       await run(`
@@ -616,6 +634,52 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         return true;
       `, 20000);
       return r === true;
+    },
+
+    async groupNodes({ parentId, name, childIds }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+        if (!parent) throw new Error('groupNodes: parent not found: ' + ${JSON.stringify(parentId)});
+        const kids = [];
+        for (const id of ${JSON.stringify(childIds)}) {
+          const n = await figma.getNodeByIdAsync(id);
+          if (n) kids.push(n);
+        }
+        if (kids.length === 0) throw new Error('groupNodes: no resolvable children');
+        // figma.group 保留子级绝对坐标，包壳不改版面。
+        const g = figma.group(kids, parent);
+        g.name = ${JSON.stringify(name)};
+        return serNode(g);
+      `, 20000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
+    async createText({ parentId, name, characters, box, fontSize = 24, fill, align = 'CENTER' }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+        if (!parent) throw new Error('createText: parent not found: ' + ${JSON.stringify(parentId)});
+        await Promise.all(
+          ['Regular', 'Medium'].map((style) =>
+            figma.loadFontAsync({ family: 'Noto Sans SC', style }).catch(() => null)
+          )
+        );
+        const t = figma.createText();
+        t.name = ${JSON.stringify(name)};
+        try { t.fontName = { family: 'Noto Sans SC', style: 'Regular' }; } catch (e) {}
+        t.characters = ${JSON.stringify(characters)};
+        t.fontSize = ${fontSize};
+        parent.appendChild(t);
+        ${box ? `t.textAutoResize = 'NONE';
+        t.resize(${box.width}, ${box.height});
+        t.x = ${box.x};
+        t.y = ${box.y};
+        t.textAlignHorizontal = ${JSON.stringify(align)};` : ''}
+        ${fill ? `t.fills = [{ type: 'SOLID', color: { r: parseInt(${JSON.stringify(fill)}.slice(1, 3), 16) / 255, g: parseInt(${JSON.stringify(fill)}.slice(3, 5), 16) / 255, b: parseInt(${JSON.stringify(fill)}.slice(5, 7), 16) / 255 } }];` : ''}
+        return serNode(t);
+      `, 20000) as Record<string, unknown>;
+      return mapNode(r);
     },
 
     async setNodePaint({ nodeId, fill, stroke, strokeWeight = 1, dash }) {
@@ -944,12 +1008,9 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
             if (n > best) { best = n; col = c; }
           }
           if (col) for (const c of [...col.children]) c.remove();
-        } else if (part === 'cluster') {
-          const bullets = clone.findAll((x) => x.name === '正文/规则' && x.visible);
-          for (const b of bullets.slice(1)) b.remove();
-          const groups = clone.findAll((x) => x.name === '#Title' && x.visible);
-          for (const g of groups.slice(1)) g.remove();
         }
+        // 簇不在这一步裁：run 边界由引擎按槽位段判定（见 template/runs.ts），
+        // 这里按名字裁会把第二段 run 的小标题/职能帧/配图当多余兄弟删掉。
         return serNode(clone);
       `, 90000) as Record<string, unknown>;
       return mapNode(r);
@@ -1096,6 +1157,10 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           if (titleSrc.parent === src.parent) {
             const gap = Math.round(src.y - (titleSrc.y + titleSrc.height));
             if (gap > 0) left.itemSpacing = Math.min(gap, 200);
+          } else if (titleSrc.parent === src && graphic) {
+            // 标题本来就在章节里（官方1.14）：间距 = 主图顶 − 标题底。
+            const gap = Math.round(graphic.y - (titleSrc.y + titleSrc.height));
+            if (gap > 0) left.itemSpacing = Math.min(gap, 200);
           }
           // 槽位名落在里面的 TEXT 上：渲染写标题就是用 setTextContent。
           const txt = t.findAll((x) => x.type === 'TEXT')[0];
@@ -1128,6 +1193,29 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         g.strokeWeight = 2;
         g.dashPattern = [12, 12];
         stage.appendChild(g);
+
+        // 主图占位文案：模板里居中那句「主图占位：待手动替换」。没有它，文档
+        // 没配截图时左列就是一块纯灰，看不出是占位。有图时渲染会删掉它。
+        try {
+          await Promise.all(
+            ['Regular', 'Bold'].map((style) =>
+              figma.loadFontAsync({ family: 'Noto Sans SC', style }).catch(() => null)
+            )
+          );
+          const hint = figma.createText();
+          hint.name = '主图占位文案';
+          hint.fontName = { family: 'Noto Sans SC', style: 'Bold' };
+          hint.characters = '主图占位：待手动替换';
+          hint.fontSize = 68;
+          hint.fills = [{ type: 'SOLID', color: { r: 168 / 255, g: 168 / 255, b: 168 / 255 } }];
+          hint.textAutoResize = 'NONE';
+          hint.resize(920, 96);
+          hint.textAlignHorizontal = 'CENTER';
+          hint.textAlignVertical = 'CENTER';
+          stage.appendChild(hint);
+          hint.x = Math.round((gw - 920) / 2);
+          hint.y = Math.round((gh - 96) / 2);
+        } catch (e) {}
 
         if (column) {
           const col = figma.createFrame();

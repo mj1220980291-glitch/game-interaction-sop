@@ -19,6 +19,7 @@ import type { FigmaBackend, NodeInfo } from '../figma-client.js';import {
   type PartName
 } from '../template-slots.js';
 import type { Capabilities } from '../template/schema.js';
+import { firstCompleteRun, runMemberIds, splitRuns, type SlotRun } from '../template/runs.js';
 import { COMPILE_CODES, compileError, type CompileGap } from './errors.js';
 import { trace } from './trace.js';
 
@@ -29,9 +30,9 @@ export interface SlimInput {
   parts: ReadonlyArray<{ part: PartName; nodeId: string }>;
   /**
    * 产物能力：顶部清残留只在「没有总览区」时做（总览区的标题文本要留着）；
-   * 簇里的原稿媒体怎么清，取决于模板有没有配图位。
+   * 簇里的原稿媒体怎么清，取决于模板有没有配图位；run 怎么切，取决于分组能力。
    */
-  capabilities?: Pick<Capabilities, 'overview' | 'figure'>;
+  capabilities?: Pick<Capabilities, 'overview' | 'figure' | 'clusterGroups'>;
 }
 
 export interface SlimResult {
@@ -58,7 +59,13 @@ export async function slimParts(input: SlimInput): Promise<SlimResult> {
     if (part === 'chapter') {
       deleted += await slimChapter(backend, nodeId, gaps);
     } else if (part === 'cluster') {
-      deleted += await slimCluster(backend, nodeId, input.capabilities?.figure ?? 'named-group', gaps);
+      deleted += await slimCluster(
+        backend,
+        nodeId,
+        input.capabilities?.figure ?? 'named-group',
+        input.capabilities?.clusterGroups ?? 'slot-run',
+        gaps
+      );
     } else if (part === 'top' && input.capabilities?.overview === 'none') {
       cleared += await slimTop(backend, nodeId);
     }
@@ -249,39 +256,59 @@ async function slimChapter(
   return deleted;
 }
 
-/** 簇：可见内容行 / 分组槽各留一个；隐藏备用池原样保留。 */
+/**
+ * 簇：按 run 瘦身。
+ *
+ * 保留第一个完整 run 的全部成员（正文有几条留几条、职能帧 1 个、配图 1 个），
+ * 其余 run 连根整删。以前按名字全局裁剪，会把第二段的 `#Title` / 职能帧 / 配图
+ * 当成 run 1 的多余兄弟留下来，或反过来把 run 2 整个拍平。
+ *
+ * Spec: slot-run-contract「簇部件按 run 瘦身」
+ */
 async function slimCluster(
   backend: FigmaBackend,
   clusterId: string,
   figure: Capabilities['figure'],
+  mode: Capabilities['clusterGroups'],
   gaps: CompileGap[]
 ): Promise<number> {
   const { nodes } = await backend.scanSubtree(clusterId, SCAN_BUDGET);
   let deleted = 0;
 
-  const visibleBullets = nodes.filter(
-    (n) => n.name === CLUSTER_SLOTS.bullet && n.visible !== false && !isSublayer(n.id)
-  );
-  const visibleGroups = nodes.filter(
-    (n) => n.name === CLUSTER_SLOTS.groupSlot && n.visible !== false && !isSublayer(n.id)
-  );
+  const info = await backend.getNodeInfo(clusterId);
+  const childIds = info.childIds ?? [];
+  const children = childIds.length > 0 ? await backend.getNodesInfo(childIds) : [];
+  // 隐藏备用池与实例内部节点不参与 run 判定，但也不删（池子是样式载体）。
+  const visible = children.filter((n) => n.visible !== false && !isSublayer(n.id));
 
-  const drop = [
-    ...visibleBullets.slice(1).map((n) => n.id),
-    ...visibleGroups.slice(1).map((n) => n.id)
-  ];
-  deleted += await deleteAll(backend, drop);
+  const split = splitRuns(visible, mode);
+  const keep = firstCompleteRun(split.runs);
 
-  await unstickTitleFromNumber(backend, nodes);
-  deleted += await slimClusterMedia(backend, nodes, figure);
-
-  if (visibleBullets.length === 0) {
+  if (mode === 'slot-run' && !keep) {
+    // 切不出 run 也要把媒体清干净：编译期会拒绝这个产物，但留一堆原稿截图
+    // 只会让失败现场更难看清。这里不删正文，失败信息已经指出问题在哪。
     gaps.push({
-      what: '簇部件里没有可见内容行',
-      impact: '渲染时会克隆其他槽位，可能影响排版',
-      fix: '确认归一化已把内容行改名为「正文/规则」'
+      what: `簇 ${clusterId} 切不出完整 run（没有 #Title 或没有 正文/规则）`,
+      impact: '编译期会拒绝该产物；本次只做媒体清理',
+      fix: '确认归一化已把分组标题改成 #Title、内容行改成 正文/规则'
     });
   }
+
+  const doomed: string[] = [];
+  if (keep) {
+    for (const run of split.runs) {
+      if (run === keep) {
+        doomed.push(...run.extras.map((n) => n.id));
+        continue;
+      }
+      doomed.push(...runMemberIds(run));
+    }
+  }
+  const doomedSet = new Set(doomed);
+  deleted += await deleteAll(backend, [...doomedSet]);
+
+  await unstickTitleFromNumber(backend, nodes);
+  deleted += await slimClusterMedia(backend, nodes, figure, keep, doomedSet);
 
   return deleted;
 }
@@ -426,19 +453,23 @@ async function shiftPair(
  *
  * 蛋仔的簇带 3 张 872×490 的原稿截图 + 1 张 127×123 的按钮截图；原本只把它们
  * 换成同尺寸的 `配图占位` 就收工，结果每簇渲染出来挂 3 个空框（`figure = none`
- * 时渲染根本不消费它们）。规则改成：
+ * 时渲染根本不消费它们）。规则：
  *
  * - 模板没有配图位（`figure = none`）→ 媒体全是残留，一个不留
- * - 有配图位 → 只留最大的那一个当样式载体，其余删掉
+ * - 有配图位 → 只保留 run 里的 `配图`（没有就取最大的一块媒体当槽），其余删掉
  *
- * 只取「最外层」的媒体：里面的子节点跟着父级一起走，单独删只会多几次 RPC。
+ * 保留的那个槽必须归一成 GROUP：以前用 `replaceWithPlaceholder` 原地替换，会把
+ * 模板自带的 GROUP 拍平成裸矩形、连 `配图占位文案` 一起丢掉。
  */
 async function slimClusterMedia(
   backend: FigmaBackend,
   nodes: ReadonlyArray<NodeInfo>,
-  figure: Capabilities['figure']
+  figure: Capabilities['figure'],
+  keepRun: SlotRun | undefined,
+  alreadyDeleted: ReadonlySet<string>
 ): Promise<number> {
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const slotId = keepRun?.figure?.id;
 
   // 媒体容器算媒体：蛋仔的截图外面裹着 Group 427319372 这类 GROUP，只删里面的
   // 实例会在簇里留一个空壳容器。
@@ -461,8 +492,35 @@ async function slimClusterMedia(
     return verdict;
   };
 
-  const media = nodes.filter((n) => !isSublayer(n.id) && n.visible !== false && isMedia(n.id));
-  if (media.length === 0) return 0;
+  // 要保留的槽连同子树一起排除在「该删的媒体」之外。
+  const insideSlot = (id: string): boolean => {
+    if (!slotId) return false;
+    let cur: string | undefined = id;
+    while (cur) {
+      if (cur === slotId) return true;
+      cur = byId.get(cur)?.parentId;
+    }
+    return false;
+  };
+
+  // 已经随 run 整段删掉的节点（含子树）不再参与媒体判定，否则同一批节点会被数两次。
+  const wasDeleted = (id: string): boolean => {
+    let cur: string | undefined = id;
+    while (cur) {
+      if (alreadyDeleted.has(cur)) return true;
+      cur = byId.get(cur)?.parentId;
+    }
+    return false;
+  };
+
+  const media = nodes.filter(
+    (n) =>
+      !isSublayer(n.id) &&
+      n.visible !== false &&
+      !wasDeleted(n.id) &&
+      isMedia(n.id) &&
+      !insideSlot(n.id)
+  );
 
   const ids = new Set(media.map((n) => n.id));
   const outermost = media.filter((n) => {
@@ -480,15 +538,143 @@ async function slimClusterMedia(
 
   const area = (n: NodeInfo) =>
     (n.absoluteBoundingBox?.width ?? 0) * (n.absoluteBoundingBox?.height ?? 0);
-  const [keep, ...rest] = [...outermost].sort((a, b) => area(b) - area(a));
-  const deleted = await deleteAll(backend, rest.map((n) => n.id));
+  const sorted = [...outermost].sort((a, b) => area(b) - area(a));
+  // run 里没有 `配图` 时（`first-non-text` 模板），最大的一块媒体就是槽。
+  const fallback = slotId ? undefined : sorted[0];
+  const deleted = await deleteAll(
+    backend,
+    sorted.filter((n) => n !== fallback).map((n) => n.id)
+  );
 
-  // 留一个空槽：原稿截图（实例）或包着它的 GROUP 都换成同尺寸虚线占位，
-  // 渲染有 `配图：` 时填进去，没有就整块删掉。
-  if (keep && backend.replaceWithPlaceholder) {
-    await backend.replaceWithPlaceholder({ nodeId: keep.id, name: CLUSTER_SLOTS.figure });
-  }
+  const slot = slotId ? byId.get(slotId) : fallback;
+  if (slot) await ensureFigureGroup(backend, nodes, slot);
   return deleted;
+}
+
+/**
+ * 把配图槽归一成 `配图` GROUP + `配图占位` 矩形 + `配图占位文案`。
+ *
+ * 已是 GROUP 的原地清洗（清旧图、补缺失的文案），裸矩形 / 原稿实例包壳。
+ */
+async function ensureFigureGroup(
+  backend: FigmaBackend,
+  nodes: ReadonlyArray<NodeInfo>,
+  slot: NodeInfo
+): Promise<void> {
+  const subtree =
+    slot.type === 'GROUP' || slot.type === 'FRAME'
+      ? descendantsOf(nodes, slot.id)
+      : [];
+
+  if (slot.type === 'GROUP') {
+    const rect =
+      subtree.find((n) => n.name === CLUSTER_SLOTS.figureRect && n.type === 'RECTANGLE') ??
+      widest(subtree.filter((n) => n.type === 'RECTANGLE'));
+    if (!rect) {
+      throw compileError(
+        COMPILE_CODES.SLOT_UNMAPPED,
+        `配图 GROUP ${slot.id} 里没有矩形——无法作为填图目标`
+      );
+    }
+    await clearImageFills(backend, [slot, ...subtree]);
+    if (rect.name !== CLUSTER_SLOTS.figureRect) {
+      await renameIfPossible(backend, rect.id, CLUSTER_SLOTS.figureRect);
+    }
+    const hint = subtree.find((n) => n.type === 'TEXT');
+    if (hint) {
+      if (hint.name !== CLUSTER_SLOTS.figureHint) {
+        await renameIfPossible(backend, hint.id, CLUSTER_SLOTS.figureHint);
+      }
+      return;
+    }
+    await createHint(backend, slot.id, rect);
+    return;
+  }
+
+  const parentId = slot.parentId ?? (await backend.getNodeInfo(slot.id)).parentId;
+  if (!parentId) {
+    throw compileError(
+      COMPILE_CODES.SLOT_UNMAPPED,
+      `配图槽 ${slot.id} 没有父级——无法包成 GROUP`
+    );
+  }
+  if (typeof backend.groupNodes !== 'function' || typeof backend.createText !== 'function') {
+    throw compileError(
+      COMPILE_CODES.BACKEND_UNSUPPORTED,
+      '当前后端不支持 groupNodes / createText——无法把裸矩形配图归一成 GROUP'
+    );
+  }
+  await clearImageFills(backend, [slot]);
+  const group = await backend.groupNodes({
+    parentId,
+    name: CLUSTER_SLOTS.figure,
+    childIds: [slot.id]
+  });
+  await renameIfPossible(backend, slot.id, CLUSTER_SLOTS.figureRect);
+  await createHint(backend, group.id, slot);
+}
+
+async function clearImageFills(
+  backend: FigmaBackend,
+  nodes: ReadonlyArray<NodeInfo>
+): Promise<void> {
+  if (typeof backend.clearFills !== 'function') return;
+  const ids = nodes
+    .filter((n) => n.hasImageFill === true || n.type === 'RECTANGLE')
+    .map((n) => n.id);
+  if (ids.length > 0) await backend.clearFills(ids);
+}
+
+async function createHint(
+  backend: FigmaBackend,
+  parentId: string,
+  rect: NodeInfo
+): Promise<void> {
+  if (typeof backend.createText !== 'function') {
+    throw compileError(
+      COMPILE_CODES.BACKEND_UNSUPPORTED,
+      '当前后端不支持 createText——无法给配图槽补占位文案'
+    );
+  }
+  const box = rect.absoluteBoundingBox;
+  await backend.createText({
+    parentId,
+    name: CLUSTER_SLOTS.figureHint,
+    characters: '配图占位',
+    ...(box
+      ? { box: { x: 0, y: 0, width: box.width, height: box.height } }
+      : {})
+  });
+}
+
+async function renameIfPossible(
+  backend: FigmaBackend,
+  nodeId: string,
+  name: string
+): Promise<void> {
+  if (typeof backend.renameNode !== 'function') return;
+  await backend.renameNode(nodeId, name);
+}
+
+function descendantsOf(nodes: ReadonlyArray<NodeInfo>, rootId: string): NodeInfo[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const out: NodeInfo[] = [];
+  const walk = (id: string): void => {
+    for (const childId of byId.get(id)?.childIds ?? []) {
+      const child = byId.get(childId);
+      if (!child) continue;
+      out.push(child);
+      walk(childId);
+    }
+  };
+  walk(rootId);
+  return out;
+}
+
+function widest(nodes: ReadonlyArray<NodeInfo>): NodeInfo | undefined {
+  return [...nodes].sort(
+    (a, b) => (b.absoluteBoundingBox?.width ?? 0) - (a.absoluteBoundingBox?.width ?? 0)
+  )[0];
 }
 
 /** 簇里的「原稿媒体」：配图槽本身、图片填充节点、原稿大截图。 */

@@ -104,6 +104,66 @@ export function slotsBackend(nodes: NodeInfo[]): SlotsBackend {
       writes.push(`placeholder:${input.nodeId}:${input.name}`);
     },
 
+    async groupNodes(input: {
+      parentId: string;
+      name: string;
+      childIds: string[];
+    }): Promise<NodeInfo> {
+      const parent = store.get(input.parentId);
+      if (!parent) throw new Error(`slots backend: group parent ${input.parentId} not found`);
+      const groupId = `g${store.size + 1}`;
+      const kids = input.childIds.filter((id) => store.has(id));
+      parent.childIds = [
+        ...(parent.childIds ?? []).filter((c) => !kids.includes(c)),
+        groupId
+      ];
+      const group: NodeInfo = {
+        id: groupId,
+        name: input.name,
+        type: 'GROUP',
+        parentId: input.parentId,
+        childIds: kids
+      };
+      store.set(groupId, group);
+      for (const id of kids) {
+        const child = store.get(id);
+        if (child) child.parentId = groupId;
+      }
+      writes.push(`group:${groupId}:${input.name}`);
+      return group;
+    },
+
+    async createText(input: {
+      parentId: string;
+      name: string;
+      characters: string;
+      box?: { x: number; y: number; width: number; height: number };
+    }): Promise<NodeInfo> {
+      const parent = store.get(input.parentId);
+      if (!parent) throw new Error(`slots backend: text parent ${input.parentId} not found`);
+      const id = `t${store.size + 1}`;
+      const node: NodeInfo = {
+        id,
+        name: input.name,
+        type: 'TEXT',
+        parentId: input.parentId,
+        childIds: [],
+        characters: input.characters,
+        visible: true,
+        ...(input.box
+          ? {
+              x: input.box.x,
+              y: input.box.y,
+              absoluteBoundingBox: { ...input.box }
+            }
+          : {})
+      };
+      parent.childIds = [...(parent.childIds ?? []), id];
+      store.set(id, node);
+      writes.push(`createText:${id}:${input.name}`);
+      return node;
+    },
+
     async moveNode(id: string, x: number, y: number): Promise<void> {
       const n = store.get(id);
       if (!n) throw new Error(`slots backend: move target ${id} not found`);

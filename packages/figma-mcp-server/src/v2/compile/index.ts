@@ -27,6 +27,7 @@ import type { CompileGap } from './errors.js';
 import { buildWeightMap, COMPILE_FONT_FAMILY } from './font-normalize.js';
 import { buildParts, PART_LABELS, planParts, type PartName } from './parts.js';
 import { preflight } from './preflight.js';
+import { assertSourceRuns, verifyCompiledCluster } from './run-contract.js';
 import { deriveCapabilities, type CapabilityDiff } from './verify-capabilities.js';
 import { CHAPTER_SLOTS } from '../template-slots.js';
 import { captureGeometry, captureGeometryFromKeys, readGeometrySidecar, writeGeometrySidecar } from './geometry.js';
@@ -108,9 +109,22 @@ async function stage<T>(name: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** 干跑版的 run 预检：不抛错，转成一条 intake check。 */
+async function sourceRunCheck(
+  backend: FigmaBackend,
+  clusterRootId: string,
+  mode: Capabilities['clusterGroups']
+): Promise<IntakeCheck> {
+  try {
+    await assertSourceRuns(backend, clusterRootId, mode);
+    return { part: 'cluster', ok: true, detail: '原稿簇可切出完整 run' };
+  } catch (e) {
+    return { part: 'cluster', ok: false, detail: (e as Error).message };
+  }
+}
+
 /**
- * 等桥接能应答再开工。
- *
+ * 等桥接能应答再开工。 *
  * 真机现象：部件刚克隆完（簇 1566 节点），插件还在算布局，紧接着的调用被
  * figma-console 直接判「10 秒内连不上」，而插件其实只是忙。这里用一次极小
  * 的读（`getNodeInfo`）反复探，直到它应答为止——探活失败不抛错，只是接着等。
@@ -302,6 +316,12 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   }
 
   if (!input.write) {
+    if (staged.cluster && source.clusterGroups === 'slot-run') {
+      checks = [
+        ...checks,
+        await sourceRunCheck(backend, staged.cluster, source.clusterGroups)
+      ];
+    }
     return {
       phase: 'compile',
       project,
@@ -321,6 +341,13 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     throw compileError(
       COMPILE_CODES.LIBRARY_UNWRITABLE,
       'partsPageId 必填：收编出来的零件需要一个落脚的页面'
+    );
+  }
+
+  // run 契约的第一段：原稿簇切不出完整 run 时，一个节点都还没建，直接失败。
+  if (staged.cluster) {
+    await stage('run.contract', () =>
+      assertSourceRuns(backend, staged.cluster!, source.clusterGroups)
     );
   }
 
@@ -403,6 +430,7 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
         backend,
         chapterComponentId: geoSourceId,
         sourceRootId: input.source.nodeId,
+        ...(input.staged?.chapter ? { sectionSourceId: input.staged.chapter } : {}),
         ...(input.docBackground ? { docBackground: input.docBackground } : {}),
         ...(input.source.fileKey && backend.withFileKey
           ? { sourceBackend: backend.withFileKey(input.source.fileKey) }
@@ -445,6 +473,32 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     })
   );
   pushGaps(slim.gaps);
+
+  // run 契约的第二段：产物才是渲染真正要填的东西，配图被拍平、正文被裁、
+  // 孤儿职能帧都发生在瘦身这一步。失败时组件已经建好，报告里列出 id 供清理。
+  const clusterPart = built.built.find((p) => p.part === 'cluster');
+  if (clusterPart) {
+    const problems = await stageRetry('run.verify', () =>
+      verifyCompiledCluster(backend, clusterPart.componentId, source.clusterGroups)
+    );
+    checks = [
+      ...checks,
+      {
+        part: 'cluster',
+        ok: problems.length === 0,
+        detail:
+          problems.length === 0 ? '簇产物满足 run 契约' : problems.join('；')
+      }
+    ];
+    if (problems.length > 0) {
+      const created = built.built.map((p) => `${p.part}=${p.componentId}`).join(', ');
+      throw compileError(
+        COMPILE_CODES.RUN_CONTRACT_BROKEN,
+        `簇产物不满足 run 契约：${problems.join('；')}。` +
+          `已建组件未回填 key，需人工清理：${created}`
+      );
+    }
+  }
 
   // 自适应外壳：把根框接回 HUG 链，渲染期就不用再量一遍子级压高度。
   await waitForBridge(backend, built.built[0]?.componentId ?? input.library.pageId);

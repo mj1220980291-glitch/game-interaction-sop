@@ -69,6 +69,8 @@ export interface NodeInfo {
    * HUG 高是算出来的，写回去只会打架）。
    */
   layoutMode?: 'NONE' | 'HORIZONTAL' | 'VERTICAL';
+  /** 自动布局内边距；模板的「黑色边距」就是外框一层层 padding 叠出来的。 */
+  padding?: { top: number; right: number; bottom: number; left: number };
   /**
    * 节点自身是否带图片填充。Undefined when the backend could not report it.
    *
@@ -366,6 +368,17 @@ export interface FigmaBackend {
   resizeNode?(nodeId: string, width: number, height: number): Promise<void>;
 
   /**
+   * 改 TEXT 的自适应模式。
+   *
+   * 配图占位文案的框是模板给的定宽单行，写入长描述会被省略号截掉；改成
+   * `HEIGHT` 后宽度不变、高度跟着换行长，正好显示两行。
+   */
+  setTextAutoResize?(p: {
+    nodeId: string;
+    mode: 'NONE' | 'HEIGHT' | 'WIDTH_AND_HEIGHT';
+  }): Promise<void>;
+
+  /**
    * 把一个容器设成自动布局（只有高度方向 HUG）。
    *
    * 为什么不直接改 `layoutMode`：设成自动布局那一刻，Figma 会立刻按默认
@@ -413,6 +426,29 @@ export interface FigmaBackend {
    * 一份需求的画面带进新文档；换占位是唯一两头都不占的做法。
    */
   replaceWithPlaceholder?(p: { nodeId: string; name: string }): Promise<boolean>;
+
+  /**
+   * 把既有兄弟节点包成一个 GROUP（保持绝对位置）。
+   *
+   * 编译期给「裸矩形配图」补结构：产物里的 `配图` 一律是 GROUP，渲染不必再猜
+   * 形态。GROUP 尺寸由子级包围盒决定，所以包壳前后版面不变。
+   */
+  groupNodes?(p: { parentId: string; name: string; childIds: string[] }): Promise<NodeInfo>;
+
+  /**
+   * 在 `parentId` 下造一个 TEXT，字体固定 `Noto Sans SC`（编译期已验证可加载）。
+   *
+   * 目前唯一用途：给包壳后的配图槽补 `配图占位文案`。
+   */
+  createText?(p: {
+    parentId: string;
+    name: string;
+    characters: string;
+    box?: { x: number; y: number; width: number; height: number };
+    fontSize?: number;
+    fill?: string;
+    align?: 'LEFT' | 'CENTER' | 'RIGHT';
+  }): Promise<NodeInfo>;
 
   /**
    * 给节点上纯色填充 / 描边。
