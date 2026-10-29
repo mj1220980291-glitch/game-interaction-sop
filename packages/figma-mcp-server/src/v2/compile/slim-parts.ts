@@ -567,9 +567,23 @@ async function ensureFigureGroup(
       : [];
 
   if (slot.type === 'GROUP') {
-    const rect =
+    let rect =
       subtree.find((n) => n.name === CLUSTER_SLOTS.figureRect && n.type === 'RECTANGLE') ??
       widest(subtree.filter((n) => n.type === 'RECTANGLE'));
+    if (!rect) {
+      // 组里装的是截图实例（没有矩形）：换成同尺寸占位矩形再继续。
+      const candidate = widest(subtree.filter((n) => n.type !== 'TEXT'));
+      if (candidate && typeof backend.replaceWithPlaceholder === 'function') {
+        await backend.replaceWithPlaceholder({
+          nodeId: candidate.id,
+          name: CLUSTER_SLOTS.figureRect
+        });
+        const fresh = await backend.getNodesInfo(
+          (await backend.getNodeInfo(slot.id)).childIds ?? []
+        );
+        rect = fresh.find((n) => n.name === CLUSTER_SLOTS.figureRect);
+      }
+    }
     if (!rect) {
       throw compileError(
         COMPILE_CODES.SLOT_UNMAPPED,
@@ -598,20 +612,22 @@ async function ensureFigureGroup(
       `配图槽 ${slot.id} 没有父级——无法包成 GROUP`
     );
   }
-  if (typeof backend.groupNodes !== 'function' || typeof backend.createText !== 'function') {
+  if (typeof backend.groupFigure !== 'function') {
     throw compileError(
       COMPILE_CODES.BACKEND_UNSUPPORTED,
-      '当前后端不支持 groupNodes / createText——无法把裸矩形配图归一成 GROUP'
+      '当前后端不支持 groupFigure——无法把原稿媒体归一成配图 GROUP'
     );
   }
-  await clearImageFills(backend, [slot]);
-  const group = await backend.groupNodes({
+
+  // 实例 / 裸矩形：一次调用里换矩形、包 GROUP、放文案（跨 RPC 读坐标会错位）。
+  await backend.groupFigure({
     parentId,
+    nodeId: slot.id,
     name: CLUSTER_SLOTS.figure,
-    childIds: [slot.id]
+    rectName: CLUSTER_SLOTS.figureRect,
+    hintName: CLUSTER_SLOTS.figureHint,
+    hintText: '配图占位'
   });
-  await renameIfPossible(backend, slot.id, CLUSTER_SLOTS.figureRect);
-  await createHint(backend, group.id, slot);
 }
 
 async function clearImageFills(
@@ -627,7 +643,7 @@ async function clearImageFills(
 
 async function createHint(
   backend: FigmaBackend,
-  parentId: string,
+  groupId: string,
   rect: NodeInfo
 ): Promise<void> {
   if (typeof backend.createText !== 'function') {
@@ -636,15 +652,33 @@ async function createHint(
       '当前后端不支持 createText——无法给配图槽补占位文案'
     );
   }
-  const box = rect.absoluteBoundingBox;
+  const box = rectBox(rect);
   await backend.createText({
-    parentId,
+    parentId: groupId,
     name: CLUSTER_SLOTS.figureHint,
     characters: '配图占位',
-    ...(box
-      ? { box: { x: 0, y: 0, width: box.width, height: box.height } }
-      : {})
+    ...(box ? { box } : {})
   });
+}
+
+/**
+ * 文案框：宽 = 图宽，高 = 一行，垂直居中。
+ *
+ * 坐标用矩形在**组内**的 x/y（`getNodeInfo` 返回的是父级相对坐标），
+ * 不能用绝对坐标相减——GROUP 刚建好时包围盒还没稳定，算出来会整体偏移。
+ */
+function rectBox(
+  rect: NodeInfo
+): { x: number; y: number; width: number; height: number } | undefined {
+  const box = rect.absoluteBoundingBox;
+  const height = 64;
+  if (!box || typeof rect.x !== 'number' || typeof rect.y !== 'number') return undefined;
+  return {
+    x: Math.round(rect.x),
+    y: Math.round(rect.y + (box.height - height) / 2),
+    width: Math.round(box.width),
+    height
+  };
 }
 
 async function renameIfPossible(

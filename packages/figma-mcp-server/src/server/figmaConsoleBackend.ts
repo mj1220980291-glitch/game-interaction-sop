@@ -655,6 +655,62 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return mapNode(r);
     },
 
+    async groupFigure({ parentId, nodeId, name, rectName, hintName, hintText }) {
+      const r = await run(`
+        ${SERIALIZE_NODE_FN}
+        const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+        if (!parent) throw new Error('groupFigure: parent not found: ' + ${JSON.stringify(parentId)});
+        let node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!node) throw new Error('groupFigure: node not found: ' + ${JSON.stringify(nodeId)});
+
+        // 实例 / 框不能当填图目标：换成同尺寸占位矩形（保留原位置）。
+        if (node.type !== 'RECTANGLE') {
+          const w = Math.max(node.width, 1), h = Math.max(node.height, 1);
+          const x = node.x, y = node.y;
+          const rect = figma.createRectangle();
+          rect.name = ${JSON.stringify(rectName)};
+          rect.resize(w, h);
+          rect.fills = [{ type: 'SOLID', color: { r: 0.27, g: 0.27, b: 0.27 } }];
+          rect.strokes = [{ type: 'SOLID', color: { r: 0.27, g: 0.27, b: 0.27 } }];
+          rect.strokeWeight = 2;
+          rect.dashPattern = [12, 12];
+          const idx = parent.children.indexOf(node);
+          parent.insertChild(idx, rect);
+          rect.x = x;
+          rect.y = y;
+          node.remove();
+          node = rect;
+        } else {
+          node.name = ${JSON.stringify(rectName)};
+          node.fills = [];
+        }
+
+        const group = figma.group([node], parent);
+        group.name = ${JSON.stringify(name)};
+
+        await Promise.all(
+          ['Regular', 'Bold'].map((style) =>
+            figma.loadFontAsync({ family: 'Noto Sans SC', style }).catch(() => null)
+          )
+        );
+        const hint = figma.createText();
+        hint.name = ${JSON.stringify(hintName)};
+        hint.fontName = { family: 'Noto Sans SC', style: 'Regular' };
+        hint.characters = ${JSON.stringify(hintText)};
+        hint.textAutoResize = 'NONE';
+        hint.resize(node.width, 64);
+        hint.textAlignHorizontal = 'CENTER';
+        hint.textAlignVertical = 'CENTER';
+        group.appendChild(hint);
+        // 组内实时坐标：node.x/node.y 已经是相对 GROUP 的。
+        hint.x = node.x;
+        hint.y = node.y + Math.round((node.height - 64) / 2);
+
+        return serNode(group);
+      `, 30000) as Record<string, unknown>;
+      return mapNode(r);
+    },
+
     async createText({ parentId, name, characters, box, fontSize = 24, fill, align = 'CENTER' }) {
       const r = await run(`
         ${SERIALIZE_NODE_FN}
@@ -1431,6 +1487,14 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         const h = Math.round(srcH * w / srcW);
         if ('layoutSizingHorizontal' in group) group.layoutSizingHorizontal = 'FIXED';
         rect.resize(w, h);
+        // 配图槽在模板里常是一条 FILL 整条（宽 1231、高 237）：图缩到 800×460 后
+        // 组还是原高度，会压住下一个簇；宽度不变时图也得在组里居中。
+        if (!group.layoutMode || group.layoutMode === 'NONE') {
+          try { group.resize(group.width, h); } catch (e) {}
+          if (typeof rect.x === 'number' && group.width > w) {
+            rect.x = Math.round((group.width - w) / 2);
+          }
+        }
 
         ${hintId ? `
           const hint = await figma.getNodeByIdAsync(${JSON.stringify(hintId)});

@@ -421,16 +421,16 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
     );
     gaps.push(...master.gaps);
 
-    // 几何：标号点位只有**粘进来的原稿**还带着（产物里被收口成只剩母版），
-    // 所以优先量 staged 章节，量不到再退回产物。
-    const geoSourceId =
-      typeof (input.staged ?? {}).chapter === 'string' ? input.staged!.chapter! : chapter.componentId;
+    // 几何：主图尺寸/占位色从**产物**量（名字已归一化），标号点位从**粘进来的
+    // 原稿**量（产物里 `标号/N` 已被收口成只剩母版）。
     const captured = await stage('geometry.capture', () =>
       captureGeometry({
         backend,
-        chapterComponentId: geoSourceId,
+        chapterComponentId: chapter.componentId,
         sourceRootId: input.source.nodeId,
-        ...(input.staged?.chapter ? { sectionSourceId: input.staged.chapter } : {}),
+        ...(input.staged?.chapter
+          ? { sectionSourceId: input.staged.chapter, badgeSourceId: input.staged.chapter }
+          : {}),
         ...(input.docBackground ? { docBackground: input.docBackground } : {}),
         ...(input.source.fileKey && backend.withFileKey
           ? { sourceBackend: backend.withFileKey(input.source.fileKey) }

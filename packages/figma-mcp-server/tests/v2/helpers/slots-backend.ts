@@ -101,11 +101,93 @@ export function slotsBackend(nodes: NodeInfo[]): SlotsBackend {
     },
 
     async replaceWithPlaceholder(input: { nodeId: string; name: string }): Promise<void> {
+      const target = store.get(input.nodeId);
+      if (!target) return;
+      const parent = target.parentId ? store.get(target.parentId) : undefined;
+      const id = `r${store.size + 1}`;
+      const rect: NodeInfo = {
+        id,
+        name: input.name,
+        type: 'RECTANGLE',
+        parentId: target.parentId,
+        childIds: [],
+        visible: true,
+        ...(target.absoluteBoundingBox
+          ? { absoluteBoundingBox: { ...target.absoluteBoundingBox } }
+          : {})
+      };
+      store.set(id, rect);
+      if (parent) {
+        parent.childIds = (parent.childIds ?? []).map((c) => (c === input.nodeId ? id : c));
+      }
+      store.delete(input.nodeId);
       writes.push(`placeholder:${input.nodeId}:${input.name}`);
     },
 
-    async groupNodes(input: {
+    async groupFigure(input: {
       parentId: string;
+      nodeId: string;
+      name: string;
+      rectName: string;
+      hintName: string;
+      hintText: string;
+    }): Promise<NodeInfo> {
+      const parent = store.get(input.parentId);
+      const node = store.get(input.nodeId);
+      if (!parent || !node) throw new Error('slots backend: groupFigure target not found');
+
+      let rectId = node.id;
+      if (node.type !== 'RECTANGLE') {
+        rectId = `r${store.size + 1}`;
+        store.set(rectId, {
+          id: rectId,
+          name: input.rectName,
+          type: 'RECTANGLE',
+          parentId: parent.id,
+          childIds: [],
+          visible: true,
+          ...(node.absoluteBoundingBox
+            ? { absoluteBoundingBox: { ...node.absoluteBoundingBox } }
+            : {})
+        });
+        parent.childIds = (parent.childIds ?? []).map((c) => (c === node.id ? rectId : c));
+        store.delete(node.id);
+      } else {
+        node.name = input.rectName;
+      }
+
+      const groupId = `g${store.size + 1}`;
+      const rect = store.get(rectId)!;
+      parent.childIds = (parent.childIds ?? []).map((c) => (c === rectId ? groupId : c));
+      const group: NodeInfo = {
+        id: groupId,
+        name: input.name,
+        type: 'GROUP',
+        parentId: parent.id,
+        childIds: [rectId]
+      };
+      store.set(groupId, group);
+      rect.parentId = groupId;
+
+      const hintId = `t${store.size + 1}`;
+      store.set(hintId, {
+        id: hintId,
+        name: input.hintName,
+        type: 'TEXT',
+        parentId: groupId,
+        childIds: [],
+        characters: input.hintText,
+        visible: true,
+        x: 0,
+        y: 0,
+        absoluteBoundingBox: { x: 0, y: 0, width: 200, height: 64 }
+      });
+      group.childIds = [rectId, hintId];
+      writes.push(`groupFigure:${groupId}:${input.name}`);
+      return group;
+    },
+
+    async groupNodes(input: {      parentId: string;
       name: string;
       childIds: string[];
     }): Promise<NodeInfo> {

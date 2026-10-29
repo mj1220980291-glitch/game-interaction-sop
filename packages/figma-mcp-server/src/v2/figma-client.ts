@@ -436,6 +436,22 @@ export interface FigmaBackend {
   groupNodes?(p: { parentId: string; name: string; childIds: string[] }): Promise<NodeInfo>;
 
   /**
+   * 把一块原稿媒体（截图实例 / 裸矩形）一次性归一成配图槽：
+   * 换同尺寸占位矩形 → 包成 GROUP → 组内居中放一行占位文案。
+   *
+   * 为什么必须一次 exec 做完：跨 RPC 读 GROUP 的包围盒/子级坐标会拿到还没
+   * 结算的旧值，文案会错位（蛋仔真机连踩两次）。同一次调用里读的是实时值。
+   */
+  groupFigure?(p: {
+    parentId: string;
+    nodeId: string;
+    name: string;
+    rectName: string;
+    hintName: string;
+    hintText: string;
+  }): Promise<NodeInfo>;
+
+  /**
    * 在 `parentId` 下造一个 TEXT，字体固定 `Noto Sans SC`（编译期已验证可加载）。
    *
    * 目前唯一用途：给包壳后的配图槽补 `配图占位文案`。

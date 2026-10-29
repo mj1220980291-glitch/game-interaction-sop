@@ -88,11 +88,18 @@ export interface CaptureGeometryInput {
   /** 调用方显式给的底色，优先于实测。 */
   docBackground?: string;
   /**
-   * `_staging` 上的原稿章节 id。用它的祖先链量「章节外框内边距」——
+   * `_staging` 上的原稿章节 id：用它的祖先链量「章节外框内边距」。
    * 编译产出的章节只取最里层，外层 `Comp_1` / `需求目标` 的 padding 会丢，
    * 那正是模板的黑色边距。
    */
   sectionSourceId?: string;
+  /**
+   * 量标号网格用的原稿节点。
+   *
+   * 产物里的标号已经被收口成「只留母版」，`标号/N` 的点位只有原稿还带着；
+   * 主图尺寸与占位色仍然从**产物**量（产物名字已归一化，原稿可能没有统一名）。
+   */
+  badgeSourceId?: string;
 }
 
 export async function captureGeometry(input: CaptureGeometryInput): Promise<{
@@ -153,8 +160,14 @@ export async function captureGeometry(input: CaptureGeometryInput): Promise<{
   }
 
   // 标号网格与母版尺寸：比例存储，模板换尺寸时自动缩放。
-  const bubble = nodes.find((n) => n.name === CHAPTER_SLOTS.badgeContainer);
-  if (bubble && mainBox) {
+  // 点位只有原稿带着（产物里的 `标号/N` 已被收口成母版），所以优先看原稿。
+  const badgeNodes = input.badgeSourceId
+    ? (await backend.scanSubtree(input.badgeSourceId, 20000)).nodes
+    : nodes;
+  const bubble = badgeNodes.find((n) => n.name === CHAPTER_SLOTS.badgeContainer);
+  const badgeMainBox =
+    badgeNodes.find((n) => n.name === CHAPTER_SLOTS.mainImage)?.absoluteBoundingBox ?? mainBox;
+  if (bubble && badgeMainBox) {
     const { nodes: inside } = await backend.scanSubtree(bubble.id, 4000);
     const master =
       inside.find((n) => isBadgeMaster(n.name)) ??
@@ -168,8 +181,8 @@ export async function captureGeometry(input: CaptureGeometryInput): Promise<{
       geometry.bubbleGrid = badges.map((b) => {
         const box = b.absoluteBoundingBox!;
         return {
-          x: round4((box.x - mainBox.x) / mainBox.width),
-          y: round4((box.y - mainBox.y) / mainBox.height)
+          x: round4((box.x - badgeMainBox.x) / badgeMainBox.width),
+          y: round4((box.y - badgeMainBox.y) / badgeMainBox.height)
         };
       });
     } else {

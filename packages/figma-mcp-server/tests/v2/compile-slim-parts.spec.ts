@@ -132,7 +132,9 @@ describe('slimParts · 簇内原稿媒体', () => {
       '配图占位',
       '配图占位文案'
     ]);
-    expect(h.writes).toContain('group:' + group.id + ':配图');
+    expect(
+      h.writes.some((w) => w.startsWith('groupFigure:') && w.endsWith(':配图'))
+    ).toBe(true);
   });
 
   it('隐藏备用池里的媒体不动', async () => {
