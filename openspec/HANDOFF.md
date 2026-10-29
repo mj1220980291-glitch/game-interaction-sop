@@ -4,7 +4,7 @@
 
 **一句话**：簇的 run 契约已落地并真机验收——编译保留**一个完整 run**（正文不裁、配图 GROUP 保住矩形+占位文案、孤儿职能帧清零），渲染未使用的配图槽**整组隐藏**；`官方1.14` 已重编、发布、回填 key，沙盒渲染 `87:583` 结构正确。
 
-**代码状态**：`npm run build` + `npm test` **454/454** 通过，`openspec validate --all --strict` **18/18** 通过。变更 `slot-run-contract` 四件产物齐（tasks 1–5 全勾，6.1–6.4 已验）。**尚未提交 git**。
+**代码状态**：`npm run build` + `npm test` **454/454** 通过，`openspec validate --all --strict` **18/18** 通过。`slot-run-contract` 已实现、真机验收并归档（`openspec/changes/archive/2026-10-29-slot-run-contract`），提交 `6b87c9b`。
 
 | 类别 | 内容 |
 |---|---|
@@ -43,7 +43,6 @@
 
 **待办清单（按优先级）**：
 
-- [ ] 提交本变更代码 + 归档 `slot-run-contract`（tasks 全勾后 `archive`）
 - [ ] 小变更 `bridge-port-stability`：`npm run build` 换 worker 时旧进程仍占着 9223，新服务退到 9224 → 插件（只认 9223）永久失联，只能人工重开插件。目标：新 worker 启动前清掉占端口的旧进程 / 固定 9223，让插件自动重连
 - [ ] 蛋仔包重编（它的簇仍是 `figure=none`，不受 run 契约影响，但配图 GROUP 化改造没在它身上验过）
 - [ ] 职能标签做成模板那种「彩色 chip」（现渲染是彩色文字）
