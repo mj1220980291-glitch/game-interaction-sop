@@ -385,6 +385,11 @@ export interface FigmaBackend {
     padding?: { top?: number; right?: number; bottom?: number; left?: number };
     /** true = 高度跟着子级走；宽度始终固定（跨模板宽度不一致，不猜）。 */
     hugHeight?: boolean;
+    /**
+     * 交叉轴对齐。部件宽度不一样（顶部 3690 / 章节 3382）时靠它居中，
+     * 否则一律贴左边，成图看起来像「内容没居中」。
+     */
+    counterAlign?: 'MIN' | 'CENTER' | 'MAX';
     absoluteChildIds?: string[];
   }): Promise<void>;
 

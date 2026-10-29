@@ -1849,7 +1849,8 @@ async function fillOverviewBody(
     texts.find((c) => c.name === '#Body');
   const target = byName ?? texts[texts.length - 1];
   if (target) {
-    await backend.setTextContent(target.id, body);
+    // 模板的正文块自带「·」这类排版符号，md 的 `- ` 再写进去就变成「· - 文本」。
+    await backend.setTextContent(target.id, normalizeBulletText(body));
   }
 }
 

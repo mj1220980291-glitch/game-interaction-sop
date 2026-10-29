@@ -515,7 +515,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 15000);
     },
 
-    async setAutoLayout({ nodeId, mode, itemSpacing, padding, hugHeight, absoluteChildIds }) {
+    async setAutoLayout({ nodeId, mode, itemSpacing, padding, hugHeight, absoluteChildIds, counterAlign }) {
       const p = padding ?? {};
       await run(`
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
@@ -541,7 +541,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         n.paddingLeft = ${p.left ?? 0};
         n.itemSpacing = ${itemSpacing};
         n.primaryAxisAlignItems = 'MIN';
-        n.counterAxisAlignItems = 'MIN';
+        n.counterAxisAlignItems = ${JSON.stringify(counterAlign ?? 'MIN')};
         n.primaryAxisSizingMode = 'FIXED';
         n.counterAxisSizingMode = 'FIXED';
         n.layoutSizingHorizontal = 'FIXED';

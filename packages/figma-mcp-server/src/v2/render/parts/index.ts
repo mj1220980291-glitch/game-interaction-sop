@@ -197,7 +197,8 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
         nodeId: frame.id,
         mode: 'VERTICAL',
         itemSpacing: gap,
-        hugHeight: true
+        hugHeight: true,
+        counterAlign: 'CENTER'
       });
     }
     // 文档底色：模板自带深色底（蛋仔 #232429）时不能刷白，否则整篇文字看不清。
@@ -406,7 +407,10 @@ async function fillBlockText(
   const target =
     children.find((c) => c.type === 'TEXT' && c.name === OVERVIEW_TEXT_SLOTS.body) ??
     children.filter((c) => c.type === 'TEXT').pop();
-  if (target) await backend.setTextContent(target.id, text);
+  if (target) {
+    // 模板正文块自带「·」这类排版符号，md 的 `- ` 再写进去就成了「· - 文本」。
+    await backend.setTextContent(target.id, text.replace(/^\s*[-·•*]+\s*/, '').trim());
+  }
 }
 
 // --- chapter -------------------------------------------------------------
@@ -560,7 +564,18 @@ async function fillChapter(
         ctx.figures,
         undefined
       );
-      clusters.push(await collectClusterLayout(backend, node, effective));
+      const layout = await collectClusterLayout(backend, node, effective);
+      clusters.push(layout);
+      // md 没写 `配图：` 时，模板常驻的配图槽不该在版面上占一块空灰板。
+      // 只藏**没图**的那几个：有 IMAGE 填充的是这次真正放进去的图，藏错了就是图不见了。
+      const loose = layout.looseNodes ?? [];
+      if (loose.length > 0 && backend.setNodeVisible) {
+        const paints = backend.readPaints ? await backend.readPaints(loose) : [];
+        const empty = new Set(paints.filter((p) => p.fill).map((p) => p.nodeId));
+        for (const id of loose) {
+          if (empty.has(id) || paints.length === 0) await backend.setNodeVisible(id, false);
+        }
+      }
       if (backend.readPaints && backend.setNodePaint) {
         // 没放图的配图槽也要跟文档底色走：编译产物里的 `配图` 是浅灰，
         // 贴在深色稿上就是一块白板。有图的槽是 IMAGE 填充，读不到 SOLID，跳过。
@@ -620,22 +635,33 @@ async function collectClusterLayout(
   const { nodes } = await backend.scanSubtree(node.id, 20000);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const figureTexts = cluster.bullets.filter(isImageBullet).map(stripImageBulletPrefix);
-  let figureIndex = 0;
+  const ordered = clusterItems(nodes, node.id);
+  const figureIds = ordered.filter((x) => x.t === 'figure').map((x) => x.id);
+
+  // 哪个配图槽是真的放了图？看填充：IMAGE 的读不到 SOLID。
+  // 不能按「第几个配图槽」猜——填充逻辑会把图放到新克隆的槽上，
+  // 按序号猜会把有图的那个判成多余的直接藏掉（真机踩过）。
+  const withImage = new Set<string>();
+  if (backend.readPaints && figureIds.length > 0) {
+    const paints = await backend.readPaints(figureIds);
+    for (const p of paints) if (!p.fill) withImage.add(p.nodeId);
+  }
+
   const items: PartsItemLayout[] = [];
   const loose: string[] = [];
-  for (const { id, t } of clusterItems(nodes, node.id)) {
-    if (t === 'figure') {
-      // 模板里的配图槽是常驻的空壳：md 没写 `配图：` 时它还在，但**不是条目**。
-      // 当成条目打标，同步就会每次都想去删一条空条目。
-      if (figureIndex >= figureTexts.length) {
-        loose.push(id);
-        continue;
-      }
-      items.push({ nodeId: id, t, text: figureTexts[figureIndex] ?? '' });
-      figureIndex += 1;
+  let figureIndex = 0;
+  for (const { id, t } of ordered) {
+    if (t !== 'figure') {
+      items.push({ nodeId: id, t, text: byId.get(id)?.characters ?? '' });
       continue;
     }
-    items.push({ nodeId: id, t, text: byId.get(id)?.characters ?? '' });
+    const isUsed = withImage.size > 0 ? withImage.has(id) : figureIndex < figureTexts.length;
+    if (!isUsed || figureIndex >= figureTexts.length) {
+      loose.push(id);
+      continue;
+    }
+    items.push({ nodeId: id, t, text: figureTexts[figureIndex] ?? '' });
+    figureIndex += 1;
   }
   return {
     nodeId: node.id,
