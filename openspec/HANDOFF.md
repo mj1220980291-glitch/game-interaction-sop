@@ -67,9 +67,11 @@
 
 **下一步（下一个人从这里接）**：
 
-- **几何采集变更**（`template-geometry-capture`）：把间距 / 边距 / 对齐 / 占位填充色从模板采进 pack，渲染期优先用包里值。现仍硬编码：`PARTS_GAP=0`、`MAIN_IMAGE_SIZE 1920×1080`、`DEFAULT_BUBBLE_GRID`、章节宽度兜底 `2209`、占位灰阶只按 `docBackground`
+- **进行中变更 `template-geometry-capture`**：schema/采集/渲染已落地并提交，真机验收只差蛋仔侧（它的原稿标号被收口成母版，量不到点位，仍走默认网格）
+- **几何数据现状（2026-10-29 17:20）**：`官方1.14` 包已带 `geometry`——底色 `#1E1E1E`、主图/配图占位 `#454545`、标号落模板点位 (761,164)/(636,267)、章节宽 3382；蛋仔包仍无 `geometry`，行为同前
+- **还需一块**：职能标记（`@GUI` 等）渲染成彩色组件变体要靠 `roleBlock` 回填；现在 `官方1.14` 渲染出来是纯文字
 - `官方1.14` 的 `（旧）` 三件确认无回滚需求后可删
-- 每次改动前的门槛：`npm run build` + `npm test`（431）+ `openspec validate --all --strict`
+- 每次改动前的门槛：`npm run build` + `npm test`（437）+ `openspec validate --all --strict`
 
 **这一轮新增的坑（别重踩）**：
 

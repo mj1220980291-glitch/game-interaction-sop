@@ -561,6 +561,24 @@ async function fillChapter(
         undefined
       );
       clusters.push(await collectClusterLayout(backend, node, effective));
+      if (backend.readPaints && backend.setNodePaint) {
+        // 没放图的配图槽也要跟文档底色走：编译产物里的 `配图` 是浅灰，
+        // 贴在深色稿上就是一块白板。有图的槽是 IMAGE 填充，读不到 SOLID，跳过。
+        const paint = placeholderPaint(ctx.docBackground, ctx.geometry?.placeholder);
+        const { nodes: inCluster } = await backend.scanSubtree(node.id, 4000);
+        const slots = inCluster.filter((n) => n.name === CLUSTER_SLOTS.figure);
+        const paints = await backend.readPaints(slots.map((n) => n.id));
+        for (const p of paints) {
+          if (!p.fill) continue;
+          await backend.setNodePaint({
+            nodeId: p.nodeId,
+            fill: paint.fill,
+            stroke: paint.stroke,
+            strokeWeight: 2,
+            dash: true
+          });
+        }
+      }
     });
   }
 
