@@ -42,7 +42,7 @@
 19. 编译必须在**库文件为 active file** 时跑：active 在沙盒时 `staged` 节点会全部报「在库文件里找不到」（节点其实还在）；渲染则相反，要切回目标文件
 20. 原稿的配图位常常是**截图实例**（蛋仔 872×490），实例不能当填图目标；而且「换矩形 → 包 GROUP → 摆文案」分三次 RPC 做会读到没结算的坐标，文案必错位（真机连踩两次）。已收成一个后端方法 `groupFigure`，一次 exec 内完成
 21. 几何采集别用原稿当唯一测量源：原稿没有统一槽位名时 `主图占位` 找不到 → 主图尺寸/占位色从**产物**量，标号点位从**原稿**量（`badgeSourceId`）
-22. 端口不稳的另一种表现：同时存在两个 worker（9223 被残留进程占、新 worker 退 9224）时，probe 说「已连 9224」，但 `figma_execute` 会去 9223 → 报 Cannot connect。解法只能是重启 MCP，让服务独占 9223
+22. ~~端口不稳：同时存在两个 worker 时 probe 说「已连 9224」但 execute 去 9223~~ **已修**：见坑 1；启动日志会打印 `reclaimed preferred port 9223 from pid=<pid>`，出现 `left as-is` 时说明占用者不是 figma-console 进程
 
 **待办清单（按优先级）**：
 
@@ -106,7 +106,7 @@
 
 **已知坑（这一轮新增的，都踩过）**：
 
-1. `npm run build` 后 worker 换新，Bridge 常掉线；渲染前先 `figma_get_status` probe 一次。若 probe 正常但渲染报 `Cannot connect`，是 worker 侧客户端失效 → 需要用户重启 MCP（本轮重启过一次才恢复）
+1. ~~`npm run build` 后 worker 换新，Bridge 常掉线~~ **已修（`bridge-port-stability`）**：worker 在 spawn 子进程前抢回首选端口 9223（`reclaimPreferredPort`），新服务固定落在 9223；插件重连即可，不需要人工重启 MCP。残留的旧实例（同类进程且早于本次 spawn）连进程树一起结束
 2. **`phase=verify` 走 worker 连接，插件重连后必报 `Cannot connect`**；等价做法：拿 key 在沙盒 `importComponentByKeyAsync` 冒烟 + 手写 pack
 3. 发布后库同步期 `importComponentByKeyAsync` 会假死；沙盒看不到新库版本时，用户需在 `Assets → Libraries` 刷新或关标签页重开
 4. `figma_capture_screenshot` / `exportNodeImage` 对整篇大图经常 10s 超时；可靠做法是 `figma_execute` 里 `exportAsync`（缩到 ≤1200px），输出会被持久化成文件，再用 PowerShell 解码成 PNG

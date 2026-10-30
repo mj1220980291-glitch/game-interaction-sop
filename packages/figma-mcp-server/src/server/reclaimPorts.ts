@@ -164,3 +164,113 @@ export function reclaimOrphanedBridgePorts(): ReclaimResult {
 
   return result;
 }
+
+// ---- 首选端口抢占 -------------------------------------------------------
+
+/** Bridge 的首选端口；插件启动时按 9223–9232 扫，只认扫到的那一次。 */
+export const PREFERRED_BRIDGE_PORT = 9223;
+
+/**
+ * 从 `netstat -ano -p TCP` 的输出里取监听指定端口的 pid。
+ *
+ * 行形如 `  TCP    0.0.0.0:9223    0.0.0.0:0    LISTENING    5052`。
+ * 只认 LISTENING，末列是 pid；格式不符的行直接跳过（不同语言版本的列宽不一样）。
+ */
+export function parseNetstatListeners(out: string, port: number): number[] {
+  const pids: number[] = [];
+  for (const line of out.split(/\r?\n/)) {
+    if (!/\bLISTENING\b/i.test(line)) continue;
+    if (!new RegExp(`[:.]${port}\\s`).test(line)) continue;
+    const cols = line.trim().split(/\s+/);
+    const pid = Number(cols[cols.length - 1]);
+    if (Number.isFinite(pid) && pid > 0) pids.push(pid);
+  }
+  return [...new Set(pids)];
+}
+
+/** `lsof -nP -iTCP:<port> -sTCP:LISTEN -t` 的输出：每行一个 pid。 */
+export function parseLsofListeners(out: string): number[] {
+  const pids = out
+    .split(/\r?\n/)
+    .map((l) => Number(l.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return [...new Set(pids)];
+}
+
+/**
+ * 命令行是不是 figma-console-mcp。
+ *
+ * 两种真实形态：`node …\figma-console-mcp\dist\local.js` 与
+ * `npx -y figma-console-mcp@latest`。要求同时出现 `figma-console` 与 `mcp`，
+ * 避免误伤名字相近的第三方服务。
+ */
+export function looksLikeFigmaConsole(cmdline: string): boolean {
+  if (!cmdline) return false;
+  return /figma-console/i.test(cmdline) && /\bmcp\b/i.test(cmdline);
+}
+
+function findListenerOnPort(port: number): number[] {
+  if (process.platform === 'win32') {
+    const r = spawnSync('netstat', ['-ano', '-p', 'TCP'], {
+      encoding: 'utf-8',
+      windowsHide: true
+    });
+    if (r.status !== 0 || !r.stdout) return [];
+    return parseNetstatListeners(r.stdout, port);
+  }
+  const r = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
+    encoding: 'utf-8'
+  });
+  if (r.status !== 0 || !r.stdout) return [];
+  return parseLsofListeners(r.stdout);
+}
+
+function readCommandLine(pid: number): string {
+  if (process.platform === 'win32') {
+    const r = spawnSync(
+      'wmic',
+      ['process', 'where', `processid=${pid}`, 'get', 'CommandLine', '/format:csv'],
+      { encoding: 'utf-8', windowsHide: true }
+    );
+    if (r.status !== 0 || !r.stdout) return '';
+    return r.stdout;
+  }
+  const r = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf-8' });
+  if (r.status !== 0 || !r.stdout) return '';
+  return r.stdout;
+}
+
+export interface PreferredPortResult {
+  port: number;
+  action: 'free' | 'reclaimed' | 'skipped' | 'degraded';
+  pid?: number;
+  reason?: string;
+}
+
+/**
+ * 让首选端口空出来。
+ *
+ * 调用时机保证在 spawn 自己的子进程之前，因此此刻占着端口的同类进程不可能是
+ * 我们的后代：它要么是旧引擎的残留（今天四次中断的元凶），要么是用户另配的
+ * 实例——两者都会把插件抢走，结束它是正确的。
+ *
+ * 其他程序占着端口时绝不碰，只记原因。
+ */
+export function reclaimPreferredPort(port = PREFERRED_BRIDGE_PORT): PreferredPortResult {
+  const pids = findListenerOnPort(port);
+  if (pids.length === 0) return { port, action: 'free' };
+
+  for (const pid of pids) {
+    const cmdline = readCommandLine(pid);
+    if (!cmdline) {
+      return { port, action: 'degraded', pid, reason: 'command line unavailable' };
+    }
+    if (!looksLikeFigmaConsole(cmdline)) {
+      return { port, action: 'skipped', pid, reason: 'not a figma-console process' };
+    }
+    const kill = killProcessTree(pid);
+    if (kill.status === 0) return { port, action: 'reclaimed', pid };
+    return { port, action: 'skipped', pid, reason: `kill failed: ${kill.error}` };
+  }
+  return { port, action: 'skipped', reason: 'no listener resolved' };
+}

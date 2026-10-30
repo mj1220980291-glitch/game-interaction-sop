@@ -29,7 +29,7 @@ import { createServer } from './createServer.js';
 import { buildFigmaConsoleBackend } from './figmaConsoleBackend.js';
 import { warnOnExternalFigmaConsoleInstances } from './detectExternal.js';
 import { installChildCleanup } from './childLifecycle.js';
-import { reclaimOrphanedBridgePorts } from './reclaimPorts.js';
+import { reclaimOrphanedBridgePorts, reclaimPreferredPort } from './reclaimPorts.js';
 
 export async function main(): Promise<void> {
   let v2Backend = undefined;
@@ -59,6 +59,28 @@ export async function main(): Promise<void> {
     } catch (err) {
       process.stderr.write(
         `[figma-interaction-doc-engine] port reclaim failed: ${(err as Error).message}\n`
+      );
+    }
+
+    // 首选端口如果被「活着的旧实例」占着，孤儿回收是看不见的（它的父链还在）：
+    // 新子进程会退到 9224，而插件只认启动时扫到的端口，等于永久失联。
+    // 这一步必须在 spawn 之前做——抢先占住 9223，插件重连才能找回来。
+    try {
+      const taken = reclaimPreferredPort();
+      if (taken.action === 'reclaimed') {
+        process.stderr.write(
+          `[figma-interaction-doc-engine] reclaimed preferred port ${taken.port} ` +
+            `from pid=${taken.pid}\n`
+        );
+      } else if (taken.action === 'skipped' || taken.action === 'degraded') {
+        process.stderr.write(
+          `[figma-interaction-doc-engine] preferred port ${taken.port} left as-is ` +
+            `(pid=${taken.pid ?? '?'}): ${taken.reason}\n`
+        );
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[figma-interaction-doc-engine] preferred-port reclaim failed: ${(err as Error).message}\n`
       );
     }
 
