@@ -23,12 +23,15 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { pathToFileURL } from 'node:url';
 import { createServer } from './createServer.js';
 import { buildFigmaConsoleBackend } from './figmaConsoleBackend.js';
 import { warnOnExternalFigmaConsoleInstances } from './detectExternal.js';
 import { installChildCleanup } from './childLifecycle.js';
+import { BRIDGE_RELAY_PORT } from './bridgeHost.js';
+import { connectBridgeHost } from './bridgeSocketTransport.js';
 import {
   reclaimOrphanedBridgePorts,
   reclaimPreferredPort,
@@ -37,8 +40,22 @@ import {
   PREFERRED_BRIDGE_PORT
 } from './reclaimPorts.js';
 
-export async function main(): Promise<void> {
-  let v2Backend = undefined;
+/** 给握手加个上限：常驻宿主刚起时 child 可能还没就绪，不能无限等。 */
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export async function main(): Promise<void> {  let v2Backend = undefined;
   let proxyClient: Client | undefined;
   let proxyTools: Tool[] = [];
 
@@ -106,7 +123,47 @@ export async function main(): Promise<void> {
       );
     }
 
-    const startChild = async (): Promise<{ client: Client; transport: StdioClientTransport }> => {
+    const startChild = async (): Promise<{ client: Client; transport: Transport }> => {
+      const fail = (message: string): never => {
+        process.stderr.write(`[figma-interaction-doc-engine] ${message}\n`);
+        process.exit(1);
+      };
+
+      // 优先连常驻桥宿主（bridgeHost.ts）：worker 换人不影响它，插件一直连着。
+      // 连不上、或者握手超时（宿主刚起、child 还在拉命），都退回自己拉子进程。
+      const relayPort = Number(process.env.GISOP_BRIDGE_RELAY_PORT ?? BRIDGE_RELAY_PORT);
+      if (process.env.GISOP_NO_BRIDGE_HOST !== '1') {
+        let socket: import('node:net').Socket | undefined;
+        try {
+          const attached = await connectBridgeHost(relayPort);
+          socket = attached.socket;
+          const transport = attached.transport as Transport;
+          transport.onclose = () => fail('bridge host transport closed; worker exiting');
+          transport.onerror = (err: Error) =>
+            fail(`bridge host transport error: ${err.message}`);
+
+          const hostClient = new Client({
+            name: 'figma-interaction-doc-engine',
+            version: '0.1.0'
+          });
+          await withTimeout(
+            hostClient.connect(transport),
+            10000,
+            'bridge host handshake timeout'
+          );
+          process.stderr.write(
+            `[figma-interaction-doc-engine] bridge attached via resident host on ${relayPort}\n`
+          );
+          return { client: hostClient, transport };
+        } catch (err) {
+          socket?.destroy();
+          process.stderr.write(
+            `[figma-interaction-doc-engine] bridge host unusable (${(err as Error).message}); ` +
+              'spawning figma-console-mcp directly\n'
+          );
+        }
+      }
+
       const c = new Client({ name: 'figma-interaction-doc-engine', version: '0.1.0' });
       const t = new StdioClientTransport({
         command: 'npx',
@@ -120,18 +177,9 @@ export async function main(): Promise<void> {
 
       // Fail-fast: if the child dies, the worker cannot serve render_v2 nor any
       // proxied figma_* tool. Exit so the supervisor swaps in a fresh worker.
-      t.onclose = () => {
-        process.stderr.write(
-          '[figma-interaction-doc-engine] child figma-console-mcp transport closed; worker exiting\n'
-        );
-        process.exit(1);
-      };
-      t.onerror = (err: Error) => {
-        process.stderr.write(
-          `[figma-interaction-doc-engine] child figma-console-mcp transport error: ${err.message}\n`
-        );
-        process.exit(1);
-      };
+      t.onclose = () => fail('child figma-console-mcp transport closed; worker exiting');
+      t.onerror = (err: Error) =>
+        fail(`child figma-console-mcp transport error: ${err.message}`);
 
       await c.connect(t);
 
@@ -203,7 +251,7 @@ export async function main(): Promise<void> {
     // Figma Bridge plugin to connect to the other instance and starve us
     // of plugin access.
     try {
-      const pid = childTransport.pid ?? undefined;
+      const pid = (childTransport as { pid?: number }).pid ?? undefined;
       warnOnExternalFigmaConsoleInstances(pid);
     } catch (err) {
       process.stderr.write(

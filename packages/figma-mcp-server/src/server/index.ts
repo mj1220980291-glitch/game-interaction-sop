@@ -25,6 +25,7 @@ import {
   type Tool
 } from '@modelcontextprotocol/sdk/types.js';
 import { createWorkerLoop, type WorkerHandle } from './workerLoop.js';
+import { ensureBridgeHost } from './bridgeHost.js';
 import { main as runWorker } from './worker.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -126,7 +127,33 @@ async function main(): Promise<void> {
     log: (message) => process.stderr.write(`[figma-interaction-doc-engine] ${message}\n`)
   });
 
-  await loop.restart('boot');
+  // 常驻桥宿主：起一次、脱离本进程，worker 换人时插件不用重连（bridgeHost.ts）。
+  // 起不来不致命——worker 会退回自己拉子进程。
+  if (process.env.FIGMA_BACKEND === 'figma-console' && process.env.GISOP_NO_BRIDGE_HOST !== '1') {
+    try {
+      await ensureBridgeHost();
+    } catch (err) {
+      process.stderr.write(
+        `[figma-interaction-doc-engine] bridge host unavailable: ${(err as Error).message}\n`
+      );
+    }
+  }
+
+  // boot 失败会让整个 MCP 服务消失（宿主那边只会报「连接报成功但没连上」），
+  // 所以这里重试几次再放弃。
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await loop.restart('boot');
+      break;
+    } catch (err) {
+      process.stderr.write(
+        `[figma-interaction-doc-engine] worker boot failed (attempt ${attempt}): ` +
+          `${(err as Error).message}\n`
+      );
+      if (attempt >= 3) throw err;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
   process.stderr.write(
     `[figma-interaction-doc-engine] supervisor ready — ${tools.length} tool(s) proxied from worker\n`
   );
