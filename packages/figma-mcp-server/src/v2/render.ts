@@ -89,7 +89,7 @@ import {
   type ReconcileConflict,
   type ReconcilePreserved
 } from './reconcile/index.js';
-import { isTransientBridgeError } from '../server/retry.js';
+import { isTransientBridgeError, retryTransient } from '../server/retry.js';
 
 // --- Traced clone helper -------------------------------------------------
 
@@ -256,11 +256,22 @@ export async function renderV2MarkdownToFigma(
     };
   }
 
-  // Phase A3 — 桥还活着吗。插在任何写操作之前（建文档 / 同步都一样）：桥断了的话，
-  // 写操作要干等 60s 才抛 `Cannot connect`，而这里 5s 就能给一个可判定的错误码。
-  if (targetBackend.healthCheck) {
+  // Phase A3 — 桥还活着吗（默认关闭，`GISOP_PREFLIGHT=1` 显式打开）。
+  //
+  // 真机反例：同一时刻探活报 `Cannot connect`、直连 `figma_execute` 却正常，
+  // 开着会把正常渲染挡掉（本会话踩过一次，白拦了 4 轮）。默认关，等把这种假阴性
+  // 查清再说。
+  if (targetBackend.healthCheck && process.env.GISOP_PREFLIGHT === '1') {
     try {
-      await targetBackend.healthCheck();
+      // 刚切过目标文件时，第一次定向调用经常会先失败一次（figma-console 的连接
+      // 建立过程），所以这里自己重试一下，别把可恢复的抖动报成桥断了。
+      // worker 换了以后插件要 20s 上下才重连完，窗口给到 15s；仍然远小于
+      // 直接开写那种 65s 的干等。
+      await retryTransient(() => targetBackend.healthCheck!(), {
+        attempts: 5,
+        delayMs: 3000,
+        log: (m) => process.stderr.write(`[figma-interaction-doc-engine] ${m}\n`)
+      });
     } catch (e) {
       return {
         ok: false,

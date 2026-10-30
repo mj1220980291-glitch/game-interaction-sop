@@ -101,7 +101,7 @@ describe('target.fileKey 决定写进哪个文件 (Bug A)', () => {
     expect(Object.keys(store)).toHaveLength(sizeBefore);
   });
 
-  it('开写前探活失败就停手，不留下半张画布', async () => {
+  it('开写前探活失败就停手，不留下半张画布（GISOP_PREFLIGHT=1）', async () => {
     const { backend, store } = makeBackend();
     const sizeBefore = Object.keys(store).length;
     const spied: FigmaBackend = {
@@ -111,12 +111,34 @@ describe('target.fileKey 决定写进哪个文件 (Bug A)', () => {
       }
     };
 
+    process.env.GISOP_PREFLIGHT = '1';
+    try {
+      const result = await renderV2MarkdownToFigma({ markdown: MD }, spied);
+
+      expect(result.ok).toBe(false);
+      expect(result.errors[0]?.code).toBe('V2_BRIDGE_DOWN');
+      expect(result.errors[0]?.message).toContain('Desktop Bridge');
+      expect(Object.keys(store)).toHaveLength(sizeBefore);
+    } finally {
+      delete process.env.GISOP_PREFLIGHT;
+    }
+  });
+
+  it('探活默认关闭：没开 GISOP_PREFLIGHT 时不拦渲染', async () => {
+    const { backend } = makeBackend();
+    let probes = 0;
+    const spied: FigmaBackend = {
+      ...backend,
+      async healthCheck() {
+        probes += 1;
+        throw new Error('Cannot connect to Figma Desktop');
+      }
+    };
+
     const result = await renderV2MarkdownToFigma({ markdown: MD }, spied);
 
-    expect(result.ok).toBe(false);
-    expect(result.errors[0]?.code).toBe('V2_BRIDGE_DOWN');
-    expect(result.errors[0]?.message).toContain('Desktop Bridge');
-    expect(Object.keys(store)).toHaveLength(sizeBefore);
+    expect(result.ok, JSON.stringify(result.errors)).toBe(true);
+    expect(probes).toBe(0);
   });
 
   it('后端没有 healthCheck 时照旧渲染（老后端不阻塞）', async () => {
