@@ -1,10 +1,10 @@
 # 交接说明（2026-10-30）
 
-## 当前状态快照（2026-10-30 18:10，换对话先读这一节）
+## 当前状态快照（2026-10-30 22:50，换对话先读这一节）
 
-**一句话**：蛋仔包全链路打通（发布 / 配置 / 标号 / 文案 / 间距 / 需求组槽位）、库已按项目分页、同步（reconcile）真机验证完成、4 个 change 已归档；剩下的是「重编补槽位」这类需要人工发布的活，以及可选的体验优化。
+**一句话**：蛋仔包全链路打通、库按项目分页、同步真机验证完成、4 个 change 已归档；**新踩到一个「模板包配置缺失 → 静默退回克隆模板文件」的坑（已用全局 `default.json` 兜住，代码层还没改成显式报错）**，这是推广前必须处理的一条。
 
-**代码状态**：`npm run build` + `npm test` **479/479** 通过，`openspec validate --all --strict` **17/17** 通过。最近提交：`451a3c0`（坑 26 自检）← `36431bd`（端口退让告警 + 清占位）← `408d666`（探活默认关闭）← `66c4da0`（探活 opt-in）。已推送到 GitLab + GitHub。
+**代码状态**：`npm run build` + `npm test` **484/484** 通过，`openspec validate --all --strict` **17/17** 通过。最近提交：`3c76331`（常驻桥默认关闭 + 记录）← `b538b68`（宿主 opt-in）← `38f20f4`（临时端口 + Windows spawn 修复）← `8cdcdbf`（中转帧测试）← `7c02336`（常驻桥宿主）。已推送到 GitLab + GitHub。
 
 **本会话（10-30）做完的事**：
 1. 蛋仔包发布 → 回填（新 keys + `rootGap`/`docPadding`/`footerGap`/`bubbleGrid`/`badgeSize`）→ 真机对齐原稿
@@ -16,6 +16,8 @@
 7. `reconcileWithRetry`（中途掉线整轮重试一次）；探活保留但默认关闭
 8. 归档 4 个 change（engine-multi / slim-parts / adaptive-shell / geometry-capture）
 9. 端口退让自检（坑 26）
+10. 常驻桥宿主（`GISOP_BRIDGE_HOST=1`，默认关）：真机跑通但边角未清（见待办）
+11. **补 `~/.game-interaction-sop/templates/default.json`**（= 官方1.14 包）：任何没配置的项目现在默认走库模式，不再要求打开模板文件（坑 27）
 
 | 类别 | 内容 |
 |---|---|
@@ -45,11 +47,34 @@
 | `~/.game-interaction-sop/templates/官方1.14.json` | `103:*` keys + geometry（含 `sectionShell`）；备份 `.bak-20261029` |
 | `~/.game-interaction-sop/templates/蛋仔派对.json` | `110:*` keys + geometry（`rootGap 60` / `docPadding` / `footerGap 200` / `bubbleGrid` 三点 / `badgeSize 63`），`badgeSlot: container`；备份 `.bak-20261030` |
 | `.interaction-sop/template.json` | 当前为 `官方1.14`（临时切项目时改它，验证完记得切回） |
+| `~/.game-interaction-sop/template.json` | **legacy 用**（`resolveTemplateConfig`），本次新建了一份 = 官方1.14；模板包查找**不看**这个文件（见坑 27） |
+| `~/.game-interaction-sop/templates/default.json` | **本次新建**：= 官方1.14 包。任何没有本地配置的项目都会走库模式（不再要求打开模板文件） |
+| 多窗口现场（22:50 观测） | 三个桥：9223 `39504`、9224 `33496`、9225（当前会话，`portFallbackUsed: true`）；插件连在 9225 的 `kiroro主串联` |
 
-**坑位（累积）**：1（端口，已修）/ 2（`phase=verify` 不可用）/ 3（发布后 import 假死，沙盒要去 `Assets → Libraries` 关开一次）/ 4（大图截图用 `exportAsync`）/ 5（补标号容器要扫产物）/ 6（`overview.*` 标在 `#Content`）/ 7（模板空槽标 `template`）/ 8（配图按填充类型判断）/ 9（簇级改动两种路径）/ 10（标号网格按 1920×1080 定义）/ 11–14（run、归一化、配图判定、badgeSlot 传参）/ 15（verify + 截图要切 active file）/ 16–18（外框、标题间距、文案框）/ 19（编译要库文件 active）/ 20–21（配图实例一次 exec、几何来源）/ 22（端口，已修）/ **23（母版 frame 默认裁剪：三角/数字落在框外会被裁掉，母版必须 `clipsContent = false`）** / **24（改库后不发布 → 跨文件 import 挂 30s；发布 + Libraries 关开才能好）** / **25（手工改 `.interaction-sop/template.json` 时不重拷就会用旧副本，`bubbleGrid` 曾因此不生效）** / **26（worker 重启后旧 bridge child 不死：新旧 child 分占 9223 / 9224，插件只连其中一个 → 渲染报 `Cannot connect`，而代理的 `figma_execute` 正常。判定方法：看报错里的端口号与 `figma_get_status` 的端口是否一致；处理：杀掉所有 `figma-console-mcp` 子进程再 `touch dist` 换 worker。**已加自检（`36431bd`）**：worker 起来后异步读一次子进程端口，退端口就清掉占位者并留一条可搜的 `WARNING: bridge child fell back`——不自动重启子进程，实测抢不回端口还拖慢启动）**
+**坑位（累积）**：1（端口，已修）/ 2（`phase=verify` 不可用）/ 3（发布后 import 假死，沙盒要去 `Assets → Libraries` 关开一次）/ 4（大图截图用 `exportAsync`）/ 5（补标号容器要扫产物）/ 6（`overview.*` 标在 `#Content`）/ 7（模板空槽标 `template`）/ 8（配图按填充类型判断）/ 9（簇级改动两种路径）/ 10（标号网格按 1920×1080 定义）/ 11–14（run、归一化、配图判定、badgeSlot 传参）/ 15（verify + 截图要切 active file）/ 16–18（外框、标题间距、文案框）/ 19（编译要库文件 active）/ 20–21（配图实例一次 exec、几何来源）/ 22（端口，已修）/ **23（母版 frame 默认裁剪：三角/数字落在框外会被裁掉，母版必须 `clipsContent = false`）** / **24（改库后不发布 → 跨文件 import 挂 30s；发布 + Libraries 关开才能好）** / **25（手工改 `.interaction-sop/template.json` 时不重拷就会用旧副本，`bubbleGrid` 曾因此不生效）** / **26（worker 重启后旧 bridge child 不死：新旧 child 分占 9223 / 9224，插件只连其中一个 → 渲染报 `Cannot connect`，而代理的 `figma_execute` 正常。判定方法：看报错里的端口号与 `figma_get_status` 的端口是否一致；处理：杀掉所有 `figma-console-mcp` 子进程再 `touch dist` 换 worker。**已加自检（`36431bd`）**：worker 起来后异步读一次子进程端口，退端口就清掉占位者并留一条可搜的 `WARNING: bridge child fell back`——不自动重启子进程，实测抢不回端口还拖慢启动）** / **27（找不到模板包会**静默**退回「克隆模板文件里的 `1:14`」老路，于是报「请打开模板文件插件」，让人误以为组件库没生效。模板包查找顺序：`$GISOP_TEMPLATE_PACK` → `<cwd>/.interaction-sop/template.json` → `~/.game-interaction-sop/templates/<项目名>.json` → `templates/default.json`；**注意 `~/.game-interaction-sop/template.json` 不在这个顺序里**（那是给 legacy 的 `resolveTemplateConfig` 用的）。已补 `templates/default.json`，但代码仍是静默降级，未改成显式报错）** / **28（多开 CodeMaker 窗口 = 多套引擎 = 多个 figma-console 子进程，各自占 9223/9224/9225；插件只会连其中一个，于是「我这边的工具调用」可能连不到你正在看的文件。判定：`figma_get_status` 里 `otherInstances` 非空、`portFallbackUsed: true`。临时处理：只留一个窗口跑图，或杀掉全部 `figma-console-mcp` 再重启当前窗口的 MCP）**
+
+**接入 / 推广清单（给其他团队装的时候照着走）**：
+
+前提认知：**开插件的是「目标文件」（要写进去的那份文档），不是模板文件**。组件库按 key 导入，不需要打开库文件或模板源文件。
+
+| # | 步骤 | 怎么验 | 漏了会怎样 |
+|---|---|---|---|
+| 1 | 装 MCP（`figma-interaction-doc-engine`），`FIGMA_BACKEND=figma-console` + `FIGMA_ACCESS_TOKEN` | `figma_get_status` 返回 connected | 所有 figma_* 工具不可用 |
+| 2 | 放模板包：`~/.game-interaction-sop/templates/default.json`（含本团队库的组件 key），或项目内 `<项目>/.interaction-sop/template.json` | 渲染 warnings 里没有模板包相关告警 | **静默退回克隆 `1:14`，然后要求打开模板文件（坑 27）** |
+| 3 | **库权限**：`交互SOP模板库`（`jQf7zj33pzOGsGKO4d73OO`）分享给使用者，或让他们复制组件到自己库并生成自己的 key | 目标文件里 `importComponentByKeyAsync('<chapter key>')` 成功 | key 解析失败 / import 挂 30s |
+| 4 | 改库后必须**发布**，使用方文件 `Assets → Libraries` 关开一次 | 渲染 warnings 为空 | 跨文件 import 假死（坑 3） |
+| 5 | 打开**目标文件**的 Desktop Bridge 插件 | `figma_get_status.connectedFiles` 里有目标文件 | 渲染报 `Cannot connect` |
+| 6 | 冒烟：渲染一份 3 行示例 md | `sectionCount` / `clusterCount` 正常、无 warning | — |
+
+**推广时的两个隐性坑**：
+- 库 key 指向**你的**库文件；对方没权限就什么都拉不到（步骤 3）
+- 对方同时开多个 CodeMaker 窗口会出现多个桥抢端口（坑 28），表现为「插件明明开着却说连不上」
 
 **待办清单（按优先级）**：
 
+- [ ] **把「找不到模板包」从静默降级改成显式告警/错误**（`loadTemplatePack` 返回 undefined 时，渲染结果里带一条明确 warning）——推广前必做，否则每个新项目都会踩坑 27
+- [ ] 常驻桥继续做的前提：先解决「child 抖动时 worker 退出」与「supervisor 重试耗尽后整个服务消失」；否则保持 `GISOP_BRIDGE_HOST` 关闭
+- [ ] 用真实需求 md（7 章 / 20+ 簇 / 多配图）跑一遍完整渲染 + 同步，验证长文案换行、标号数量、配图排版、同步耗时
 - [x] **同步（reconcile）真机验证**（2026-10-30 15:25，`116:4219`）：dryRun 计划正确；插入新章节 `03` 成功（章节标题 / 标号 / 簇全带上）；`底部留白` 作为 foreign 保留；设计师手改 → `preserved: hand-edit` 且画布不被覆盖；md 与画布都改 → `conflicts` 列出、画布保留。**已知坑：桥中途掉线时同步会在 `fill.chapterN` 报 `Unable to establish connection to Figma after 10 seconds`，重试即可（不是同步逻辑问题）**
 - [x] **桥抖动两道防线**：同步中途掉线整轮重试一次（`reconcileWithRetry`，只对瞬时连接错误，5s 间隔，3 条测试覆盖）；开写前探活代码保留但**默认关闭**（`GISOP_PREFLIGHT=1` 才开）——真机上出现过「探活报 Cannot connect、直连 figma_execute 正常」的假阴性
 - [x] **Worker 重启后旧 bridge 子进程不死**（本会话耗掉约 1 小时）：已加端口自检 `36431bd`——起来后异步读子进程端口，退到 9224 就清掉占位者并打 `WARNING: bridge child fell back`；不自动重启子进程（实测抢不回端口、还拖慢启动）
@@ -60,7 +85,7 @@
 - [ ] 可选：蛋仔图上标号 63px 偏小（用户确认**不改**）
 - [x] **4 个 change 已归档**（2026-10-30）：`engine-multi-part-template-render` / `template-compile-slim-parts` / `template-adaptive-shell` / `template-geometry-capture` → `openspec/changes/archive/2026-10-30-*`；主 spec +21 增 / ~2 改。归档时把 geometry-capture 的 MODIFIED 头从「配置文件形状」改成主 spec 里实际存在的「项目模板包」，否则合并失败
 
-**门槛**：`npm run build` + `npm test`（479）+ `openspec validate --all --strict`（17）
+**门槛**：`npm run build` + `npm test`（484）+ `openspec validate --all --strict`（17）
 
 ## 上一轮快照（2026-10-29 20:10）
 
