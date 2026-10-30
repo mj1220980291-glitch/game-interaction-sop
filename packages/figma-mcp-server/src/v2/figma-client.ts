@@ -379,6 +379,14 @@ export interface FigmaBackend {
   }): Promise<void>;
 
   /**
+   * 一次轻量往返，确认 Bridge 与插件还活着。
+   *
+   * 桥断的时候，渲染的第一个写操作要干等 60s 才抛 `Cannot connect`，用户看到的是
+   * 「卡住然后报错」。开写之前先探一下，2 秒内就能给出可判定的错误。
+   */
+  healthCheck?(): Promise<void>;
+
+  /**
    * 设置文本的对齐方式。
    *
    * 占位文案要压在灰板正中：模板给的是靠左靠下的定宽单行，只挪坐标不居中，

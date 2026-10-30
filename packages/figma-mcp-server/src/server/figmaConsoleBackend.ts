@@ -250,6 +250,10 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       return buildFigmaConsoleBackend(client, nextFileKey);
     },
 
+    async healthCheck() {
+      await run(`return 1;`, 5000);
+    },
+
     // --- Read ops --------------------------------------------------------
 
     async getNodeInfo(nodeId) {

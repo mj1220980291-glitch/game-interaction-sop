@@ -255,6 +255,27 @@ export async function renderV2MarkdownToFigma(
     };
   }
 
+  // Phase A3 — 桥还活着吗。插在任何写操作之前（建文档 / 同步都一样）：桥断了的话，
+  // 写操作要干等 60s 才抛 `Cannot connect`，而这里 5s 就能给一个可判定的错误码。
+  if (targetBackend.healthCheck) {
+    try {
+      await targetBackend.healthCheck();
+    } catch (e) {
+      return {
+        ok: false,
+        errors: [
+          {
+            code: 'V2_BRIDGE_DOWN',
+            message:
+              `渲染前探活失败，Bridge 或 Figma 插件没有响应：${(e as Error).message}。` +
+              '在 Figma 里重开一次 Desktop Bridge 插件（Plugins → Development）后重试。'
+          }
+        ],
+        warnings: parsed.warnings
+      };
+    }
+  }
+
   if (input.target?.rootId) {
     return reconcileV2(parsed.ir, parsed.warnings, input, targetBackend);
   }

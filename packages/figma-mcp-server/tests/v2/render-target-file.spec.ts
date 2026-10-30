@@ -101,6 +101,33 @@ describe('target.fileKey 决定写进哪个文件 (Bug A)', () => {
     expect(Object.keys(store)).toHaveLength(sizeBefore);
   });
 
+  it('开写前探活失败就停手，不留下半张画布', async () => {
+    const { backend, store } = makeBackend();
+    const sizeBefore = Object.keys(store).length;
+    const spied: FigmaBackend = {
+      ...backend,
+      async healthCheck() {
+        throw new Error('Cannot connect to Figma Desktop');
+      }
+    };
+
+    const result = await renderV2MarkdownToFigma({ markdown: MD }, spied);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors[0]?.code).toBe('V2_BRIDGE_DOWN');
+    expect(result.errors[0]?.message).toContain('Desktop Bridge');
+    expect(Object.keys(store)).toHaveLength(sizeBefore);
+  });
+
+  it('后端没有 healthCheck 时照旧渲染（老后端不阻塞）', async () => {
+    const { backend } = makeBackend();
+    expect(backend.healthCheck).toBeUndefined();
+
+    const result = await renderV2MarkdownToFigma({ markdown: MD }, backend);
+
+    expect(result.ok, JSON.stringify(result.errors)).toBe(true);
+  });
+
   it('目标文件里的 1:14 不是模板时拒绝写入', async () => {
     // 真实踩过的场景：生产文件【蛋仔城】综合设计 里 1:14 是一个 TEXT 图层。
     const strayText: NodeInfo = {
