@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseV2 } from '../../src/v2/parser.js';
 import { parseTemplatePack } from '../../src/v2/template/schema.js';
-import { renderFromParts, placeholderPaint } from '../../src/v2/render/parts/index.js';
+import { renderFromParts, placeholderPaint, placeholderHintPaint } from '../../src/v2/render/parts/index.js';
 import type { FigmaBackend } from '../../src/v2/figma-client.js';
 import { BADGE_MASTER_NAME } from '../../src/v2/template-slots.js';
 import { partsBackend, type PNodeSpec, type PartsBackend } from './helpers/parts-backend.js';
@@ -164,6 +164,64 @@ describe('renderFromParts 自适应', () => {
     expect(h.nodes.get(r.rootId)!.layoutMode).toBe('VERTICAL');
   });
 
+  it('geometry.rootGap 写进根帧 itemSpacing', async () => {
+    const { h, ir, pack } = setup();
+    const calls = addAutoLayout(h);
+
+    await renderFromParts({
+      ir,
+      pack: { ...pack, geometry: { rootGap: 60 } },
+      pageId: 'page-root',
+      backend: h.backend
+    });
+
+    expect(calls[0]?.itemSpacing).toBe(60);
+  });
+
+  it('geometry.docPadding：根帧加内边距，宽度含左右边距', async () => {
+    const { h, ir, pack } = setup();
+    const calls = addAutoLayout(h);
+
+    const r = await renderFromParts({
+      ir,
+      pack: { ...pack, geometry: { docPadding: { top: 0, right: 60, bottom: 0, left: 60 } } },
+      pageId: 'page-root',
+      backend: h.backend
+    });
+
+    expect(calls[0]?.padding).toEqual({ top: 0, right: 60, bottom: 0, left: 60 });
+    // 章节 2209 + 左右各 60
+    expect(h.nodes.get(r.rootId)!.width).toBe(2329);
+  });
+
+  it('geometry.footerGap：结尾前插一块同宽的留白帧', async () => {
+    const { h, ir, pack } = setup();
+    addAutoLayout(h);
+    h.registerComponent('k-footer', {
+      id: 'f-root',
+      name: '结尾',
+      type: 'COMPONENT',
+      width: 2198,
+      height: 192
+    });
+
+    const r = await renderFromParts({
+      ir,
+      pack: {
+        ...pack,
+        components: { ...pack.components, footer: 'k-footer' },
+        geometry: { footerGap: 200 }
+      },
+      pageId: 'page-root',
+      backend: h.backend
+    });
+
+    const spacer = h.byName(r.rootId, '底部留白')[0];
+    expect(spacer).toBeDefined();
+    expect(spacer!.height).toBe(200);
+    expect(h.byName(r.rootId, '结尾')).toHaveLength(1);
+  });
+
   it('部件自带 HUG 链时跳过手工压章节高度', async () => {
     const { h, ir, pack } = setup({ autoLayout: true });
     addAutoLayout(h);
@@ -279,5 +337,26 @@ describe('placeholderPaint', () => {
 
   it('非法值回落中性灰', () => {
     expect(placeholderPaint('black').fill).toBe('#F5F5F5');
+  });
+});
+
+describe('placeholderHintPaint', () => {
+  it('深板上的文案取亮灰，黑字不再压在深灰上', () => {
+    const hint = placeholderHintPaint('#454545');
+    const luma = (h: string): number => {
+      const n = Number.parseInt(h.slice(1), 16);
+      return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+    };
+    expect(luma(hint!)).toBeGreaterThan(0.5);
+  });
+
+  it('浅板上的文案取深灰', () => {
+    const hint = placeholderHintPaint('#F5F5F5');
+    expect(Number.parseInt(hint!.slice(1, 3), 16)).toBeLessThan(0xa0);
+  });
+
+  it('没有板色时不猜', () => {
+    expect(placeholderHintPaint()).toBeUndefined();
+    expect(placeholderHintPaint('black')).toBeUndefined();
   });
 });
