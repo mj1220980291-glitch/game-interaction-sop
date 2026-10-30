@@ -299,3 +299,45 @@ export async function waitUntilPortBindable(port: number, timeoutMs = 5000): Pro
     await new Promise((r) => setTimeout(r, 200));
   }
 }
+
+/** `figma_get_status` 里跟端口有关的那几个字段。 */
+export interface BridgePortStatus {
+  port?: number;
+  preferredPort?: number;
+  fallbackUsed?: boolean;
+}
+
+/**
+ * 从 `figma_get_status` 的返回文本里读端口信息。
+ *
+ * 子进程退到 9224 时**不会报错**，只是插件连在 9223 上、我们连在 9224 上——
+ * 表现为「渲染报 Cannot connect，代理的 figma_execute 却正常」。所以启动后必须
+ * 主动读一次端口，发现自己不在首选端口就自愈。
+ *
+ * 解析失败返回 undefined（老版本子进程没有这些字段），调用方按「没问题」处理。
+ */
+export function parseBridgePortStatus(text: string): BridgePortStatus | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== 'object') return undefined;
+  const obj = parsed as Record<string, unknown>;
+  const transport = (obj['transport'] ?? obj) as Record<string, unknown>;
+  const ws = (transport['websocket'] ?? transport) as Record<string, unknown>;
+  if (ws === null || typeof ws !== 'object') return undefined;
+
+  const num = (v: unknown): number | undefined => {
+    const n = typeof v === 'string' ? Number(v) : v;
+    return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
+  };
+  const out: BridgePortStatus = {};
+  const port = num(ws['port']);
+  const preferredPort = num(ws['preferredPort']);
+  if (port !== undefined) out.port = port;
+  if (preferredPort !== undefined) out.preferredPort = preferredPort;
+  if (typeof ws['portFallbackUsed'] === 'boolean') out.fallbackUsed = ws['portFallbackUsed'];
+  return Object.keys(out).length > 0 ? out : undefined;
+}

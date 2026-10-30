@@ -33,6 +33,7 @@ import {
   reclaimOrphanedBridgePorts,
   reclaimPreferredPort,
   waitUntilPortBindable,
+  parseBridgePortStatus,
   PREFERRED_BRIDGE_PORT
 } from './reclaimPorts.js';
 
@@ -105,47 +106,84 @@ export async function main(): Promise<void> {
       );
     }
 
-    const client = new Client({ name: 'figma-interaction-doc-engine', version: '0.1.0' });
-    const childTransport = new StdioClientTransport({
-      command: 'npx',
-      args: ['-y', 'figma-console-mcp@latest'],
-      env: {
-        ...process.env,
-        FIGMA_ACCESS_TOKEN: token,
-        ENABLE_MCP_APPS: 'true'
+    const startChild = async (): Promise<{ client: Client; transport: StdioClientTransport }> => {
+      const c = new Client({ name: 'figma-interaction-doc-engine', version: '0.1.0' });
+      const t = new StdioClientTransport({
+        command: 'npx',
+        args: ['-y', 'figma-console-mcp@latest'],
+        env: {
+          ...process.env,
+          FIGMA_ACCESS_TOKEN: token,
+          ENABLE_MCP_APPS: 'true'
+        }
+      });
+
+      // Fail-fast: if the child dies, the worker cannot serve render_v2 nor any
+      // proxied figma_* tool. Exit so the supervisor swaps in a fresh worker.
+      t.onclose = () => {
+        process.stderr.write(
+          '[figma-interaction-doc-engine] child figma-console-mcp transport closed; worker exiting\n'
+        );
+        process.exit(1);
+      };
+      t.onerror = (err: Error) => {
+        process.stderr.write(
+          `[figma-interaction-doc-engine] child figma-console-mcp transport error: ${err.message}\n`
+        );
+        process.exit(1);
+      };
+
+      await c.connect(t);
+
+      // The transport only owns the outer `cmd.exe`; the process that actually
+      // binds the Bridge port is two levels below it and outlives every kill the
+      // SDK performs. Register a tree-kill so restarting the worker does not
+      // leave an orphan squatting port 9223. See childLifecycle.ts.
+      const childPid = t.pid ?? undefined;
+      if (childPid != null) {
+        installChildCleanup(childPid);
+      } else {
+        process.stderr.write(
+          '[figma-interaction-doc-engine] WARNING: child PID unavailable; ' +
+            'cannot guarantee cleanup of the figma-console-mcp subtree on exit\n'
+        );
       }
-    });
-
-    // Fail-fast: if the child dies, the worker cannot serve render_v2 nor any
-    // proxied figma_* tool. Exit so the supervisor swaps in a fresh worker.
-    childTransport.onclose = () => {
-      process.stderr.write(
-        '[figma-interaction-doc-engine] child figma-console-mcp transport closed; worker exiting\n'
-      );
-      process.exit(1);
-    };
-    childTransport.onerror = (err: Error) => {
-      process.stderr.write(
-        `[figma-interaction-doc-engine] child figma-console-mcp transport error: ${err.message}\n`
-      );
-      process.exit(1);
+      return { client: c, transport: t };
     };
 
-    await client.connect(childTransport);
+    let { client, transport: childTransport } = await startChild();
 
-    // The transport only owns the outer `cmd.exe`; the process that actually
-    // binds the Bridge port is two levels below it and outlives every kill the
-    // SDK performs. Register a tree-kill so restarting the worker does not
-    // leave an orphan squatting port 9223. See childLifecycle.ts.
-    const childPid = childTransport.pid ?? undefined;
-    if (childPid != null) {
-      installChildCleanup(childPid);
-    } else {
-      process.stderr.write(
-        '[figma-interaction-doc-engine] WARNING: child PID unavailable; ' +
-          'cannot guarantee cleanup of the figma-console-mcp subtree on exit\n'
-      );
-    }
+    // 端口自愈（非阻塞）：子进程退到 9224 时不报错，只是插件连在 9223、我们连在
+    // 9224，表现为「渲染报 Cannot connect，代理的 figma_execute 却正常」。
+    // 这里只做两件事：把占着首选端口的同类进程清掉（下一次启动就能回到 9223），
+    // 以及留一条能搜到的告警。不在这里重启子进程——实测重启后仍可能抢不到端口，
+    // 反而把首屏启动拖慢。
+    void (async () => {
+      try {
+        const status = await client.callTool({ name: 'figma_get_status', arguments: {} });
+        const text = String(
+          (status as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? ''
+        );
+        const info = parseBridgePortStatus(text);
+        if (!info?.fallbackUsed) return;
+        process.stderr.write(
+          `[figma-interaction-doc-engine] WARNING: bridge child fell back to port ` +
+            `${info.port ?? '?'} (preferred ${info.preferredPort ?? PREFERRED_BRIDGE_PORT}); ` +
+            'renders will fail with "Cannot connect" while proxied figma_* calls still work. ' +
+            'Clearing the squatter so the next start returns to the preferred port.\n'
+        );
+        const taken = reclaimPreferredPort();
+        process.stderr.write(
+          `[figma-interaction-doc-engine] preferred port cleanup: ${taken.action}` +
+            `${taken.pid ? ` pid=${taken.pid}` : ''}` +
+            `${taken.reason ? ` (${taken.reason})` : ''}\n`
+        );
+      } catch (err) {
+        process.stderr.write(
+          `[figma-interaction-doc-engine] port self-check failed: ${(err as Error).message}\n`
+        );
+      }
+    })();
 
     // Capture the child's tool list once, at startup. The list is stable for
     // the lifetime of the child process; we serve it verbatim to upstream.

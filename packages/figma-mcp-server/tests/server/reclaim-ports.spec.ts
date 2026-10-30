@@ -11,8 +11,33 @@ import { describe, it, expect } from 'vitest';
 import {
   parseNetstatListeners,
   parseLsofListeners,
+  parseBridgePortStatus,
   looksLikeFigmaConsole
 } from '../../src/server/reclaimPorts.js';
+
+describe('parseBridgePortStatus', () => {
+  it('读 figma_get_status 的嵌套端口信息', () => {
+    const text = JSON.stringify({
+      _mcp: 'figma-console-mcp',
+      transport: { websocket: { port: '9224', preferredPort: '9223', portFallbackUsed: true } }
+    });
+    expect(parseBridgePortStatus(text)).toEqual({
+      port: 9224,
+      preferredPort: 9223,
+      fallbackUsed: true
+    });
+  });
+
+  it('没退端口时 fallbackUsed = false', () => {
+    const text = JSON.stringify({ transport: { websocket: { port: 9223, portFallbackUsed: false } } });
+    expect(parseBridgePortStatus(text)).toEqual({ port: 9223, fallbackUsed: false });
+  });
+
+  it('老子进程没有这些字段就返回 undefined（按「没问题」处理）', () => {
+    expect(parseBridgePortStatus(JSON.stringify({ ok: 1 }))).toBeUndefined();
+    expect(parseBridgePortStatus('not json')).toBeUndefined();
+  });
+});
 
 describe('parseNetstatListeners', () => {
   it('只取 LISTENING 行、末列 pid', () => {
