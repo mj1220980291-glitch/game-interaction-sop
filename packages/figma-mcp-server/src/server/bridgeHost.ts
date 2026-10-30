@@ -19,11 +19,53 @@
  */
 
 import { spawn } from 'node:child_process';
-import { createServer, type Server, type Socket } from 'node:net';
+import { createServer, type AddressInfo, type Server, type Socket } from 'node:net';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** 中转端口；跟插件用的 9223（Bridge）不是一回事。 */
-export const BRIDGE_RELAY_PORT = 9222;
+/**
+ * 中转端口**不再写死**：9222 之类的固定值会被别的软件占掉（真机上被豆包占了，
+ * 于是 worker 连上去话都握不了手）。改成绑 0（临时端口），把真实端口写进这个文件，
+ * worker / supervisor 都从文件里读。
+ */
+export const BRIDGE_INFO_FILE = join(tmpdir(), 'gisop-bridge-host.json');
+
+export interface BridgeHostInfo {
+  port: number;
+  pid: number;
+}
+
+/** 读宿主公告的端口；文件不存在或坏掉返回 undefined。 */
+export function readBridgeHostInfo(): BridgeHostInfo | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(BRIDGE_INFO_FILE, 'utf-8')) as Partial<BridgeHostInfo>;
+    if (typeof raw.port === 'number' && raw.port > 0 && typeof raw.pid === 'number') {
+      return { port: raw.port, pid: raw.pid };
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeBridgeHostInfo(info: BridgeHostInfo): void {
+  try {
+    mkdirSync(dirname(BRIDGE_INFO_FILE), { recursive: true });
+    writeFileSync(BRIDGE_INFO_FILE, JSON.stringify(info), 'utf-8');
+  } catch {
+    /* 公告失败不影响转发 */
+  }
+}
+
+function clearBridgeHostInfo(): void {
+  try {
+    rmSync(BRIDGE_INFO_FILE, { force: true });
+  } catch {
+    /* ignore */
+  }
+}
 
 const RESTART_DELAY_MS = 3000;
 const MAX_RESTARTS = 20;
@@ -38,7 +80,8 @@ export interface BridgeHostHandle {
 }
 
 /**
- * 起一个桥宿主：监听中转端口，并把每个连上来的 socket 与 child 的 stdio 对接。
+ * 起一个桥宿主：监听中转端口（默认临时端口），并把每个连上来的 socket 与 child
+ * 的 stdio 对接。
  *
  * 每个 socket 各自起一个 child 是错误的（插件只认一个），所以这里只维护**一个**
  * child：第一个 socket 到达时启动，最后一个 socket 断开时保留（worker 可能马上
@@ -47,7 +90,7 @@ export interface BridgeHostHandle {
 export async function startBridgeHost(
   opts: { port?: number; command?: string; args?: string[] } = {}
 ): Promise<BridgeHostHandle> {
-  const port = opts.port ?? Number(process.env.GISOP_BRIDGE_RELAY_PORT ?? BRIDGE_RELAY_PORT);
+  const port = opts.port ?? Number(process.env.GISOP_BRIDGE_RELAY_PORT ?? 0);
   const command = opts.command ?? 'npx';
   const args = opts.args ?? ['-y', 'figma-console-mcp@latest'];
 
@@ -59,6 +102,8 @@ export async function startBridgeHost(
     child = spawn(command, args, {
       env: { ...process.env, ENABLE_MCP_APPS: 'true' },
       stdio: ['pipe', 'pipe', 'inherit'],
+      // Windows 上 `spawn('npx')` 直接 ENOENT（要 .cmd 或 shell）；给 shell 最省事。
+      shell: process.platform === 'win32',
       windowsHide: true
     });
     log(`child figma-console-mcp started pid=${child.pid ?? '?'}`);
@@ -100,21 +145,24 @@ export async function startBridgeHost(
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => resolve());
   });
-  log(`listening on 127.0.0.1:${port}`);
+  const actualPort = (server.address() as AddressInfo).port;
+  writeBridgeHostInfo({ port: actualPort, pid: process.pid });
+  log(`listening on 127.0.0.1:${actualPort}`);
 
   return {
-    port,
+    port: actualPort,
     close: async () => {
       for (const s of sockets) s.destroy();
       sockets.clear();
       child?.kill();
+      clearBridgeHostInfo();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   };
 }
 
 /** 中转端口上有没有人在听（用来判断宿主还活着）。 */
-export async function isBridgeHostUp(port = BRIDGE_RELAY_PORT, timeoutMs = 400): Promise<boolean> {
+export async function isBridgeHostUp(port: number, timeoutMs = 400): Promise<boolean> {
   const net = await import('node:net');
   return await new Promise<boolean>((resolve) => {
     const socket = net.connect({ port, host: '127.0.0.1' });
@@ -140,33 +188,37 @@ if (entry !== undefined && /bridgeHost\.(js|ts)$/.test(entry)) {
 
 /**
  * 确保常驻宿主在跑：不在就 detached 起一个（脱离本进程，本进程退出它也不死），
- * 并等它开始监听。
+ * 并等它在公告文件里报出端口。
  *
  * 只在 supervisor 启动时调一次。起不来就返回 false，worker 会退回自己拉子进程。
  */
-export async function ensureBridgeHost(
-  opts: { port?: number; waitMs?: number } = {}
-): Promise<boolean> {
-  const port = opts.port ?? Number(process.env.GISOP_BRIDGE_RELAY_PORT ?? BRIDGE_RELAY_PORT);
-  const waitMs = opts.waitMs ?? 3000;
-  if (await isBridgeHostUp(port)) {
-    log(`already running on ${port}`);
+export async function ensureBridgeHost(opts: { waitMs?: number } = {}): Promise<boolean> {
+  const waitMs = opts.waitMs ?? 5000;
+  const announced = readBridgeHostInfo();
+  if (announced && (await isBridgeHostUp(announced.port))) {
+    log(`already running on ${announced.port}`);
     return true;
   }
+  // 公告文件指向一个已经死掉的宿主（被硬杀 / 崩溃）：清掉，免得一直连空气。
+  if (announced) clearBridgeHostInfo();
 
   const hostEntry = fileURLToPath(new URL('./bridgeHost.js', import.meta.url));
   const child = spawn(process.execPath, [hostEntry], {
     detached: true,
     stdio: 'ignore',
-    env: { ...process.env, GISOP_BRIDGE_RELAY_PORT: String(port) },
+    env: { ...process.env, GISOP_BRIDGE_RELAY_PORT: '' },
     windowsHide: true
   });
   child.unref();
-  log(`spawned detached host pid=${child.pid ?? '?'} on ${port}`);
+  log(`spawned detached host pid=${child.pid ?? '?'}`);
 
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
-    if (await isBridgeHostUp(port, 300)) return true;
+    const info = readBridgeHostInfo();
+    if (info && (await isBridgeHostUp(info.port, 300))) {
+      log(`host ready on ${info.port}`);
+      return true;
+    }
     await new Promise((r) => setTimeout(r, 150));
   }
   log(`host did not come up within ${waitMs}ms`);

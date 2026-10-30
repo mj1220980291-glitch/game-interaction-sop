@@ -30,7 +30,7 @@ import { createServer } from './createServer.js';
 import { buildFigmaConsoleBackend } from './figmaConsoleBackend.js';
 import { warnOnExternalFigmaConsoleInstances } from './detectExternal.js';
 import { installChildCleanup } from './childLifecycle.js';
-import { BRIDGE_RELAY_PORT } from './bridgeHost.js';
+import { readBridgeHostInfo } from './bridgeHost.js';
 import { connectBridgeHost } from './bridgeSocketTransport.js';
 import {
   reclaimOrphanedBridgePorts,
@@ -130,12 +130,13 @@ export async function main(): Promise<void> {  let v2Backend = undefined;
       };
 
       // 优先连常驻桥宿主（bridgeHost.ts）：worker 换人不影响它，插件一直连着。
+      // 端口从公告文件读（宿主绑的是临时端口，固定值会被别的软件占掉）。
       // 连不上、或者握手超时（宿主刚起、child 还在拉命），都退回自己拉子进程。
-      const relayPort = Number(process.env.GISOP_BRIDGE_RELAY_PORT ?? BRIDGE_RELAY_PORT);
-      if (process.env.GISOP_NO_BRIDGE_HOST !== '1') {
+      const hostInfo = process.env.GISOP_NO_BRIDGE_HOST === '1' ? undefined : readBridgeHostInfo();
+      if (hostInfo) {
         let socket: import('node:net').Socket | undefined;
         try {
-          const attached = await connectBridgeHost(relayPort);
+          const attached = await connectBridgeHost(hostInfo.port);
           socket = attached.socket;
           const transport = attached.transport as Transport;
           transport.onclose = () => fail('bridge host transport closed; worker exiting');
@@ -152,7 +153,7 @@ export async function main(): Promise<void> {  let v2Backend = undefined;
             'bridge host handshake timeout'
           );
           process.stderr.write(
-            `[figma-interaction-doc-engine] bridge attached via resident host on ${relayPort}\n`
+            `[figma-interaction-doc-engine] bridge attached via resident host on ${hostInfo.port}\n`
           );
           return { client: hostClient, transport };
         } catch (err) {
