@@ -1,6 +1,8 @@
 ## MODIFIED Requirements
 
-### Requirement: 配置文件形状
+### Requirement: 项目模板包
+
+模板包 SHALL 由 `<项目根>/.interaction-sop/template.json`（机器读）与 `md-contract.md`（人读）组成；读取顺序 SHALL 为：项目根模板包 → `~/.game-interaction-sop/templates/<项目名>.json` → 全局 default → 官方 `1:14`，模板包不存在或解析失败时 SHALL 完全回落到既有行为。
 
 `template.json` SHALL 为 JSON 对象，顶层字段：
 

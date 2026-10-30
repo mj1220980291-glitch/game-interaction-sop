@@ -274,3 +274,123 @@ TBD - created by archiving change template-compile-to-library. Update Purpose af
 - **WHEN** 原稿配图槽是裸矩形，编译后渲染写入资产
 - **THEN** 渲染 SHALL 能找到 `配图占位` 矩形并填充，SHALL NOT 报「配图 GROUP 无 配图占位 矩形」
 
+### Requirement: 槽位命名归一化
+
+`compile` 阶段 SHALL 在嵌套收编之后、产物能力重算之前，把 4 个部件内的槽位节点改名为统一槽位名。
+
+改名 SHALL 只作用于结构判定为槽位的节点，SHALL NOT 整树改名；已是统一名的节点 SHALL NOT 被改动（幂等）。
+
+每个槽位 SHALL 只接受唯一候选；出现多个候选时 SHALL NOT 猜，记 `gaps` 并保留原名。
+
+关键槽位任一无法定位时，编译 SHALL 拒绝（`V2_COMPILE_SLOT_UNMAPPED`）并指明部件与槽位名，SHALL NOT 产出不完整部件。
+
+#### Scenario: 项目命名归一
+- **WHEN** 章节母版是 `Group 2360`、簇母版是 `Frame 1245`
+- **THEN** 编译产物中该章节标题节点名 SHALL 为 `#Name`，簇标题 SHALL 为 `#Title_Main`
+
+#### Scenario: 重复编译幂等
+- **WHEN** 对已归一化的项目再编一次
+- **THEN** 产物中 SHALL NOT 出现任何额外的改名动作
+
+#### Scenario: 关键槽位缺失
+- **WHEN** 簇部件内定位不到内容行槽位
+- **THEN** 编译 SHALL 失败并指明 `cluster.正文/规则`，SHALL NOT 生成可发布组件
+
+### Requirement: 标号母版收口
+
+编译 SHALL 在标号容器内保证恰好一个隐藏母版 `标号/母版`：源模板自带标号时保留一个改为母版并隐藏，其余删除；补容器场景下 SHALL 从 `1:14` 的标号形态克隆一份作为母版。
+
+母版 SHALL 内含一个可写编号 TEXT `#Number`。
+
+无法生成母版时编译 SHALL 记 `gaps`，并在 `capabilities` 中保持 `badgeSlot` 为可表达值（容器在但无母版时不得谎报可摆位）。
+
+#### Scenario: 多标号收口
+- **WHEN** 章节部件 `气泡` 内有 8 个 `标号/N`
+- **THEN** 产物 SHALL 只保留 1 个隐藏 `标号/母版`，其余 SHALL 被删除
+
+#### Scenario: 散落标号需要补母版
+- **WHEN** 源模板标号是散落三角实例且提供了 `1:14` 气泡来源
+- **THEN** 产物 `气泡` 内 SHALL 含一个隐藏 `标号/母版`，其 `#Number` 文本可写
+
+### Requirement: md-contract 产出
+
+`verify` 成功后 SHALL 产出 `md-contract.md` 正文与建议路径 `<项目根>/.interaction-sop/md-contract.md`，并把相对路径写入模板包 `mdContract` 字段。
+
+正文 SHALL 由模板包（能力 + 槽位）推导，内容至少含：顶部字段、章节写法、簇写法、分组能否使用、配图写法、标号说明、职能写法、总览形态、禁写清单、最小骨架示例。
+
+同一模板包重复生成，正文 SHALL 逐字节一致（不含时间戳等易变内容）。
+
+正文落盘 SHALL 由调用方完成；工具 SHALL NOT 猜测项目根路径写文件。
+
+#### Scenario: 契约与能力一致
+- **WHEN** 模板包 `capabilities.clusterGroups = none`
+- **THEN** 生成的契约「禁写清单」SHALL 含「不要使用 `####`」
+
+#### Scenario: 可重复生成
+- **WHEN** 对同一模板包连续生成两次
+- **THEN** 两次正文 SHALL 完全相同
+
+### Requirement: 部件空壳化
+
+编译 SHALL 在槽位命名归一化之后清空部件里的原稿内容，只保留样式载体。
+
+| 部件 | SHALL 删除 | SHALL 保留 |
+|---|---|---|
+| `chapter` | 说明栏容器内全部子节点；`气泡` 内除母版外的标号 | 图区几何、说明栏容器、`标号/母版` |
+| `cluster` | 可见 `正文/规则` 与可见 `#Title` 中除第一个以外的部分 | 编号、标题、一个内容行、一个分组槽、隐藏备用池、配图槽 |
+
+删除 SHALL 分批执行（每批 ≤2 个节点），SHALL NOT 一次提交整棵子树。
+
+编译报告 SHALL 返回 `slimmed`（删除节点数）。
+
+#### Scenario: 章节不带原稿簇
+- **WHEN** 章节母版说明栏里有 5 个簇
+- **THEN** 产物章节部件的说明栏 SHALL 为空容器，且 `气泡` 内只剩 `标号/母版`
+
+#### Scenario: 隐藏备用池保留
+- **WHEN** 簇部件末尾有隐藏的 `正文/规则` 备用槽
+- **THEN** 空壳化 SHALL 保留该隐藏槽，`hiddenPool = reuse` 仍可复用
+
+#### Scenario: 幂等
+- **WHEN** 对已空壳化的部件再编一次
+- **THEN** `slimmed` SHALL 为 0，SHALL NOT 删掉已保留的唯一内容行
+
+### Requirement: 部件自适应外壳
+
+编译 SHALL 在部件空壳化之后，把部件根框接回 HUG 链，使产物高度跟随内容。
+
+| 部件 | SHALL 设 | SHALL NOT 设 |
+|---|---|---|
+| `chapter` | `HORIZONTAL` 自动布局；`paddingTop = min(主图.y, 说明栏.y) − 根.y`；`itemSpacing = 说明栏.x − 主图右边`；高度 HUG；其余直接子级（含 `气泡`）绝对定位 | 宽度 HUG、子级坐标变更 |
+| `cluster` | `VERTICAL` 自动布局；单子级时 `paddingTop = 子级.y`；高度 HUG | 宽度 HUG |
+
+参数 SHALL 由现有几何反推，开启自动布局前后的子级位置 SHALL 保持一致（允许 ≤1px 取整误差）。
+
+已是自动布局的部件 SHALL 跳过（幂等），编译报告 `adaptive` SHALL 为空。
+
+以下情况 SHALL 记缺口并保持原样（零写入），SHALL NOT 猜：
+
+- 说明栏在图区之前（自动布局会左右对调）
+- 图区与说明栏重叠（间距 < 0）
+- 簇根有多个直接子级（判不出纵向顺序）
+- 缺 `主图占位` 或说明栏槽位
+- 后端不支持 `setAutoLayout`
+
+编译报告 SHALL 返回 `adaptive`（逐部件 `part` / `mode` / `itemSpacing` / `paddingTop` / `absoluteChildren`）。
+
+#### Scenario: 蛋仔章节接上 HUG 链
+- **WHEN** 章节根 `2209×6240`、主图 `(0,807)`、说明栏 `(1277,786)`、气泡 `(0,0) 1920×1080`
+- **THEN** 根框 SHALL 变成 `HORIZONTAL` + 高度 HUG，`itemSpacing = 77`、`paddingTop = 786`，`气泡` SHALL 绝对定位
+
+#### Scenario: 已是自动布局
+- **WHEN** 部件根本身就是 `VERTICAL`（官方1.14 的簇）
+- **THEN** 编译 SHALL 跳过该部件，`adaptive` 不含它，零写入
+
+#### Scenario: 顺序反了不猜
+- **WHEN** 章节部件的说明栏排在主图之前
+- **THEN** 编译 SHALL 记缺口且 SHALL NOT 改动该部件
+
+#### Scenario: 顶部 / 结尾不参与
+- **WHEN** 部件是 `top` 或 `footer`
+- **THEN** 编译 SHALL NOT 为它设自动布局
+
