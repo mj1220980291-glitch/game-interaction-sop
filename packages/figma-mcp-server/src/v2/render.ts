@@ -89,6 +89,7 @@ import {
   type ReconcileConflict,
   type ReconcilePreserved
 } from './reconcile/index.js';
+import { isTransientBridgeError } from '../server/retry.js';
 
 // --- Traced clone helper -------------------------------------------------
 
@@ -277,7 +278,7 @@ export async function renderV2MarkdownToFigma(
   }
 
   if (input.target?.rootId) {
-    return reconcileV2(parsed.ir, parsed.warnings, input, targetBackend);
+    return reconcileWithRetry(parsed.ir, parsed.warnings, input, targetBackend);
   }
 
   // Phase B — Render. Wrap in undo checkpoint + try/catch for one-shot rollback.
@@ -389,6 +390,37 @@ const TEMPLATE_CONTAINER_TYPES: ReadonlyArray<NodeInfo['type']> = [
  *
  * No fileKey → unchanged behaviour, and crucially no extra backend calls.
  */
+/**
+ * 同步中途桥掉线重试。
+ *
+ * 真机现象：同步跑到 `fill.chapterN` 时抛 `Unable to establish connection to Figma
+ * after 10 seconds`，同一份 md 立刻重跑就过。同步本身是收敛的——重读树、锁在
+ * `finally` 里释放、scratch 会被清掉——所以整轮重跑是安全的，比在批次中间重试
+ * （可能已经写了一半）安全得多。冲突、找不到节点这类非瞬时错误不重试。
+ */
+async function reconcileWithRetry(
+  ir: DocIR,
+  warnings: SoftWarning[],
+  input: RenderInput,
+  backend: FigmaBackend,
+  attempts = 2,
+  delayMs = 5000
+): Promise<RenderResult> {
+  let last: RenderResult | undefined;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    last = await reconcileV2(ir, warnings, input, backend);
+    if (last.ok) return last;
+    const message = last.errors.map((e) => e.message).join(' ');
+    if (attempt === attempts || !isTransientBridgeError(message)) return last;
+    process.stderr.write(
+      `[figma-interaction-doc-engine] sync hiccup (attempt ${attempt}/${attempts}): ` +
+        `${message} — retrying in ${delayMs}ms\n`
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+  }
+  return last!;
+}
+
 async function bindTargetFile(
   input: RenderInput,
   backend: FigmaBackend
