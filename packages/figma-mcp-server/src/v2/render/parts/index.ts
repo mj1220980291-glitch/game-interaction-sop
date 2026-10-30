@@ -680,7 +680,10 @@ async function fillChapter(
         ctx.figures,
         undefined
       );
-      const layout = await collectClusterLayout(backend, node, effective);
+      // 同一棵簇子树要扫两遍：一遍算版面清单，一遍补灰板和占位文案。
+      // 合成一次——4000 节点的簇一次扫描就是 1.7s 级，翻倍直接顶到超时线。
+      const { nodes: clusterNodes } = await backend.scanSubtree(node.id, 20000);
+      const layout = await collectClusterLayout(backend, node, effective, clusterNodes);
       clusters.push(layout);
       // md 没写 `配图：` 时，模板常驻的配图槽不该在版面上占一块空灰板。
       // `loose` 已经是「没被任何 `配图：` 认领」的槽，直接藏整组——组里还有
@@ -694,7 +697,7 @@ async function fillChapter(
         // 填充，只靠模板原样会是一块全透明的洞。判据是矩形有没有 IMAGE 填充。
         const paint = placeholderPaint(ctx.docBackground, ctx.geometry?.placeholder);
         const hintFill = placeholderHintPaint(paint.fill);
-        const { nodes: inCluster } = await backend.scanSubtree(node.id, 4000);
+        const inCluster = clusterNodes;
         const empty = inCluster.filter(
           (n) => n.name === CLUSTER_SLOTS.figureRect && n.hasImageFill !== true
         );
@@ -758,9 +761,10 @@ async function fillChapter(
 async function collectClusterLayout(
   backend: FigmaBackend,
   node: NodeInfo,
-  cluster: SemanticCluster
+  cluster: SemanticCluster,
+  preScanned?: NodeInfo[]
 ): Promise<PartsClusterLayout> {
-  const { nodes } = await backend.scanSubtree(node.id, 20000);
+  const nodes = preScanned ?? (await backend.scanSubtree(node.id, 20000)).nodes;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const figureTexts = cluster.bullets.filter(isImageBullet).map(stripImageBulletPrefix);
   const ordered = clusterItems(nodes, node.id);
