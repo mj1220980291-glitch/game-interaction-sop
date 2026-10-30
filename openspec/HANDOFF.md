@@ -1,10 +1,21 @@
 # 交接说明（2026-10-30）
 
-## 当前状态快照（2026-10-30 15:10，换对话先读这一节）
+## 当前状态快照（2026-10-30 18:10，换对话先读这一节）
 
-**一句话**：蛋仔包已发布可用（`110:*`），库按项目分页，图上标号打通，文档外边距 / 结尾留白 / 配图文案居中都已真机验过；**同步（reconcile）真机验证仍未做**，桥健康预检与扫描合并两项没动。
+**一句话**：蛋仔包全链路打通（发布 / 配置 / 标号 / 文案 / 间距 / 需求组槽位）、库已按项目分页、同步（reconcile）真机验证完成、4 个 change 已归档；剩下的是「重编补槽位」这类需要人工发布的活，以及可选的体验优化。
 
-**代码状态**：`npm run build` + `npm test` **470/470** 通过，`openspec validate --all --strict` **19/19** 通过（validate 未在本轮重跑）。最近提交：`3d5bfa1`（配图文案居中测试）← `7123386`（配图文案居中）← `cef3e26`（新几何测试）← `0563e0d`（`docPadding`/`footerGap`）。已推送到 GitLab + GitHub。
+**代码状态**：`npm run build` + `npm test` **479/479** 通过，`openspec validate --all --strict` **17/17** 通过。最近提交：`451a3c0`（坑 26 自检）← `36431bd`（端口退让告警 + 清占位）← `408d666`（探活默认关闭）← `66c4da0`（探活 opt-in）。已推送到 GitLab + GitHub。
+
+**本会话（10-30）做完的事**：
+1. 蛋仔包发布 → 回填（新 keys + `rootGap`/`docPadding`/`footerGap`/`bubbleGrid`/`badgeSize`）→ 真机对齐原稿
+2. 占位文案：颜色跟灰板亮度 + 框拉到板宽居中（parts 与 legacy 两条路径）
+3. 图上标号：章节补 `气泡`（`121:9337`）+ `标号/母版`（`121:9338`），`badgeSlot: container`；母版必须 `clipsContent=false`
+4. 模板库按项目分页：`官方1.14` `125:9364` / `蛋仔派对` `125:9365`，旧 `部件/零件` 页删除，**所有 key 未变**
+5. 蛋仔顶部补 `需求组` 行（值文本命名 `需求组名称`），渲染实测写入 `局内交互`
+6. 同步真机验证：插入章节、`foreign` 保留、`hand-edit` 保留、`conflicts` 报出
+7. `reconcileWithRetry`（中途掉线整轮重试一次）；探活保留但默认关闭
+8. 归档 4 个 change（engine-multi / slim-parts / adaptive-shell / geometry-capture）
+9. 端口退让自检（坑 26）
 
 | 类别 | 内容 |
 |---|---|
@@ -30,7 +41,7 @@
 | `官方1.14` 页 | 顶部 `103:297` / 章节 `103:306` / 簇 `103:342` |
 | `蛋仔派对` 页 | 顶部 `110:74` / 章节 `110:86` / 簇 `110:114` / 结尾 `110:119` + 零件 3 个（`-完成` / `标签` / `num`） |
 | `_staging` `3:10` | 官方1.14 原稿 `94:3500` + 蛋仔原稿 `5:5495`（顶部 `5:5497` / 标题 `5:5501` / 文档说明 `5:5524` / 章节 `5:5778` / 章节标题 `5:5533` / 簇 `5:5784` / 结尾 `5:5987`） |
-| `SOP 校验沙盒` `0eoR7aPlpzIva8IdWATWkL` | 素材占位 `63:59`、HUD 验稿 `90:2985`（23 个配图文案已手工居中）、用户原稿副本 `99:4230`、蛋仔终版 `116:4219`。**`模板` 组件 `85:1494` 已丢失**（用户明确不重建） |
+| `SOP 校验沙盒` `0eoR7aPlpzIva8IdWATWkL` | 素材占位 `63:59`、HUD 验稿 `90:2985`（23 个配图文案已手工居中）、用户原稿副本 `99:4230`、蛋仔终版 `116:4219`（含 `03` 章节 + 手改/冲突验证痕迹）、`122:2760`（需求组槽位验证）。**`模板` 组件 `85:1494` 已丢失**（用户明确不重建） |
 | `~/.game-interaction-sop/templates/官方1.14.json` | `103:*` keys + geometry（含 `sectionShell`）；备份 `.bak-20261029` |
 | `~/.game-interaction-sop/templates/蛋仔派对.json` | `110:*` keys + geometry（`rootGap 60` / `docPadding` / `footerGap 200` / `bubbleGrid` 三点 / `badgeSize 63`），`badgeSlot: container`；备份 `.bak-20261030` |
 | `.interaction-sop/template.json` | 当前为 `官方1.14`（临时切项目时改它，验证完记得切回） |
@@ -41,14 +52,15 @@
 
 - [x] **同步（reconcile）真机验证**（2026-10-30 15:25，`116:4219`）：dryRun 计划正确；插入新章节 `03` 成功（章节标题 / 标号 / 簇全带上）；`底部留白` 作为 foreign 保留；设计师手改 → `preserved: hand-edit` 且画布不被覆盖；md 与画布都改 → `conflicts` 列出、画布保留。**已知坑：桥中途掉线时同步会在 `fill.chapterN` 报 `Unable to establish connection to Figma after 10 seconds`，重试即可（不是同步逻辑问题）**
 - [x] **桥抖动两道防线**：同步中途掉线整轮重试一次（`reconcileWithRetry`，只对瞬时连接错误，5s 间隔，3 条测试覆盖）；开写前探活代码保留但**默认关闭**（`GISOP_PREFLIGHT=1` 才开）——真机上出现过「探活报 Cannot connect、直连 figma_execute 正常」的假阴性
-- [ ] **Worker 重启后旧 bridge 子进程不死**：旧 child 继续占 9223，新 child 回退 9224，插件只连其中一个 → 渲染报 `Cannot connect` 而代理调用正常（本会话被这个坑耗掉 1 小时）。修法：worker spawn 前先杀自己的旧 child，而不是只回收「孤儿」
-- [ ] 蛋仔顶部 `需求组名称` 槽位：已在库组件里补（克隆 `策划` 行，标签 `需求组` + 值 `需求组名称`），渲染实测写入 `局内交互`，warning 消失
-- [ ] `官方1.14 / 顶部` 缺「功能背景 / 核心交互」槽位（编译时没给 `staged.topIntro`）
+- [x] **Worker 重启后旧 bridge 子进程不死**（本会话耗掉约 1 小时）：已加端口自检 `36431bd`——起来后异步读子进程端口，退到 9224 就清掉占位者并打 `WARNING: bridge child fell back`；不自动重启子进程（实测抢不回端口、还拖慢启动）
+- [x] **蛋仔顶部 `需求组名称` 槽位**：在库组件里补（克隆 `策划` 行，标签 `需求组` + 值 `需求组名称`），渲染 `122:2760` 实测写入 `局内交互`，warning 消失
+- [x] **`官方1.14 / 顶部` 的总览槽位**：复查发现早已齐（`功能背景` / `核心交互` 各带 `#Title` + `#Content`），渲染 warnings 为空，无需重编
 - [ ] figma-console 做成常驻 sidecar（脱离 worker），彻底免掉「build 后重开插件」
 - [ ] 职能标签做成模板那种「彩色 chip」（现渲染是彩色文字）
-- [x] **4 个 change 已归档**（2026-10-30）：`engine-multi-part-template-render` / `template-compile-slim-parts` / `template-adaptive-shell` / `template-geometry-capture` → `openspec/changes/archive/2026-10-30-*`；主 spec +21 增 / ~2 改，`openspec validate --all --strict` 17/17。归档时把 geometry-capture 的 MODIFIED 头从「配置文件形状」改成主 spec 里实际存在的「项目模板包」，否则合并失败
+- [ ] 可选：蛋仔图上标号 63px 偏小，可调成 80（母版 + `geometry.badgeSize` 一起改，需重新发布）
+- [x] **4 个 change 已归档**（2026-10-30）：`engine-multi-part-template-render` / `template-compile-slim-parts` / `template-adaptive-shell` / `template-geometry-capture` → `openspec/changes/archive/2026-10-30-*`；主 spec +21 增 / ~2 改。归档时把 geometry-capture 的 MODIFIED 头从「配置文件形状」改成主 spec 里实际存在的「项目模板包」，否则合并失败
 
-**门槛**：`npm run build` + `npm test`（470）+ `openspec validate --all --strict`（19）
+**门槛**：`npm run build` + `npm test`（479）+ `openspec validate --all --strict`（17）
 
 ## 上一轮快照（2026-10-29 20:10）
 
