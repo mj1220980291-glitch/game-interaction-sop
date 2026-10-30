@@ -127,9 +127,17 @@ async function main(): Promise<void> {
     log: (message) => process.stderr.write(`[figma-interaction-doc-engine] ${message}\n`)
   });
 
-  // 常驻桥宿主：起一次、脱离本进程，worker 换人时插件不用重连（bridgeHost.ts）。
-  // 起不来不致命——worker 会退回自己拉子进程。
-  if (process.env.FIGMA_BACKEND === 'figma-console' && process.env.GISOP_NO_BRIDGE_HOST !== '1') {
+  // 常驻桥宿主**默认关闭**（`GISOP_BRIDGE_HOST=1` 才启用）。
+  //
+  // 试过一轮：桥不再随 worker 重启，插件不用重连，方向是对的；但真机上暴露出一串
+  // 新的失败面（9222 被别的软件占用、Windows 上 spawn npx 要 shell、child 一抖
+  // worker 就跟着退、supervisor 重试耗尽后整个服务消失）。先把开关收起来，等这些
+  // 边角都处理干净再默认打开——现在的「worker 自己拉子进程 + 端口自检」是验证过的
+  // 稳定路径。
+  if (
+    process.env.FIGMA_BACKEND === 'figma-console' &&
+    process.env.GISOP_BRIDGE_HOST === '1'
+  ) {
     try {
       await ensureBridgeHost();
     } catch (err) {
