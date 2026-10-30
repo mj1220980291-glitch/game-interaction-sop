@@ -398,17 +398,25 @@ const TEMPLATE_CONTAINER_TYPES: ReadonlyArray<NodeInfo['type']> = [
  * `finally` 里释放、scratch 会被清掉——所以整轮重跑是安全的，比在批次中间重试
  * （可能已经写了一半）安全得多。冲突、找不到节点这类非瞬时错误不重试。
  */
-async function reconcileWithRetry(
+export async function reconcileWithRetry(
   ir: DocIR,
   warnings: SoftWarning[],
   input: RenderInput,
   backend: FigmaBackend,
-  attempts = 2,
-  delayMs = 5000
+  opts: {
+    attempts?: number;
+    delayMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    run?: typeof reconcileV2;
+  } = {}
 ): Promise<RenderResult> {
+  const attempts = opts.attempts ?? 2;
+  const delayMs = opts.delayMs ?? 5000;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const run = opts.run ?? reconcileV2;
   let last: RenderResult | undefined;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    last = await reconcileV2(ir, warnings, input, backend);
+    last = await run(ir, warnings, input, backend);
     if (last.ok) return last;
     const message = last.errors.map((e) => e.message).join(' ');
     if (attempt === attempts || !isTransientBridgeError(message)) return last;
@@ -416,7 +424,7 @@ async function reconcileWithRetry(
       `[figma-interaction-doc-engine] sync hiccup (attempt ${attempt}/${attempts}): ` +
         `${message} — retrying in ${delayMs}ms\n`
     );
-    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    await sleep(delayMs);
   }
   return last!;
 }
