@@ -40,6 +40,10 @@ const MD = `# 设置面板
 type Call = Parameters<NonNullable<FigmaBackend['setAutoLayout']>>[0];
 type Paint = Parameters<NonNullable<FigmaBackend['setNodePaint']>>[0];
 
+/** 带一张配图的版本：用来验占位文案是否压在灰板正中。 */
+const MD_FIGURE = `${MD}- 配图：示意图
+`;
+
 function addPaint(h: PartsBackend): Paint[] {
   const calls: Paint[] = [];
   (h.backend as unknown as { setNodePaint: (p: Paint) => Promise<void> }).setNodePaint = async (p) => {
@@ -103,7 +107,31 @@ function chapterSpec(opts: { autoLayout?: boolean; imageY?: number } = {}): PNod
   };
 }
 
-function clusterSpec(): PNodeSpec {
+function clusterSpec(opts: { withFigure?: boolean } = {}): PNodeSpec {
+  const figure: PNodeSpec[] = opts.withFigure
+    ? [
+        {
+          id: 'k-fig',
+          name: '配图',
+          type: 'GROUP',
+          width: 872,
+          height: 490,
+          children: [
+            { id: 'k-fig-rect', name: '配图占位', type: 'RECTANGLE', width: 872, height: 490 },
+            {
+              id: 'k-fig-hint',
+              name: '配图占位文案',
+              type: 'TEXT',
+              characters: '配图占位：旧',
+              width: 832,
+              height: 52,
+              x: 22,
+              y: 407
+            }
+          ]
+        }
+      ]
+    : [];
   return {
     id: 'k-root',
     name: '簇',
@@ -121,13 +149,17 @@ function clusterSpec(): PNodeSpec {
       },
       { id: 'k-title', name: '#Title_Main', type: 'TEXT', characters: '旧标题', width: 300, height: 50 },
       { id: 'k-b1', name: '正文/规则', type: 'TEXT', characters: '旧一', width: 800, height: 44 },
-      { id: 'k-b2', name: '正文/规则', type: 'TEXT', characters: '旧二', width: 800, height: 44 }
+      { id: 'k-b2', name: '正文/规则', type: 'TEXT', characters: '旧二', width: 800, height: 44 },
+      ...figure
     ]
   };
 }
 
-function setup(chapterOpts: { autoLayout?: boolean; imageY?: number } = {}) {
-  const parsed = parseV2(MD);
+function setup(
+  chapterOpts: { autoLayout?: boolean; imageY?: number } = {},
+  extra: { withFigure?: boolean } = {}
+) {
+  const parsed = parseV2(extra.withFigure ? MD_FIGURE : MD);
   if (!parsed.ir) throw new Error(parsed.errors.map((e) => e.message).join('; '));
   const pack = parseTemplatePack({
     schema_version: 1,
@@ -139,7 +171,7 @@ function setup(chapterOpts: { autoLayout?: boolean; imageY?: number } = {}) {
       badgeSlot: 'container',
       numberBadge: 'text',
       roleAnnotation: 'component-variant',
-      figure: 'none',
+      figure: extra.withFigure ? 'named-group' : 'none',
       hiddenPool: 'ignore',
       column: 'right'
     }
@@ -149,7 +181,7 @@ function setup(chapterOpts: { autoLayout?: boolean; imageY?: number } = {}) {
   const h = partsBackend({ id: 'page-root', name: 'Page', type: 'PAGE', width: 4000, height: 4000 });
   h.registerComponent('k-top', topSpec());
   h.registerComponent('k-chapter', chapterSpec(chapterOpts));
-  h.registerComponent('k-cluster', clusterSpec());
+  h.registerComponent('k-cluster', clusterSpec({ ...(extra.withFigure ? { withFigure: true } : {}) }));
   return { h, ir: parsed.ir, pack: pack.pack };
 }
 
@@ -164,8 +196,20 @@ describe('renderFromParts 自适应', () => {
     expect(h.nodes.get(r.rootId)!.layoutMode).toBe('VERTICAL');
   });
 
-  it('geometry.rootGap 写进根帧 itemSpacing', async () => {
-    const { h, ir, pack } = setup();
+  it('配图占位文案压在灰板正中（水平 + 垂直）', async () => {
+    const { h, ir, pack } = setup({}, { withFigure: true });
+    addAutoLayout(h);
+    addPaint(h);
+
+    const r = await renderFromParts({ ir, pack, pageId: 'page-root', backend: h.backend });
+
+    const rect = h.byName(r.rootId, '配图占位')[0]!;
+    const hint = h.byName(r.rootId, '配图占位文案')[0]!;
+    expect(hint.x).toBe(Math.round(rect.x + (rect.width - hint.width) / 2));
+    expect(hint.y).toBe(Math.round(rect.y + (rect.height - hint.height) / 2));
+  });
+
+  it('geometry.rootGap 写进根帧 itemSpacing', async () => {    const { h, ir, pack } = setup();
     const calls = addAutoLayout(h);
 
     await renderFromParts({
