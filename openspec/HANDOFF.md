@@ -35,13 +35,14 @@
 | `~/.game-interaction-sop/templates/蛋仔派对.json` | `110:*` keys + geometry（`rootGap 60` / `docPadding` / `footerGap 200` / `bubbleGrid` 三点 / `badgeSize 63`），`badgeSlot: container`；备份 `.bak-20261030` |
 | `.interaction-sop/template.json` | 当前为 `官方1.14`（临时切项目时改它，验证完记得切回） |
 
-**坑位（累积）**：1（端口，已修）/ 2（`phase=verify` 不可用）/ 3（发布后 import 假死，沙盒要去 `Assets → Libraries` 关开一次）/ 4（大图截图用 `exportAsync`）/ 5（补标号容器要扫产物）/ 6（`overview.*` 标在 `#Content`）/ 7（模板空槽标 `template`）/ 8（配图按填充类型判断）/ 9（簇级改动两种路径）/ 10（标号网格按 1920×1080 定义）/ 11–14（run、归一化、配图判定、badgeSlot 传参）/ 15（verify + 截图要切 active file）/ 16–18（外框、标题间距、文案框）/ 19（编译要库文件 active）/ 20–21（配图实例一次 exec、几何来源）/ 22（端口，已修）/ **23（母版 frame 默认裁剪：三角/数字落在框外会被裁掉，母版必须 `clipsContent = false`）** / **24（改库后不发布 → 跨文件 import 挂 30s；发布 + Libraries 关开才能好）** / **25（手工改 `.interaction-sop/template.json` 时不重拷就会用旧副本，`bubbleGrid` 曾因此不生效）**
+**坑位（累积）**：1（端口，已修）/ 2（`phase=verify` 不可用）/ 3（发布后 import 假死，沙盒要去 `Assets → Libraries` 关开一次）/ 4（大图截图用 `exportAsync`）/ 5（补标号容器要扫产物）/ 6（`overview.*` 标在 `#Content`）/ 7（模板空槽标 `template`）/ 8（配图按填充类型判断）/ 9（簇级改动两种路径）/ 10（标号网格按 1920×1080 定义）/ 11–14（run、归一化、配图判定、badgeSlot 传参）/ 15（verify + 截图要切 active file）/ 16–18（外框、标题间距、文案框）/ 19（编译要库文件 active）/ 20–21（配图实例一次 exec、几何来源）/ 22（端口，已修）/ **23（母版 frame 默认裁剪：三角/数字落在框外会被裁掉，母版必须 `clipsContent = false`）** / **24（改库后不发布 → 跨文件 import 挂 30s；发布 + Libraries 关开才能好）** / **25（手工改 `.interaction-sop/template.json` 时不重拷就会用旧副本，`bubbleGrid` 曾因此不生效）** / **26（worker 重启后旧 bridge child 不死：新旧 child 分占 9223 / 9224，插件只连其中一个 → 渲染报 `Cannot connect`，而代理的 `figma_execute` 正常。判定方法：看报错里的端口号与 `figma_get_status` 的端口是否一致；处理：杀掉所有 `figma-console-mcp` 子进程再 `touch dist` 换 worker）**
 
 **待办清单（按优先级）**：
 
 - [x] **同步（reconcile）真机验证**（2026-10-30 15:25，`116:4219`）：dryRun 计划正确；插入新章节 `03` 成功（章节标题 / 标号 / 簇全带上）；`底部留白` 作为 foreign 保留；设计师手改 → `preserved: hand-edit` 且画布不被覆盖；md 与画布都改 → `conflicts` 列出、画布保留。**已知坑：桥中途掉线时同步会在 `fill.chapterN` 报 `Unable to establish connection to Figma after 10 seconds`，重试即可（不是同步逻辑问题）**
-- [x] **桥抖动两道防线**：开写前探活（`V2_BRIDGE_DOWN`，5s 出结论）；同步中途掉线整轮重试一次（`reconcileWithRetry`，只对瞬时连接错误，5s 间隔，3 条测试覆盖）
-- [ ] 蛋仔顶部缺 `需求组名称` 槽位（渲染一直报 warning）→ 要重编才能补
+- [x] **桥抖动两道防线**：同步中途掉线整轮重试一次（`reconcileWithRetry`，只对瞬时连接错误，5s 间隔，3 条测试覆盖）；开写前探活代码保留但**默认关闭**（`GISOP_PREFLIGHT=1` 才开）——真机上出现过「探活报 Cannot connect、直连 figma_execute 正常」的假阴性
+- [ ] **Worker 重启后旧 bridge 子进程不死**：旧 child 继续占 9223，新 child 回退 9224，插件只连其中一个 → 渲染报 `Cannot connect` 而代理调用正常（本会话被这个坑耗掉 1 小时）。修法：worker spawn 前先杀自己的旧 child，而不是只回收「孤儿」
+- [ ] 蛋仔顶部 `需求组名称` 槽位：已在库组件里补（克隆 `策划` 行，标签 `需求组` + 值 `需求组名称`），渲染实测写入 `局内交互`，warning 消失
 - [ ] `官方1.14 / 顶部` 缺「功能背景 / 核心交互」槽位（编译时没给 `staged.topIntro`）
 - [ ] figma-console 做成常驻 sidecar（脱离 worker），彻底免掉「build 后重开插件」
 - [ ] 职能标签做成模板那种「彩色 chip」（现渲染是彩色文字）
