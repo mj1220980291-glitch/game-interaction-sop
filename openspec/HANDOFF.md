@@ -40,7 +40,7 @@
 **待办清单（按优先级）**：
 
 - [x] **同步（reconcile）真机验证**（2026-10-30 15:25，`116:4219`）：dryRun 计划正确；插入新章节 `03` 成功（章节标题 / 标号 / 簇全带上）；`底部留白` 作为 foreign 保留；设计师手改 → `preserved: hand-edit` 且画布不被覆盖；md 与画布都改 → `conflicts` 列出、画布保留。**已知坑：桥中途掉线时同步会在 `fill.chapterN` 报 `Unable to establish connection to Figma after 10 seconds`，重试即可（不是同步逻辑问题）**
-- [ ] 渲染前桥健康预检已做（`V2_BRIDGE_DOWN`），但**同步中途掉线仍无重试**：可在 `applyOps` 批次上加一次瞬时错误重试
+- [x] **桥抖动两道防线**：开写前探活（`V2_BRIDGE_DOWN`，5s 出结论）；同步中途掉线整轮重试一次（`reconcileWithRetry`，只对瞬时连接错误，5s 间隔，3 条测试覆盖）
 - [ ] 蛋仔顶部缺 `需求组名称` 槽位（渲染一直报 warning）→ 要重编才能补
 - [ ] `官方1.14 / 顶部` 缺「功能背景 / 核心交互」槽位（编译时没给 `staged.topIntro`）
 - [ ] figma-console 做成常驻 sidecar（脱离 worker），彻底免掉「build 后重开插件」
