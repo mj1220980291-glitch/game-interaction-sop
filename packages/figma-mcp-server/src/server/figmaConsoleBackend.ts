@@ -533,6 +533,16 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 15000);
     },
 
+    async setTextAlign({ nodeId, horizontal, vertical }) {
+      await run(`
+        const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+        if (!n) throw new Error('setTextAlign: node not found: ' + ${JSON.stringify(nodeId)});
+        ${horizontal ? `if ('textAlignHorizontal' in n) n.textAlignHorizontal = ${JSON.stringify(horizontal)};` : ''}
+        ${vertical ? `if ('textAlignVertical' in n) n.textAlignVertical = ${JSON.stringify(vertical)};` : ''}
+        return null;
+      `, 15000);
+    },
+
     async setAutoLayout({ nodeId, mode, itemSpacing, padding, hugHeight, absoluteChildIds, counterAlign }) {
       const p = padding ?? {};
       await run(`

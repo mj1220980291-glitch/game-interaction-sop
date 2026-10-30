@@ -532,6 +532,35 @@ export function placeholderHintPaint(plateFill?: string): string | undefined {
   return luma < 0.5 ? mixHex(plate, 255, 0.55) : mixHex(plate, 0, 0.55);
 }
 
+/**
+ * 占位文案压到灰板正中。
+ *
+ * 模板里这块文案是靠左贴底的定宽单行（蛋仔：832×52 落在 872×490 板的右下角），
+ * 只刷个颜色看着像漏排。这里把框拉到板宽、水平/垂直居中，长文案自己换行。
+ */
+async function centerHint(
+  backend: FigmaBackend,
+  hint: NodeInfo,
+  rect: { x: number; y: number; width: number; height: number }
+): Promise<void> {
+  if (!backend.resizeNode || !backend.moveNode) return;
+  const width = Math.max(rect.width - 40, 200);
+  await backend.resizeNode(hint.id, width, hint.absoluteBoundingBox?.height ?? 48);
+  if (backend.setTextAutoResize) {
+    await backend.setTextAutoResize({ nodeId: hint.id, mode: 'HEIGHT' });
+  }
+  if (backend.setTextAlign) {
+    await backend.setTextAlign({ nodeId: hint.id, horizontal: 'CENTER', vertical: 'CENTER' });
+  }
+  const fresh = await backend.getNodeInfo(hint.id);
+  const height = fresh.absoluteBoundingBox?.height ?? 48;
+  await backend.moveNode(
+    hint.id,
+    Math.round(rect.x + (rect.width - width) / 2),
+    Math.round(rect.y + (rect.height - height) / 2)
+  );
+}
+
 function parseHex(hex?: string): { r: number; g: number; b: number } | undefined {
   if (!hex) return undefined;
   const m = /^#([0-9a-fA-F]{6})$/.exec(hex.trim());
@@ -681,7 +710,16 @@ async function fillChapter(
           const hint = inCluster.find(
             (n) => n.name === CLUSTER_SLOTS.figureHint && n.parentId === rect.parentId
           );
-          if (hint) await backend.setNodePaint({ nodeId: hint.id, fill: hintFill });
+          if (hint) {
+            await backend.setNodePaint({ nodeId: hint.id, fill: hintFill });
+            const box = rect.absoluteBoundingBox;
+            await centerHint(backend, hint, {
+              x: typeof rect.x === 'number' ? rect.x : 0,
+              y: typeof rect.y === 'number' ? rect.y : 0,
+              width: box?.width ?? 0,
+              height: box?.height ?? 0
+            });
+          }
         }
       }
     });

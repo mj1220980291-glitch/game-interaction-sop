@@ -1725,10 +1725,24 @@ async function growHintTexts(
       const hint = await backend.getNodeInfo(hintId);
       const group = hint.parentId ? await backend.getNodeInfo(hint.parentId) : undefined;
       const groupWidth = group?.absoluteBoundingBox?.width ?? 0;
+      const groupHeight = group?.absoluteBoundingBox?.height ?? 0;
       const width = Math.max(groupWidth > 0 ? groupWidth - 40 : 0, 480);
       const height = Math.max(hint.absoluteBoundingBox?.height ?? 0, 96);
       await backend.resizeNode(hintId, width, height * 2);
       await backend.setTextAutoResize({ nodeId: hintId, mode: 'HEIGHT' });
+      // 模板给的框贴左贴底，长文案居中才像「占位说明」而不是漏排。
+      if (backend.setTextAlign) {
+        await backend.setTextAlign({ nodeId: hintId, horizontal: 'CENTER', vertical: 'CENTER' });
+      }
+      if (backend.moveNode && groupWidth > 0 && groupHeight > 0) {
+        const fresh = await backend.getNodeInfo(hintId);
+        const freshHeight = fresh.absoluteBoundingBox?.height ?? height;
+        await backend.moveNode(
+          hintId,
+          Math.round((groupWidth - width) / 2),
+          Math.round((groupHeight - freshHeight) / 2)
+        );
+      }
     } catch {
       /* 文案框拉不开不影响成图 */
     }

@@ -379,6 +379,18 @@ export interface FigmaBackend {
   }): Promise<void>;
 
   /**
+   * 设置文本的对齐方式。
+   *
+   * 占位文案要压在灰板正中：模板给的是靠左靠下的定宽单行，只挪坐标不居中，
+   * 长文案照样贴边。
+   */
+  setTextAlign?(p: {
+    nodeId: string;
+    horizontal?: 'LEFT' | 'CENTER' | 'RIGHT';
+    vertical?: 'TOP' | 'CENTER' | 'BOTTOM';
+  }): Promise<void>;
+
+  /**
    * 把一个容器设成自动布局（只有高度方向 HUG）。
    *
    * 为什么不直接改 `layoutMode`：设成自动布局那一刻，Figma 会立刻按默认
