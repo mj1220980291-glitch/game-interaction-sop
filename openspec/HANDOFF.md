@@ -55,9 +55,9 @@
 - [x] **Worker 重启后旧 bridge 子进程不死**（本会话耗掉约 1 小时）：已加端口自检 `36431bd`——起来后异步读子进程端口，退到 9224 就清掉占位者并打 `WARNING: bridge child fell back`；不自动重启子进程（实测抢不回端口、还拖慢启动）
 - [x] **蛋仔顶部 `需求组名称` 槽位**：在库组件里补（克隆 `策划` 行，标签 `需求组` + 值 `需求组名称`），渲染 `122:2760` 实测写入 `局内交互`，warning 消失
 - [x] **`官方1.14 / 顶部` 的总览槽位**：复查发现早已齐（`功能背景` / `核心交互` 各带 `#Title` + `#Content`），渲染 warnings 为空，无需重编
-- [ ] figma-console 做成常驻 sidecar（脱离 worker），彻底免掉「build 后重开插件」
-- [ ] 职能标签做成模板那种「彩色 chip」（现渲染是彩色文字）
-- [ ] 可选：蛋仔图上标号 63px 偏小，可调成 80（母版 + `geometry.badgeSize` 一起改，需重新发布）
+- [ ] figma-console 常驻 sidecar：**已写但默认关闭**（`GISOP_BRIDGE_HOST=1` 才启用，代码在 `src/server/bridgeHost.ts` + `bridgeSocketTransport.ts`，5 条测试）。真机跑通了一轮（宿主 → 子进程占 9223 → MCP 握手成功），但暴露四个新边角：① 固定中转端口会被别的软件占（豆包占过 9222）→ 改临时端口 + 端口公告文件；② Windows 上 `spawn('npx')` 必须 `shell: true`；③ child 一抖 worker 就 exit，宿主重启 child 造成抖动；④ supervisor 重试耗尽后整个 MCP 消失。要继续做，先解决 ③（宿主 child 退出时不要一刀切掉客户端 socket）和 ④（supervisor 起不来时保底仍能服务）
+- [ ] 职能标签做成模板那种「彩色 chip」（现渲染是彩色文字；用户看过实际效果后认为已足够像模板，**暂不做**）
+- [ ] 可选：蛋仔图上标号 63px 偏小（用户确认**不改**）
 - [x] **4 个 change 已归档**（2026-10-30）：`engine-multi-part-template-render` / `template-compile-slim-parts` / `template-adaptive-shell` / `template-geometry-capture` → `openspec/changes/archive/2026-10-30-*`；主 spec +21 增 / ~2 改。归档时把 geometry-capture 的 MODIFIED 头从「配置文件形状」改成主 spec 里实际存在的「项目模板包」，否则合并失败
 
 **门槛**：`npm run build` + `npm test`（479）+ `openspec validate --all --strict`（17）
