@@ -148,6 +148,14 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
   const caps = pack.capabilities;
   // 间距是模板身份之一（部件自带留白 vs 靠间距拼），编译期实测写进 geometry。
   const gap = pack.geometry?.rootGap ?? PARTS_GAP;
+  // 文档根帧的内边距与结尾前留白：原稿有、部件里没有的那两处底色/空隙。
+  const docPadding = pack.geometry?.docPadding ?? {
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0
+  };
+  const footerGap = pack.geometry?.footerGap ?? 0;
   const docBackground = pack.docBackground ?? pack.geometry?.docBackground;
   const figures = makeFigureState(input.assetMap);
   const warnings: SoftWarning[] = [];
@@ -182,6 +190,8 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     const info = part.id === top.id ? topInfo : await backend.getNodeInfo(part.id);
     width = Math.max(width, info.absoluteBoundingBox?.width ?? 0);
   }
+  const contentWidth = width;
+  width += docPadding.left + docPadding.right;
   // 根帧也接上自适应：部件 append 进来就自动纵向排、根帧高度跟着长，
   // 不用再手工累加 y 然后一次性设总高（那个数一错就整篇错位）。
   const autoLayout = typeof backend.setAutoLayout === 'function';
@@ -197,6 +207,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
         nodeId: frame.id,
         mode: 'VERTICAL',
         itemSpacing: gap,
+        padding: docPadding,
         hugHeight: true,
         counterAlign: 'CENTER'
       });
@@ -249,7 +260,24 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
   } else {
     parts.push(...chapters);
   }
-  if (footer) parts.push(footer);
+  if (footer) {
+    // 结尾前的留白：原稿是一块空的 FRAME，不是间距——根帧只有一种 itemSpacing，
+    // 表达不了「只有这一处大」。宽度跟随内容宽，视觉上不可见。
+    if (footerGap > 0) {
+      const spacer = await stage('root.footerGap', async () => {
+        const frame = await backend.createFrame!({
+          ...(input.pageId ? { parentId: input.pageId } : {}),
+          name: '底部留白',
+          width: contentWidth,
+          height: footerGap
+        });
+        if (backend.clearFills) await backend.clearFills([frame.id]);
+        return frame;
+      });
+      parts.push(spacer);
+    }
+    parts.push(footer);
+  }
 
   input.onRootCreated?.(root.id);
   await stage('reparent', async () => {
@@ -491,6 +519,19 @@ export function placeholderPaint(
     : { fill: mixHex(base, 0, 0.04), stroke: mixHex(base, 0, 0.25) };
 }
 
+/**
+ * 占位文案的颜色：跟着灰板亮度走。
+ *
+ * 模板里这块文案是固定色——官方给 `#A8A8A8`（配 `#454545` 板），蛋仔给纯黑，
+ * 黑字压在 `#454545` 上等于没写。板是我们刷的，字就得跟着板算。
+ */
+export function placeholderHintPaint(plateFill?: string): string | undefined {
+  const plate = parseHex(plateFill);
+  if (!plate) return undefined;
+  const luma = (0.299 * plate.r + 0.587 * plate.g + 0.114 * plate.b) / 255;
+  return luma < 0.5 ? mixHex(plate, 255, 0.55) : mixHex(plate, 0, 0.55);
+}
+
 function parseHex(hex?: string): { r: number; g: number; b: number } | undefined {
   if (!hex) return undefined;
   const m = /^#([0-9a-fA-F]{6})$/.exec(hex.trim());
@@ -566,6 +607,10 @@ async function fillChapter(
           strokeWeight: 2,
           dash: true
         });
+        // 板是这里面刷的，文案色也得跟着板走，否则黑字压深板。
+        const hint = named[CHAPTER_SLOTS.mainImageHint];
+        const hintFill = placeholderHintPaint(paint.fill);
+        if (hint && hintFill) await backend.setNodePaint({ nodeId: hint.id, fill: hintFill });
       }
     }
   }
@@ -619,6 +664,7 @@ async function fillChapter(
         // 没放图的配图槽要自己补上占位灰板：编译期把图清空了，GROUP 本身又没有
         // 填充，只靠模板原样会是一块全透明的洞。判据是矩形有没有 IMAGE 填充。
         const paint = placeholderPaint(ctx.docBackground, ctx.geometry?.placeholder);
+        const hintFill = placeholderHintPaint(paint.fill);
         const { nodes: inCluster } = await backend.scanSubtree(node.id, 4000);
         const empty = inCluster.filter(
           (n) => n.name === CLUSTER_SLOTS.figureRect && n.hasImageFill !== true
@@ -631,6 +677,11 @@ async function fillChapter(
             strokeWeight: 2,
             dash: true
           });
+          if (!hintFill) continue;
+          const hint = inCluster.find(
+            (n) => n.name === CLUSTER_SLOTS.figureHint && n.parentId === rect.parentId
+          );
+          if (hint) await backend.setNodePaint({ nodeId: hint.id, fill: hintFill });
         }
       }
     });

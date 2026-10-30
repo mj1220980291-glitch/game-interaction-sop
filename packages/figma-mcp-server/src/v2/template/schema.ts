@@ -101,6 +101,20 @@ export interface TemplateGeometry {
   badgeSize?: { width: number; height: number };
   rootGap?: number;
   /**
+   * 文档根帧的内边距。
+   *
+   * 原稿的文档常常比章节宽一圈（蛋仔：内容 2205、外面还有 60 的底边），
+   * 那圈底色不属于任何部件，编译只拿部件时会丢，渲染按这份数据补回来。
+   */
+  docPadding?: { top: number; right: number; bottom: number; left: number };
+  /**
+   * 结尾部件之前的留白。
+   *
+   * 原稿里是一块实心的空 FRAME（蛋仔 200 高），不是间距：根帧再用一个
+   * `itemSpacing` 表达不了「只有这一处大」。
+   */
+  footerGap?: number;
+  /**
    * 章节外面的「壳」链（外 → 内）。
    *
    * 模板的黑色边距与章节卡片底色都不是画在章节里的：外面套了几层带 padding
@@ -214,6 +228,24 @@ function parseGeometry(raw: unknown, warnings: string[]): TemplateGeometry | und
   const rg = raw['rootGap'];
   if (typeof rg === 'number' && rg >= 0) out.rootGap = rg;
   else if (rg !== undefined) drop('rootGap');
+
+  const dp = raw['docPadding'];
+  if (isRecord(dp)) {
+    const sides = ['top', 'right', 'bottom', 'left'] as const;
+    const ok = sides.every((k) => typeof dp[k] === 'number' && (dp[k] as number) >= 0);
+    if (ok) {
+      out.docPadding = {
+        top: dp['top'] as number,
+        right: dp['right'] as number,
+        bottom: dp['bottom'] as number,
+        left: dp['left'] as number
+      };
+    } else drop('docPadding');
+  } else if (dp !== undefined) drop('docPadding');
+
+  const fg = raw['footerGap'];
+  if (typeof fg === 'number' && fg >= 0) out.footerGap = fg;
+  else if (fg !== undefined) drop('footerGap');
 
   const shell = raw['sectionShell'];
   if (Array.isArray(shell)) {
