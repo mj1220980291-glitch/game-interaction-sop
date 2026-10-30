@@ -245,9 +245,7 @@ export interface PreferredPortResult {
   action: 'free' | 'reclaimed' | 'skipped' | 'degraded';
   pid?: number;
   reason?: string;
-}
-
-/**
+}/**
  * 让首选端口空出来。
  *
  * 调用时机保证在 spawn 自己的子进程之前，因此此刻占着端口的同类进程不可能是
@@ -273,4 +271,31 @@ export function reclaimPreferredPort(port = PREFERRED_BRIDGE_PORT): PreferredPor
     return { port, action: 'skipped', pid, reason: `kill failed: ${kill.error}` };
   }
   return { port, action: 'skipped', reason: 'no listener resolved' };
+}
+
+/**
+ * 等端口真的能绑上再 spawn。
+ *
+ * 杀掉旧实例不等于端口立刻可用：它和插件之间还有一条已建立的连接，关闭后
+ * 该 4 元组进入 TIME_WAIT，新监听器在 Windows 上会绑失败（`EADDRINUSE`），
+ * figma-console 于是退到 9224——正是今天「抢了但还是漂」的那一幕。
+ *
+ * 用一次真实的 listen 探测，而不是只看 netstat：netstat 看不到 TIME_WAIT 的阻碍。
+ * 超时即放弃（降级，不阻塞启动）。
+ */
+export async function waitUntilPortBindable(port: number, timeoutMs = 5000): Promise<boolean> {
+  const net = await import('node:net');
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const ok = await new Promise<boolean>((resolve) => {
+      const srv = net.createServer();
+      srv.once('error', () => resolve(false));
+      srv.listen(port, '0.0.0.0', () => {
+        srv.close(() => resolve(true));
+      });
+    });
+    if (ok) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }

@@ -48,6 +48,19 @@ Bridge 端口范围 `9223–9232`，首选 `9223`。端口由 `figma-console-mcp
 
 `netstat`/`lsof`/`wmic` 任一不可用、解析空、kill 失败 → 记一行 stderr 后继续 spawn。端口问题不能让引擎起不来。
 
+### D4 等端口真的可绑定再 spawn
+
+杀掉旧实例不等于端口可用：它和插件之间的已建立连接关闭后进入 `TIME_WAIT`，Windows 上新监听器 `EADDRINUSE`，子进程于是退回 9224——第一版修复后真机就是这样又漂了一次。用一次真实 `listen` 探测（最多等 5s）代替只看 netstat（netstat 看不见 TIME_WAIT 的阻碍）。
+
+### D5 本变更不解决的部分
+
+worker 换人时子进程随之退出，插件的 WebSocket 必然断开，而插件只在**启动时**扫端口、不自动重连——所以「build 之后仍要重开一次插件」这一步消不掉。本变更保证的是：
+
+- 重开插件一定连到当前引擎（端口固定 9223，不会连到僵尸）
+- 不会再出现「probe 说 9224、execute 打 9223」的工具错乱
+
+要彻底免掉重开插件，需要让 figma-console 子进程独立于 worker 存活（sidecar 常驻），那是另一个变更。
+
 ## Risks / Trade-offs
 
 - [误杀用户另配的 figma-console 实例] → 判据限定同类进程；日志打印被杀的 pid 与端口，便于追查；文档里写明「同时配置两个 figma-console 不受支持」

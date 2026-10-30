@@ -29,7 +29,12 @@ import { createServer } from './createServer.js';
 import { buildFigmaConsoleBackend } from './figmaConsoleBackend.js';
 import { warnOnExternalFigmaConsoleInstances } from './detectExternal.js';
 import { installChildCleanup } from './childLifecycle.js';
-import { reclaimOrphanedBridgePorts, reclaimPreferredPort } from './reclaimPorts.js';
+import {
+  reclaimOrphanedBridgePorts,
+  reclaimPreferredPort,
+  waitUntilPortBindable,
+  PREFERRED_BRIDGE_PORT
+} from './reclaimPorts.js';
 
 export async function main(): Promise<void> {
   let v2Backend = undefined;
@@ -81,6 +86,22 @@ export async function main(): Promise<void> {
     } catch (err) {
       process.stderr.write(
         `[figma-interaction-doc-engine] preferred-port reclaim failed: ${(err as Error).message}\n`
+      );
+    }
+
+    // 杀掉旧实例后端口仍可能被 TIME_WAIT 挡着：等它真的能 listen 再 spawn，
+    // 否则子进程会安静地退回 9224，插件（只认扫到的端口）永远连不上。
+    try {
+      const bindable = await waitUntilPortBindable(PREFERRED_BRIDGE_PORT);
+      if (!bindable) {
+        process.stderr.write(
+          `[figma-interaction-doc-engine] port ${PREFERRED_BRIDGE_PORT} still not bindable ` +
+            'after 5s; child will fall back\n'
+        );
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[figma-interaction-doc-engine] port bind probe failed: ${(err as Error).message}\n`
       );
     }
 

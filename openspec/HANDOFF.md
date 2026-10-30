@@ -47,6 +47,7 @@
 **待办清单（按优先级）**：
 
 - [ ] 小变更 `bridge-port-stability`：`npm run build` 换 worker 时旧进程仍占着 9223，新服务退到 9224 → 插件（只认 9223）永久失联，只能人工重开插件。目标：新 worker 启动前清掉占端口的旧进程 / 固定 9223，让插件自动重连
+- [ ] figma-console 改成常驻 sidecar（脱离 worker 存活），免掉「build 后重开插件」这一步
 - [ ] 蛋仔派对：新产物 `110:74 / 110:86 / 110:114 / 110:119` 已编译（结构自检通过：配图 GROUP 872×490 + 占位文案在位），**待人工发布 4 个 → 回填 `蛋仔派对.json`（badgeSlot 写 `manual`，没有气泡容器）→ 渲染验证深色底与 GROUP 配图**
 - [ ] 蛋仔缺标号容器：`17:1535`（原 1:14 气泡来源）已失效且查询会超时；要修需重新提供气泡或改用 94:3599
 - [ ] 职能标签做成模板那种「彩色 chip」（现渲染是彩色文字）
@@ -106,7 +107,7 @@
 
 **已知坑（这一轮新增的，都踩过）**：
 
-1. ~~`npm run build` 后 worker 换新，Bridge 常掉线~~ **已修（`bridge-port-stability`）**：worker 在 spawn 子进程前抢回首选端口 9223（`reclaimPreferredPort`），新服务固定落在 9223；插件重连即可，不需要人工重启 MCP。残留的旧实例（同类进程且早于本次 spawn）连进程树一起结束
+1. ~~`npm run build` 后 worker 换新，Bridge 常掉线~~ **已修（`bridge-port-stability`）**：worker 在 spawn 前抢回 9223（`reclaimPreferredPort`）并等到端口真能 bind（`waitUntilPortBindable`，避 TIME_WAIT），新服务固定落在 9223，不会再退回 9224。**边界**：worker 换人时子进程退出、插件 socket 必断，插件不自动重连，所以 build 之后仍需重开一次插件——但现在重开一定连对，也不会再出现「probe 说 9224、execute 打 9223」。彻底免掉重开需把 figma-console 做成常驻 sidecar（另开变更）
 2. **`phase=verify` 走 worker 连接，插件重连后必报 `Cannot connect`**；等价做法：拿 key 在沙盒 `importComponentByKeyAsync` 冒烟 + 手写 pack
 3. 发布后库同步期 `importComponentByKeyAsync` 会假死；沙盒看不到新库版本时，用户需在 `Assets → Libraries` 刷新或关标签页重开
 4. `figma_capture_screenshot` / `exportNodeImage` 对整篇大图经常 10s 超时；可靠做法是 `figma_execute` 里 `exportAsync`（缩到 ≤1200px），输出会被持久化成文件，再用 PowerShell 解码成 PNG
