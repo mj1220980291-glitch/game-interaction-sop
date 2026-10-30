@@ -40,7 +40,6 @@
 - [ ] figma-console 做成常驻 sidecar（脱离 worker），彻底免掉「build 后重开插件」
 - [ ] 职能标签做成模板那种「彩色 chip」（现渲染是彩色文字）
 - [ ] `template-geometry-capture` 收尾：tasks 4.2–4.4，然后 archive
-- [ ] `bridge-port-stability` 归档（tasks 全勾，spec 已合入校验）
 
 **门槛**：`npm run build` + `npm test`（463）+ `openspec validate --all --strict`（19）
 
