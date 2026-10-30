@@ -45,8 +45,7 @@
 - [ ] `官方1.14 / 顶部` 缺「功能背景 / 核心交互」槽位（编译时没给 `staged.topIntro`）
 - [ ] figma-console 做成常驻 sidecar（脱离 worker），彻底免掉「build 后重开插件」
 - [ ] 职能标签做成模板那种「彩色 chip」（现渲染是彩色文字）
-- [ ] `template-geometry-capture` 收尾：tasks 4.2–4.4（4.2 现在可用手写 `bubbleGrid` 反向验证），然后 archive
-- [ ] 三个 change 可归档：`engine-multi-part-template-render`（10.4 已真机验过）、`template-compile-slim-parts`（6/7 实际已验）
+- [x] **4 个 change 已归档**（2026-10-30）：`engine-multi-part-template-render` / `template-compile-slim-parts` / `template-adaptive-shell` / `template-geometry-capture` → `openspec/changes/archive/2026-10-30-*`；主 spec +21 增 / ~2 改，`openspec validate --all --strict` 17/17。归档时把 geometry-capture 的 MODIFIED 头从「配置文件形状」改成主 spec 里实际存在的「项目模板包」，否则合并失败
 
 **门槛**：`npm run build` + `npm test`（470）+ `openspec validate --all --strict`（19）
 
