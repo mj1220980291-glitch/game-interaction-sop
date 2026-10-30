@@ -1,47 +1,55 @@
 # 交接说明（2026-10-30）
 
-## 当前状态快照（2026-10-30 09:45，换对话先读这一节）
+## 当前状态快照（2026-10-30 15:10，换对话先读这一节）
 
-**一句话**：run 契约、章节外框、填图路径、Bridge 端口稳定都已落地；`官方1.14` 是当前可用包（`103:*`），蛋仔新产物已编译但**未发布**，同步（reconcile）的真机验证还没做。
+**一句话**：蛋仔包已发布可用（`110:*`），库按项目分页，图上标号打通，文档外边距 / 结尾留白 / 配图文案居中都已真机验过；**同步（reconcile）真机验证仍未做**，桥健康预检与扫描合并两项没动。
 
-**代码状态**：`npm run build` + `npm test` **463/463** 通过，`openspec validate --all --strict` **19/19** 通过。最近提交：`59bfe59`（端口等待）← `f65f3c1`（端口抢占）← `068cd29`（配图归一 / 几何来源）← `cb8fc2c`（归档 slot-run-contract）。
+**代码状态**：`npm run build` + `npm test` **470/470** 通过，`openspec validate --all --strict` **19/19** 通过（validate 未在本轮重跑）。最近提交：`3d5bfa1`（配图文案居中测试）← `7123386`（配图文案居中）← `cef3e26`（新几何测试）← `0563e0d`（`docPadding`/`footerGap`）。已推送到 GitLab + GitHub。
 
 | 类别 | 内容 |
 |---|---|
-| shared 规则 | `src/v2/template/runs.ts`：`splitRuns()` 唯一边界规则，编译 / 渲染 / 同步共用（已归档进主 spec） |
+| shared 规则 | `src/v2/template/runs.ts`：`splitRuns()` 唯一边界规则，编译 / 渲染 / 同步共用 |
 | 编译瘦身 | 保留第一个完整 run，其余连根删；正文条数保持模板原样；孤儿职能帧随 run 删除 |
-| 配图归一 | 产物配图一律 GROUP（矩形 + 占位文案）；截图实例先换同尺寸矩形再包壳——**一次 exec 完成**（`groupFigure`），跨 RPC 读坐标会错位 |
+| 配图归一 | 产物配图一律 GROUP（矩形 + 占位文案）；截图实例先换同尺寸矩形再包壳——**一次 exec 完成**（`groupFigure`） |
 | 几何采集 | 主图尺寸 / 占位色从**产物**量；标号点位从**原稿**量（`geometry.badgeSourceId`） |
-| 章节外框 | `geometry.sectionShell`（padding + fill）：`Comp_1` `#000000` 64 → `需求目标` `#161616` 64 → 章节 3382；渲染按层套回 |
-| 填图 | 主图 / 配图都真机验过（`imagesPlaced`/`figuresPlaced` 均 > 0）；填图后文案删除、槽 GROUP 高度跟随、未用槽隐藏 |
-| 文案框 | 占位文案放宽到组宽 + `textAutoResize = HEIGHT`，长描述不再省略号截断 |
-| 端口 | worker spawn 前抢回 `9223`（`reclaimPreferredPort`）+ 等端口真能 bind（`waitUntilPortBindable`），服务不再漂到 9224 |
-| 官方1.14 | 顶部 `103:297` / 章节 `103:306` / 簇 `103:342`（keys `105c8a75…` / `96173277…` / `76c4ed91…`），`94/100/102` 三组旧组件已删 |
+| 章节外框 | `geometry.sectionShell`（padding + fill），渲染按层套回 |
+| **文档外边距** | 新增 `geometry.docPadding`：根帧内边距 + 宽度含左右边距（蛋仔 `0/60/0/60`，总宽 2329） |
+| **结尾前留白** | 新增 `geometry.footerGap`：结尾前插一块同宽透明帧（蛋仔 200）。根帧只有一种 `itemSpacing`，表达不了单处大空隙 |
+| **章节间距** | `geometry.rootGap`（蛋仔 60）——字段早有，这次才填上 |
+| 填图 | 主图 / 配图都真机验过；填图后文案删除、槽 GROUP 高度跟随、未用槽隐藏 |
+| **占位文案** | 颜色按灰板亮度推导（`placeholderHintPaint`，深板 `#ABABAB`）；框拉到板宽并水平+垂直居中（`centerHint`），legacy 路径的 `growHintTexts` 同步居中；新增后端 `setTextAlign` |
+| **标号** | 蛋仔章节补了 `气泡`（`121:9337`）+ `标号/母版`（`121:9338`，黄三角 63×63 + `#Number`）；母版必须 `clipsContent = false`，否则三角被裁只剩一角 |
+| 端口 | worker spawn 前抢回 `9223` + 等端口真能 bind；supervisor 监听 dist 变化换 worker（`touch` 任一 `dist/**/*.js` 就能自愈，不必让用户重启） |
+| 官方1.14 | 顶部 `103:297` / 章节 `103:306` / 簇 `103:342`（keys `105c8a75…` / `96173277…` / `76c4ed91…`） |
 
 **Figma 现场（接手先核对）**：
 
 | 位置 | 现状 |
 |---|---|
-| `交互SOP模板库` / `部件` `0:1` | `官方1.14` 三件（`103:*`，published）；蛋仔四件（`110:74 / 110:86 / 110:114 / 110:119`，**已编译未发布**） |
-| `交互SOP模板库` / `零件` `3:9` | 蛋仔零件三件（`110:*`，随重编重建） |
-| `交互SOP模板库` / `_staging` `3:10` | 官方1.14 原稿 `94:3500` 及其 6 个 staged 节点 + 蛋仔原稿 `5:5495`（顶部 `5:5497` / 标题 `5:5501` / 文档说明 `5:5524` / 章节 `5:5778` / 章节标题 `5:5533` / 簇 `5:5784` / 结尾 `5:5987`） |
-| `SOP 校验沙盒` `0eoR7aPlpzIva8IdWATWkL` | 素材占位 `63:59`、验稿 `90:2985`（HUD 规范，7 簇 16 图） |
-| `~/.game-interaction-sop/templates/官方1.14.json` | `103:*` keys + geometry（含 `sectionShell`）；备份 `官方1.14.json.bak-20261029` |
-| `~/.game-interaction-sop/templates/蛋仔派对.json` | **仍是旧 keys**（旧组件已删）→ 蛋仔包当前不可用，回填前别切过去 |
-| `.interaction-sop/template.json` | 当前为 `官方1.14` |
+| `交互SOP模板库` `jQf7zj33pzOGsGKO4d73OO` | **已按项目分页**：`_staging` `3:10` / `官方1.14` `125:9364` / `蛋仔派对` `125:9365`；旧的 `部件 0:1`、`零件 3:9` 已删 |
+| `官方1.14` 页 | 顶部 `103:297` / 章节 `103:306` / 簇 `103:342` |
+| `蛋仔派对` 页 | 顶部 `110:74` / 章节 `110:86` / 簇 `110:114` / 结尾 `110:119` + 零件 3 个（`-完成` / `标签` / `num`） |
+| `_staging` `3:10` | 官方1.14 原稿 `94:3500` + 蛋仔原稿 `5:5495`（顶部 `5:5497` / 标题 `5:5501` / 文档说明 `5:5524` / 章节 `5:5778` / 章节标题 `5:5533` / 簇 `5:5784` / 结尾 `5:5987`） |
+| `SOP 校验沙盒` `0eoR7aPlpzIva8IdWATWkL` | 素材占位 `63:59`、HUD 验稿 `90:2985`（23 个配图文案已手工居中）、用户原稿副本 `99:4230`、蛋仔终版 `116:4219`。**`模板` 组件 `85:1494` 已丢失**（用户明确不重建） |
+| `~/.game-interaction-sop/templates/官方1.14.json` | `103:*` keys + geometry（含 `sectionShell`）；备份 `.bak-20261029` |
+| `~/.game-interaction-sop/templates/蛋仔派对.json` | `110:*` keys + geometry（`rootGap 60` / `docPadding` / `footerGap 200` / `bubbleGrid` 三点 / `badgeSize 63`），`badgeSlot: container`；备份 `.bak-20261030` |
+| `.interaction-sop/template.json` | 当前为 `官方1.14`（临时切项目时改它，验证完记得切回） |
 
-**坑位（累积）**：1（端口，已修）/ 2（`phase=verify` 不可用）/ 3（发布后 import 假死）/ 4（大图截图用 `exportAsync`）/ 5（补标号容器要扫产物）/ 6（`overview.*` 标在 `#Content`）/ 7（模板空槽标 `template`）/ 8（配图按填充类型判断）/ 9（簇级改动两种路径）/ 10（标号网格按 1920×1080 定义）/ 11–14（run、归一化、配图判定、badgeSlot 传参）/ 15（verify + 截图要切 active file）/ 16–18（外框、标题间距、文案框）/ 19（编译要库文件 active）/ 20–21（配图实例一次 exec、几何来源）/ 22（端口，已修）
+**坑位（累积）**：1（端口，已修）/ 2（`phase=verify` 不可用）/ 3（发布后 import 假死，沙盒要去 `Assets → Libraries` 关开一次）/ 4（大图截图用 `exportAsync`）/ 5（补标号容器要扫产物）/ 6（`overview.*` 标在 `#Content`）/ 7（模板空槽标 `template`）/ 8（配图按填充类型判断）/ 9（簇级改动两种路径）/ 10（标号网格按 1920×1080 定义）/ 11–14（run、归一化、配图判定、badgeSlot 传参）/ 15（verify + 截图要切 active file）/ 16–18（外框、标题间距、文案框）/ 19（编译要库文件 active）/ 20–21（配图实例一次 exec、几何来源）/ 22（端口，已修）/ **23（母版 frame 默认裁剪：三角/数字落在框外会被裁掉，母版必须 `clipsContent = false`）** / **24（改库后不发布 → 跨文件 import 挂 30s；发布 + Libraries 关开才能好）** / **25（手工改 `.interaction-sop/template.json` 时不重拷就会用旧副本，`bubbleGrid` 曾因此不生效）**
 
 **待办清单（按优先级）**：
 
-- [ ] 蛋仔：发布 `110:74 / 86 / 114 / 119` → 回填 `蛋仔派对.json`（`badgeSlot: manual`，无气泡容器）→ 渲染验证深色底 `#232429` 与 GROUP 配图
 - [ ] 同步（reconcile）真机验证：对 `90:2985` 改一句 md 再同步，确认 `changes` / `preserved` 干净（配图改 GROUP 后只在单测覆盖）
-- [ ] 蛋仔缺标号容器：`17:1535` 已失效且查询超时；需重新提供气泡，或改用 `94:3599`
+- [ ] 渲染前桥健康预检：桥断了现在是 65s 后才报 `Cannot connect`，应在 2s 内返回明确错误码
+- [ ] 合并一次渲染里的多次 `scanSubtree`（实测 1.7s + 2.1s + 1.1s，4000 节点小文档就 4s 级）
+- [ ] 蛋仔顶部缺 `需求组名称` 槽位（渲染一直报 warning）→ 要重编才能补
+- [ ] `官方1.14 / 顶部` 缺「功能背景 / 核心交互」槽位（编译时没给 `staged.topIntro`）
 - [ ] figma-console 做成常驻 sidecar（脱离 worker），彻底免掉「build 后重开插件」
 - [ ] 职能标签做成模板那种「彩色 chip」（现渲染是彩色文字）
-- [ ] `template-geometry-capture` 收尾：tasks 4.2–4.4，然后 archive
+- [ ] `template-geometry-capture` 收尾：tasks 4.2–4.4（4.2 现在可用手写 `bubbleGrid` 反向验证），然后 archive
+- [ ] 三个 change 可归档：`engine-multi-part-template-render`（10.4 已真机验过）、`template-compile-slim-parts`（6/7 实际已验）
 
-**门槛**：`npm run build` + `npm test`（463）+ `openspec validate --all --strict`（19）
+**门槛**：`npm run build` + `npm test`（470）+ `openspec validate --all --strict`（19）
 
 ## 上一轮快照（2026-10-29 20:10）
 
