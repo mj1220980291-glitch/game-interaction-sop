@@ -148,6 +148,27 @@
 
 另有 `$GISOP_TEMPLATE_PACK` 可指定绝对路径；`$GISOP_TEMPLATE_PACK=off` 关闭整个查找（测试用）。
 
+### 解析可观测（2026-10-31 起）
+
+查找结果不再是「有 / 没有」两态，每个候选路径都留结局：
+
+| state | 含义 |
+|---|---|
+| `hit` | 命中，停止查找 |
+| `missing` | 文件不存在 |
+| `invalid` | 文件不可读 / JSON 坏 / 协议不合法（`reason` 带解析错误摘要） |
+| `incomplete` | 缺 `components.top` / `chapter` / `cluster` 任一 key（半套 key 拼不出文档） |
+
+- `$GISOP_TEMPLATE_PACK` 显式指定的路径是**唯一权威**：它 `invalid` / `incomplete` 时立即停止，
+  报 `V2_TEMPLATE_PACK_MISSING`，列全部候选与原因。**不会**被 `default.json` 悄悄顶上
+- 未显式指定、4 个路径全没用上 → 回落 legacy，返回 `packMissing: true` + `packCandidates`
+- 命中 → 返回 `pack { path, origin, project, components, capabilities }`
+- `template.fileKey/nodeId` 只影响 legacy 模板寻址，**改不了用哪个模板包**；pack 命中时传了会返回
+  软告警 `V2_W_TEMPLATE_ARG_IGNORED`
+
+坑位对照：以前 pack 没配上会报 `V2_TARGET_FILE_UNREACHABLE`（拿目标 fileKey 当模板文件查），
+不带 target 时变成 `cloneNode: source not found`；现在两者都先说明「模板包未命中」。
+
 模板包不存在或解析失败 → **完全回落**到本机制出现之前的行为，不新增错误。
 
 ---

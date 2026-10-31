@@ -39,6 +39,7 @@ export {
 } from './template-map.js';
 export {
   resolveTemplateConfig,
+  resolvePackWithTrace,
   loadTemplatePack,
   isDefaultTemplate,
   DEFAULT_TEMPLATE,
@@ -47,7 +48,11 @@ export {
   type TemplateRef,
   type TemplateConfig,
   type RoleBlockConfig,
-  type TemplatePackLookupOptions
+  type TemplatePackLookupOptions,
+  type PackCandidate,
+  type PackCandidateOrigin,
+  type PackCandidateState,
+  type PackResolution
 } from './template-config.js';
 export {
   CAPABILITY_KEYS,

@@ -343,4 +343,56 @@ describe('renderFromParts', () => {
     expect(h.byName(r.rootId, '界面说明1')).toHaveLength(1);
     expect(h.byName(r.rootId, '界面说明2')).toHaveLength(1);
   });
+
+  it('md 没写配图时，模板自带的配图槽被整组隐藏', async () => {
+    const { h, ir, pack } = setup();
+    const r = await renderFromParts({ ir, pack, pageId: 'page-root', backend: h.backend });
+
+    const slots = h.byName(r.rootId, '配图');
+    expect(slots.length).toBeGreaterThan(0);
+    expect(slots.every((n) => n.visible === false)).toBe(true);
+  });
+
+  it('声明了配图但 assetMap 没给 → 逐条告警 + 计入 figuresPlaceholder', async () => {
+    const md = MD.replace('- 面板弹出', '- 面板弹出\n\n配图：待机动作');
+    const { h, ir, pack } = setup(md);
+    const r = await renderFromParts({ ir, pack, pageId: 'page-root', backend: h.backend });
+
+    const warnings = r.warnings.filter((w) => w.code === 'V2_W_FIGURE_ASSET_MISSING');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.message).toContain('01/1/1');
+    expect(r.summary.figuresPlaceholder).toBe(1);
+    expect(r.summary.figuresPlaced).toBe(0);
+  });
+
+  it('模板里多出来的配图槽（条目数对不上）也要被隐藏', async () => {
+    // md 只声明 1 张，模板簇自带 1 个槽 → 全用上；再造一个残留槽验证兜底。
+    const md = MD.replace('- 面板弹出', '- 面板弹出\n\n配图：待机动作');
+    const { h, ir, pack } = setup(md);
+    const spec = clusterSpec();
+    spec.children!.push({
+      id: 'k-fig2',
+      name: '配图',
+      type: 'GROUP',
+      width: 400,
+      height: 300,
+      children: [
+        { id: 'k-fig2-rect', name: '配图占位', type: 'RECTANGLE', width: 400, height: 300 },
+        { id: 'k-fig2-hint', name: '配图占位文案', type: 'TEXT', characters: '配图占位：待手动替换', width: 300, height: 40 }
+      ]
+    });
+    h.registerComponent('k-cluster', spec);
+
+    const r = await renderFromParts({
+      ir,
+      pack,
+      pageId: 'page-root',
+      backend: h.backend
+    });
+
+    const hidden = h
+      .byName(r.rootId, '配图')
+      .filter((n) => n.visible === false);
+    expect(hidden.length).toBeGreaterThan(0);
+  });
 });

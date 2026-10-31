@@ -167,6 +167,11 @@ export const SOFT_WARNING_CODES = {
   W_ASSET_KEY_UNMATCHED: 'V2_W_ASSET_KEY_UNMATCHED',
   /** render — 单张配图填充失败（源节点不存在、导出失败等），占位保留文案 */
   W_FIGURE_FILL_FAILED: 'V2_W_FIGURE_FILL_FAILED',
+  /**
+   * render — md 声明了 `配图：`，但 assetMap 里没有对应 key。
+   * 占位灰板留着不难看，难的是没人知道图漏了——以前这条是完全静默的。
+   */
+  W_FIGURE_ASSET_MISSING: 'V2_W_FIGURE_ASSET_MISSING',
   /** render — 带 @职能 的条目找不到对应「职能标记」变体，降级为普通正文 */
   W_ROLE_BLOCK_MISSING: 'V2_W_ROLE_BLOCK_MISSING',
   /** render — 模板没有配图槽（`figure = none`），md 里的配图被丢弃 */
@@ -185,7 +190,23 @@ export const SOFT_WARNING_CODES = {
   /** reconcile — 多个节点携带同一个标记 id（设计师复制了节点），只认第一个 */
   W_DUPLICATE_STAMP: 'V2_W_DUPLICATE_STAMP',
   /** render — 隐藏备用池没删干净（Bridge 超时），节点仍隐藏，不影响成图 */
-  W_HIDDEN_POOL_LEFT: 'V2_W_HIDDEN_POOL_LEFT'
+  W_HIDDEN_POOL_LEFT: 'V2_W_HIDDEN_POOL_LEFT',
+  /**
+   * render — 模板包已命中，但调用方仍传了 `template.fileKey/nodeId`。
+   * 这两个字段只影响 legacy 模板寻址，不影响模板包查找，传了等于没传。
+   */
+  W_TEMPLATE_ARG_IGNORED: 'V2_W_TEMPLATE_ARG_IGNORED',
+  /**
+   * render — 正文层的段落对齐被归一化为 LEFT（模板原为 CENTER 等）。
+   * 一条聚合，带被改的条数；逐条报会把真问题埋掉（真机 102 条）。
+   */
+  W_TEXT_ALIGN_NORMALIZED: 'V2_W_TEXT_ALIGN_NORMALIZED',
+  /** render — 同时给了 `position` 与 `autoPlace`，按 `position` 落点。 */
+  W_POSITION_OVERRIDE: 'V2_W_POSITION_OVERRIDE',
+  /** render — `autoPlace` 算不出空位（拿不到页面子节点），回落 `(0,0)`。 */
+  W_AUTOPLACE_FALLBACK: 'V2_W_AUTOPLACE_FALLBACK',
+  /** render — 第一轮渲染遇到瞬时连接错误，整轮重试了一次。 */
+  W_RENDER_RETRIED: 'V2_W_RENDER_RETRIED'
 } as const;
 
 export type SoftWarningCode =

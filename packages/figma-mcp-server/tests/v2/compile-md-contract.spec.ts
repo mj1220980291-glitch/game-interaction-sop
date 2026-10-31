@@ -60,7 +60,11 @@ describe('compileTemplate phase=contract', () => {
   it('只读生成，不调用任何后端方法', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gisop-contract-'));
     const prev = process.cwd();
+    const prevPack = process.env.GISOP_TEMPLATE_PACK;
     try {
+      // vitest 里 `GISOP_TEMPLATE_PACK=off` 是为了隔离机上的 default.json；
+      // 这个用例要验的正是项目根查找，所以显式打开。
+      process.env.GISOP_TEMPLATE_PACK = '';
       mkdirSync(join(dir, '.interaction-sop'), { recursive: true });
       writeFileSync(
         join(dir, '.interaction-sop', 'template.json'),
@@ -85,6 +89,7 @@ describe('compileTemplate phase=contract', () => {
       expect(h.calls).toEqual([]);
     } finally {
       process.chdir(prev);
+      process.env.GISOP_TEMPLATE_PACK = prevPack ?? '';
       rmSync(dir, { recursive: true, force: true });
     }
   });

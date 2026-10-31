@@ -626,6 +626,18 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 20000);
     },
 
+    async clearStrokes(nodeIds) {
+      await run(`
+        for (const id of ${JSON.stringify(nodeIds)}) {
+          const n = await figma.getNodeByIdAsync(id);
+          if (!n || !('strokes' in n)) continue;
+          n.strokes = [];
+          try { n.dashPattern = []; } catch (e) {}
+        }
+        return null;
+      `, 20000);
+    },
+
     async replaceWithPlaceholder({ nodeId, name }) {
       const r = await run(`
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
@@ -1359,25 +1371,40 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         const targets = [];
         const fonts = new Map();
         const families = new Set();
-        for (const { nodeId, characters, bold } of updates) {
+        for (const { nodeId, characters, bold, align, autoResize } of updates) {
           const n = await figma.getNodeByIdAsync(nodeId);
           if (!n || n.type !== 'TEXT') continue;
           const own = n.getRangeAllFontNames(0, n.characters.length || 1);
           const family = own[0] ? own[0].family : undefined;
-          targets.push([n, characters, bold, family]);
+          targets.push([n, characters, bold, family, align, autoResize]);
           for (const f of own) fonts.set(f.family + '\\u0000' + f.style, f);
           if (bold !== undefined && family) families.add(family);
         }
         for (const f of fonts.values()) await figma.loadFontAsync(f);
         const weights = families.size > 0 ? await resolveWeights(families, fonts) : new Map();
         const unavailable = new Set();
-        for (const [n, characters, bold, family] of targets) {
+        let alignNormalized = 0;
+        for (const [n, characters, bold, family, align, autoResize] of targets) {
           n.characters = characters;
           if (bold !== undefined) applyWeight(n, family, bold, weights, unavailable);
+          // 段落样式跟文本一起写：单独一轮 setTextAlign 在真机上是 N 次往返。
+          // 只有「模板给了别的对齐」才算归一化，本来是 LEFT 的不该刷告警。
+          if (align && n.textAlignHorizontal && n.textAlignHorizontal !== align) {
+            n.textAlignHorizontal = align;
+            alignNormalized += 1;
+          } else if (align && !n.textAlignHorizontal) {
+            n.textAlignHorizontal = align;
+          }
+          if (autoResize && n.textAutoResize !== autoResize) {
+            try { n.textAutoResize = autoResize; } catch (e) {}
+          }
         }
-        return { boldUnavailable: [...unavailable] };
-      `, 30000) as { boldUnavailable?: string[] } | null;
-      return { boldUnavailable: r?.boldUnavailable ?? [] };
+        return { boldUnavailable: [...unavailable], alignNormalized };
+      `, 30000) as { boldUnavailable?: string[]; alignNormalized?: number } | null;
+      return {
+        boldUnavailable: r?.boldUnavailable ?? [],
+        alignNormalized: r?.alignNormalized ?? 0
+      };
     },
 
     async setTextRangeFills(updates) {

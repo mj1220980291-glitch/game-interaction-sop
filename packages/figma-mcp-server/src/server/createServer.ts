@@ -171,6 +171,19 @@ const V2_RENDER_INPUT_SCHEMA = {
     },
     scope: { type: 'string', pattern: '^\\d{2}(/\\d+)?$' },
     dryRun: { type: 'boolean' },
+    position: {
+      type: 'object',
+      properties: { x: { type: 'number' }, y: { type: 'number' } },
+      required: ['x', 'y'],
+      additionalProperties: false
+    },
+    autoPlace: {
+      type: 'string',
+      enum: ['below', 'right'],
+      description:
+        '按目标页面现有内容自动摆放新文档（below = 最下沿 + rootGap；right = 最右沿 + rootGap）。' +
+        '与 position 互斥，同时给时以 position 为准。需要 target.pageId。'
+    },
     screenshot: {
       type: 'boolean',
       description:
@@ -247,7 +260,10 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         '引擎不新建文档，而是逐条比对后只改有变化的地方；设计师手改的文字、手贴的图、拖过的气泡一律保留，' +
         '双方都改过的条目不覆盖，列在 conflicts 里；返回 changes / conflicts / preserved。' +
         'scope:"NN" 或 "NN/C" 只同步一个界面或一个簇；dryRun:true 只返回计划不写画布。' +
-        '只比对文字，不比对样式。scope / dryRun 只能和 rootId 一起用。',
+        '只比对文字，不比对样式。scope / dryRun 只能和 rootId 一起用。' +
+        '【模板包可观测】返回体带 pack{path,origin,project,components,capabilities} 说明本次用了哪个模板包；' +
+        '没找到时给 packMissing:true + packCandidates（4 个候选路径及各自 missing/invalid/incomplete 原因）。' +
+        '传了 template.fileKey/nodeId 但已命中模板包时，这两个字段不参与决策，返回软告警 V2_W_TEMPLATE_ARG_IGNORED。',
       inputSchema: V2_RENDER_INPUT_SCHEMA as unknown as Tool['inputSchema']
     },
     handler: async (args) => {
@@ -277,6 +293,8 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
             target,
             scope: args?.scope as string | undefined,
             dryRun: args?.dryRun as boolean | undefined,
+            position: args?.position as { x: number; y: number } | undefined,
+            autoPlace: args?.autoPlace as 'below' | 'right' | undefined,
             template: args?.template as { fileKey?: string; nodeId?: string } | undefined
           },
           opts.v2Backend

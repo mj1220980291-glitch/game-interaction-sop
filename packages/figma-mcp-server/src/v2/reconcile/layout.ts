@@ -140,6 +140,26 @@ function overviewBody(tree: Tree, frame: TNode): TNode | undefined {
   );
 }
 
+/**
+ * 章节的「共同容器」：章节各自被外壳包住时取外壳的父级，否则就是章节的父级。
+ *
+ * 这个值只用于「新增章节插到哪里」和「容器里还有什么别的节点」两件事。
+ */
+function containerOfSections(
+  tree: Tree,
+  sectionNodes: ReadonlyArray<{ id: string; parentId?: string }>,
+  rootId: string
+): string | undefined {
+  const parents = [...new Set(sectionNodes.map((n) => n.parentId).filter(Boolean))] as string[];
+  if (parents.length === 0) return undefined;
+  if (parents.length === 1) return parents[0];
+  // 多个父级 = 每章各有外壳：取外壳的共同父级。
+  const grandParents = [
+    ...new Set(parents.map((p) => tree.get(p)?.parentId).filter(Boolean))
+  ] as string[];
+  return grandParents.length === 1 ? grandParents[0] : rootId;
+}
+
 export interface MapLayoutResult {
   layout: DocLayout;
   /** Places where the canvas did not line up with the IR. Those parts stay unstamped. */
@@ -162,11 +182,18 @@ export function mapLayout(tree: Tree, ir: DocIR): MapLayoutResult {
     if (body) overview[k] = body.id;
   }
 
-  const firstSection = tree.find(rootId, (n) => n.id !== rootId && n.name.startsWith('界面说明'));
-  const containerId = firstSection?.parentId;
-  const sectionNodes = containerId
-    ? tree.children(containerId).filter((n) => n.name.startsWith('界面说明'))
-    : [];
+  /**
+   * 章节按**标记里的名字**在整棵 root 子树里收集，不假设「所有章节同一个父级」。
+   *
+   * 多部件渲染会按 `geometry.sectionShell` 给每章各套一层「章节外框」，于是
+   * 各章父级互不相同。以前用 `firstSection.parentId` 取容器再 `children()` 过滤，
+   * 只能看到第一个壳里的那一章：其余章节被判「设计师删了」，同步恒为空却报成功。
+   */
+  const sectionNodes = tree.findAll(
+    rootId,
+    (n) => n.id !== rootId && n.name.startsWith('界面说明')
+  );
+  const containerId = containerOfSections(tree, sectionNodes, rootId);
   if (sectionNodes.length !== ir.sections.length) {
     problems.push(`sections: canvas has ${sectionNodes.length}, markdown has ${ir.sections.length}`);
   }

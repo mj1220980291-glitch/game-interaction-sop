@@ -603,4 +603,87 @@ describe('reconcile — figures', () => {
     expect(rect2.fill).toBe('IMAGE:by-hand');
     expect(m.figureFills.map((f) => f.sourceNodeId)).toEqual(['src-1', 'src-2']);
   });
+
+  it('md 删掉一条配图：未手改的槽整组删除', async () => {
+    const m = makeBackend();
+    m.addSource('src-1', 600, 300);
+    const withTwo = ONE(['a', '配图：图一', 'b', '配图：图二']);
+    const root = await create(m, withTwo, {
+      '01/1/1': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' },
+      '01/1/2': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' }
+    });
+    const block = blocksOf(m.store, root)[0]!;
+    const groups = collectByName(m.store, block.id, '配图');
+    expect(groups).toHaveLength(2);
+
+    const r = await sync(m, root, ONE(['a', '配图：图一', 'b']), {
+      assetMap: { '01/1/1': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' } }
+    });
+
+    expect(r.ok, JSON.stringify(r.errors)).toBe(true);
+    expect(r.changes.some((c) => c.action === 'delete')).toBe(true);
+    expect(collectByName(m.store, block.id, '配图')).toHaveLength(1);
+  });
+
+  it('md 删掉一条配图但槽被手改过：报冲突并保留节点', async () => {
+    const m = makeBackend();
+    m.addSource('src-1', 600, 300);
+    const withTwo = ONE(['a', '配图：图一', 'b', '配图：图二']);
+    const root = await create(m, withTwo, {
+      '01/1/1': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' },
+      '01/1/2': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' }
+    });
+    const block = blocksOf(m.store, root)[0]!;
+    const groups = collectByName(m.store, block.id, '配图');
+    const rect2 = collectByName(m.store, groups[1]!.id, '配图占位')[0]! as NodeStore[string] & { fill?: string };
+    rect2.fill = 'IMAGE:by-hand';
+
+    const r = await sync(m, root, ONE(['a', '配图：图一', 'b']), {
+      assetMap: { '01/1/1': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' } }
+    });
+
+    expect(r.ok, JSON.stringify(r.errors)).toBe(true);
+    expect(r.conflicts.some((c) => c.nodeId === groups[1]!.id)).toBe(true);
+    expect(collectByName(m.store, block.id, '配图')).toHaveLength(2);
+  });
+
+  it('md 新增一条配图：补出槽位并填图', async () => {
+    const m = makeBackend();
+    m.addSource('src-1', 600, 300);
+    const root = await create(m, ONE(['a', '配图：图一']), {
+      '01/1/1': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' }
+    });
+    const block = blocksOf(m.store, root)[0]!;
+    expect(collectByName(m.store, block.id, '配图')).toHaveLength(1);
+
+    const r = await sync(m, root, ONE(['a', '配图：图一', '配图：图二']), {
+      assetMap: {
+        '01/1/1': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' },
+        '01/1/2': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' }
+      }
+    });
+
+    expect(r.ok, JSON.stringify(r.errors)).toBe(true);
+    expect(r.changes.some((c) => c.action === 'insert')).toBe(true);
+    expect(collectByName(m.store, block.id, '配图')).toHaveLength(2);
+    expect(m.figureFills.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('只改配图描述：不重建节点，只动文案与 stamp', async () => {
+    const m = makeBackend();
+    m.addSource('src-1', 600, 300);
+    const root = await create(m, ONE(['a', '配图：图一']), {
+      '01/1/1': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' }
+    });
+    const block = blocksOf(m.store, root)[0]!;
+    const before = collectByName(m.store, block.id, '配图')[0]!.id;
+
+    const r = await sync(m, root, ONE(['a', '配图：图一改名']), {
+      assetMap: { '01/1/1': { type: 'figma_node', fileKey: 'f', nodeId: 'src-1' } }
+    });
+
+    expect(r.ok, JSON.stringify(r.errors)).toBe(true);
+    expect(collectByName(m.store, block.id, '配图').map((n) => n.id)).toEqual([before]);
+    expect(m.figureFills).toHaveLength(1);
+  });
 });

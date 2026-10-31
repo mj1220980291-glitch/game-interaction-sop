@@ -58,6 +58,8 @@ export interface PartsRenderInput {
   pack: TemplatePack;
   assetMap?: Record<string, AssetSpec>;
   pageId?: string;
+  /** 根帧落点（页面坐标）。缺省 `(0,0)`。 */
+  origin?: { x: number; y: number };
   backend: FigmaBackend;
   /** 根帧一建好就回报，失败时外层才能删干净。 */
   onRootCreated?: (id: string) => void;
@@ -74,7 +76,10 @@ export interface PartsRenderResult {
     bubbleCount: number;
     imagesPlaced: number;
     placeholdersUsed: number;
+    /** 真正贴上图的配图槽数。 */
     figuresPlaced: number;
+    /** md 声明了配图但没有资产 / 资产不可用的槽数（占位灰板）。 */
+    figuresPlaceholder: number;
   };
 }
 
@@ -199,6 +204,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     const frame = await backend.createFrame!({
       ...(input.pageId ? { parentId: input.pageId } : {}),
       name: ir.header.title,
+      ...(input.origin ? { x: input.origin.x, y: input.origin.y } : {}),
       width,
       height: 1
     });
@@ -288,6 +294,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
   await stage('fill.top', () => fillTop(backend, top, ir, caps.overview, warnings));
 
   const sections: PartsSectionLayout[] = [];
+  let figuresPlaceholder = 0;
   for (let i = 0; i < ir.sections.length; i += 1) {
     const section = ir.sections[i];
     const chapter = chapters[i];
@@ -306,6 +313,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     );
     if (placed.image) imagesPlaced += 1;
     else placeholdersUsed += 1;
+    figuresPlaceholder += placed.figuresPlaceholder;
     sections.push({ nodeId: chapters[i]!.id, name: section.name, clusters: placed.clusters });
   }
 
@@ -328,7 +336,8 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
       bubbleCount: caps.badgeSlot === 'container' ? ir.sections.reduce((n, s) => n + s.clusters.length, 0) : 0,
       imagesPlaced,
       placeholdersUsed,
-      figuresPlaced: figures.placed
+      figuresPlaced: figures.placed,
+      figuresPlaceholder
     }
   };
 }
@@ -582,7 +591,7 @@ async function fillChapter(
   chapter: NodeInfo,
   section: InterfaceSection,
   ctx: FillChapterCtx
-): Promise<{ image: boolean; clusters: PartsClusterLayout[] }> {
+): Promise<{ image: boolean; clusters: PartsClusterLayout[]; figuresPlaceholder: number }> {
   const named = await indexCloneByName(backend, chapter.id, [
     CHAPTER_SLOTS.sectionTitle,
     CHAPTER_SLOTS.mainImage,
@@ -620,6 +629,8 @@ async function fillChapter(
   if (mainImage) {
     if (ctx.asset && ctx.asset.type !== 'skip') {
       await applyAsset(backend, mainImage, ctx.asset);
+      // 模板的 `主图占位` 是虚线框：只换 fill 会留一圈虚线压在截图上。
+      if (backend.clearStrokes) await backend.clearStrokes([mainImage.id]);
       const hint = named[CHAPTER_SLOTS.mainImageHint];
       if (hint) await backend.deleteNodes([hint.id]);
       image = true;
@@ -645,6 +656,7 @@ async function fillChapter(
   }
 
   const clusters: PartsClusterLayout[] = [];
+  let figuresPlaceholder = 0;
   for (let i = 0; i < section.clusters.length; i += 1) {
     const cluster = section.clusters[i];
     if (!cluster) continue;
@@ -685,6 +697,22 @@ async function fillChapter(
       const { nodes: clusterNodes } = await backend.scanSubtree(node.id, 20000);
       const layout = await collectClusterLayout(backend, node, effective, clusterNodes);
       clusters.push(layout);
+      // md 声明了配图却没有资产——以前是**完全静默**的：图位空着，warnings 里一个字
+      // 都没有。逐条报出来，别让人对着一张缺图文档猜。
+      const imageBullets = cluster.bullets.filter((bullet) => /配图\s*[：:]/.test(bullet));
+      const prefix = `${section.index}/${i + 1}`;
+      for (let k = 0; k < imageBullets.length; k += 1) {
+        const asset = ctx.figures.lookup(prefix, k + 1);
+        if (asset?.type === 'figma_node' || asset?.type === 'skip') continue;
+        figuresPlaceholder += 1;
+        ctx.warnings.push({
+          code: SOFT_WARNING_CODES.W_FIGURE_ASSET_MISSING,
+          message:
+            `第 ${section.index} 章「${cluster.title}」第 ${k + 1} 张配图没有资产` +
+            `（assetMap["${prefix}/${k + 1}"] 缺失），已留占位灰板`,
+          context: `${prefix}/${k + 1}`
+        });
+      }
       // md 没写 `配图：` 时，模板常驻的配图槽不该在版面上占一块空灰板。
       // `loose` 已经是「没被任何 `配图：` 认领」的槽，直接藏整组——组里还有
       // 占位文案，只藏矩形会把「配图占位：待手动替换」留在图上（真机踩过）。
@@ -748,7 +776,7 @@ async function fillChapter(
   // 章节高度贴合内容 + 左列与说明栏等高（同步改完簇集合也要跑这一步）。
   await stage('chapter.fit', () => refreshChapterGeometry(backend, chapter.id, ctx.geometry));
 
-  return { image, clusters };
+  return { image, clusters, figuresPlaceholder };
 }
 
 /**
@@ -803,6 +831,7 @@ async function collectClusterLayout(
 
   const items: PartsItemLayout[] = [];
   const loose: string[] = [];
+  const claimed = new Set<string>();
   let figureIndex = 0;
   for (const { id, t } of ordered) {
     if (t !== 'figure') {
@@ -817,8 +846,25 @@ async function collectClusterLayout(
       loose.push(id);
       continue;
     }
+    claimed.add(id);
     items.push({ nodeId: id, t, text: wants });
     figureIndex += 1;
+  }
+
+  // 兜底：`ordered` 不一定数得到模板自带的每一个空槽（簇内嵌套、条目顺序与槽位
+  // 顺序不一致都会漏）。真机上因此留下 27 个没被隐藏的空「配图」框。这里按
+  // 「子树里所有配图组 − 已认领」求差集，保证每个槽都有结局。
+  for (const n of nodes) {
+    if (n.name !== CLUSTER_SLOTS.figure || claimed.has(n.id) || loose.includes(n.id)) continue;
+    if (withImage.has(n.id)) continue;
+    loose.push(n.id);
+  }
+  // 裸矩形槽（蛋仔这类没有外层 GROUP）：直接挂在簇下、没填图的就是空槽。
+  for (const n of nodes) {
+    if (n.name !== CLUSTER_SLOTS.figureRect) continue;
+    if (n.parentId !== node.id || n.hasImageFill === true) continue;
+    if (loose.includes(n.id)) continue;
+    loose.push(n.id);
   }
   return {
     nodeId: node.id,

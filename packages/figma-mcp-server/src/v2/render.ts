@@ -52,11 +52,15 @@ import {
 } from './template-map.js';
 import {
   resolveTemplateConfig,
+  resolvePackWithTrace,
   loadPartsPack,
   DEFAULT_TEMPLATE,
+  type PackCandidate,
+  type PackResolution,
   type TemplateRef
 } from './template-config.js';
 import { renderFromParts } from './render/parts/index.js';
+import type { TemplatePack } from './template/schema.js';
 import { stampPartsDoc, type PartsDocLayout } from './render/parts/stamp-parts.js';
 import { isRoleFrame } from './template-slots.js';
 import { splitRuns, runMemberIds } from './template/runs.js';
@@ -200,6 +204,22 @@ export interface RenderInput {
    * env → `~/.game-interaction-sop/template.json` → default.
    */
   template?: Partial<TemplateRef>;
+  /**
+   * 新文档落在页面上的坐标。缺省 `(0,0)`，与改动前一致。
+   *
+   * 真机上 `(0,0)` 正好压在设计稿上，每次都要手工挪（M1 → y=3300，M2 → y=22261）。
+   */
+  position?: { x: number; y: number };
+  /**
+   * 按目标页面现有内容自动摆放：`below` 取最下沿、`right` 取最右沿。
+   * 与 {@link position} 互斥，同时给时以 `position` 为准并告警。
+   */
+  autoPlace?: 'below' | 'right';
+  /**
+   * 创建路径的瞬时错误重试。缺省 1 次重试、5s 间隔，判据与同步一致
+   * （只有瞬时桥错误才重试，配置 / 冲突类错误直接返回）。
+   */
+  retry?: { attempts?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> };
 }
 
 export interface RenderResult {
@@ -207,7 +227,26 @@ export interface RenderResult {
   mode?: 'create' | 'reconcile';
   /** Newly created template-instance node ID (root of the rendered doc). */
   rootInstanceId?: string;
-  errors: Array<HardError | { code: string; message: string }>;
+  /**
+   * Which template pack this render used. Absent when none was found — then
+   * `packMissing` + `packCandidates` explain the four paths that were tried.
+   */
+  pack?: {
+    path: string;
+    origin: 'env' | 'cwd' | 'project' | 'default';
+    project?: string;
+    components: {
+      top?: string | null;
+      chapter?: string | null;
+      cluster?: string | null;
+      footer?: string | null;
+    };
+    capabilities: TemplatePack['capabilities'];
+  };
+  packMissing?: boolean;
+  /** Only populated when `packMissing` — keeps the happy path small. */
+  packCandidates?: PackCandidate[];
+  errors: Array<HardError | { code: string; message: string; details?: string }>;
   warnings: SoftWarning[];
   summary?: {
     sectionCount: number;
@@ -217,6 +256,8 @@ export interface RenderResult {
     placeholdersUsed: number;
     /** `配图` placeholders filled from `"NN/C/K"` assets. */
     figuresPlaced: number;
+    /** md 声明了配图但没有资产 / 不可用，留了占位灰板的槽数。 */
+    figuresPlaceholder?: number;
   };
   /** Sync only. */
   changes?: ReconcileChange[];
@@ -228,9 +269,14 @@ export async function renderV2MarkdownToFigma(
   input: RenderInput,
   backend: FigmaBackend
 ): Promise<RenderResult> {
+  // 模板包只查一次：cwd/env 在整轮渲染里不会变，三处各查一遍只会多出
+  // 「读到一半被改」的窗口，也让缺包时的报错各说各话。
+  const packResolution = resolvePackWithTrace();
+  const packFields = packResultFields(packResolution);
+  const packCaps = packResolution.hit?.pack.capabilities;
+
   // Phase A — Parse + hard-validate.
   // 校验松紧要跟模板走：没有总览区 / 职能写句尾的模板，按官方形状要求会一律拒收。
-  const packCaps = loadPartsPack()?.pack.capabilities;
   const parsed = parseV2(input.markdown, {
     ...(packCaps?.overview === 'none' ? { overviewOptional: true } : {}),
     ...(packCaps?.roleAnnotation === 'inline-suffix' ? { roleLineOptional: true } : {})
@@ -238,20 +284,25 @@ export async function renderV2MarkdownToFigma(
   if (!parsed.ok || !parsed.ir) {
     return {
       ok: false,
+      ...packFields,
       errors: parsed.errors,
       warnings: parsed.warnings
     };
   }
 
   // Phase A2 — Bind the target file, before anything touches the canvas.
+  const ir = parsed.ir;
   let targetBackend: FigmaBackend;
   try {
-    targetBackend = await bindTargetFile(input, backend);
+    const bound = await bindTargetFile(input, backend, packResolution);
+    targetBackend = bound.backend;
+    parsed.warnings.push(...bound.warnings);
   } catch (e) {
     const err = e as Error & { code?: string };
     return {
       ok: false,
-      errors: [{ code: err.code ?? 'V2_TARGET_FILE_ERROR', message: err.message }],
+      ...packFields,
+      errors: [{ code: err.code ?? 'V2_TARGET_FILE_ERROR', ...splitDiagnostic(err.message) }],
       warnings: parsed.warnings
     };
   }
@@ -275,6 +326,7 @@ export async function renderV2MarkdownToFigma(
     } catch (e) {
       return {
         ok: false,
+        ...packFields,
         errors: [
           {
             code: 'V2_BRIDGE_DOWN',
@@ -289,32 +341,43 @@ export async function renderV2MarkdownToFigma(
   }
 
   if (input.target?.rootId) {
-    return reconcileWithRetry(parsed.ir, parsed.warnings, input, targetBackend);
+    const reconciled = await reconcileWithRetry(parsed.ir, parsed.warnings, input, targetBackend);
+    return { ...packFields, ...reconciled };
   }
 
   // Phase B — Render. Wrap in undo checkpoint + try/catch for one-shot rollback.
-  const figures = makeFigureState(input.assetMap);
-  const keyWarnings = findUnmatchedAssetKeys(parsed.ir, input.assetMap);
-  const roleWarnings: SoftWarning[] = [];
-  await targetBackend.commitUndoCheckpoint('v2-render-start');
-  let rootInstanceId: string | undefined;
-  let partsLayout: PartsDocLayout | undefined;
-  const partsPack = loadPartsPack()?.pack;
-  try {
-    rootInstanceId = await renderInner(
-      parsed.ir,
-      input,
-      targetBackend,
-      figures,
-      (id) => { rootInstanceId = id; },   // set as soon as root is created
-      (w) => roleWarnings.push(w),
-      (layout) => { partsLayout = layout; }
-    );
-  } catch (e) {
-    const err = e as Error & { code?: string };
-    // Best-effort rollback: delete the entire root subtree if it was created.
-    // More reliable than triggerUndo(1) which only undoes the last figma_execute
-    // entry and leaves the rest of the partial render on canvas.
+  const placement = await resolvePlacement(
+    input,
+    targetBackend,
+    packResolution.hit?.pack.geometry?.rootGap ?? 100
+  );
+
+  /** 一轮完整创建。重试会整轮重跑，所以账本必须在这里重新开。 */
+  const createOnce = async (): Promise<RenderResult> => {
+    const figures = makeFigureState(input.assetMap);
+    const keyWarnings = findUnmatchedAssetKeys(ir, input.assetMap);
+    const roleWarnings: SoftWarning[] = [];
+    let rootInstanceId: string | undefined;
+    let partsLayout: PartsDocLayout | undefined;
+    const partsPack = packResolution.hit?.pack;
+    try {
+      await targetBackend.commitUndoCheckpoint('v2-render-start');
+      rootInstanceId = await renderInner(
+        ir,
+        input,
+        targetBackend,
+        figures,
+        (id) => { rootInstanceId = id; },   // set as soon as root is created
+        (w) => roleWarnings.push(w),
+        (layout) => { partsLayout = layout; },
+        packResolution,
+        { x: placement.x, y: placement.y }
+      );
+    } catch (e) {
+      const err = e as Error & { code?: string };
+      // Best-effort rollback: delete the entire root subtree if it was created.
+      // More reliable than triggerUndo(1) which only undoes the last figma_execute
+      // entry and leaves the rest of the partial render on canvas.
     if (rootInstanceId) {
       try {
         await targetBackend.deleteNodes([rootInstanceId]);
@@ -322,12 +385,22 @@ export async function renderV2MarkdownToFigma(
         /* root may already be partially cleaned up — ignore */
       }
     }
+    // 不带 target 时 legacy 路径会去克隆模板实例，缺包时抛出的是 `cloneNode:
+    // source not found` —— 这条和「模板包没配」是同一件事，归一后附上前缀，
+    // 否则调用方只会看到一句指向克隆实现内部的报错。
+    const missingPackClone =
+      !packResolution.hit &&
+      !err.code &&
+      /cloneNode|source not found/i.test(err.message);
     return {
       ok: false,
+      ...packFields,
       errors: [
         {
-          code: err.code ?? 'V2_RENDER_RUNTIME_ERROR',
-          message: err.message
+          code: missingPackClone ? 'V2_TEMPLATE_PACK_MISSING' : err.code ?? 'V2_RENDER_RUNTIME_ERROR',
+          ...splitDiagnostic(
+            missingPackClone ? describeMissingPack(packResolution, err.message) : err.message
+          )
         }
       ],
       warnings: parsed.warnings
@@ -342,7 +415,7 @@ export async function renderV2MarkdownToFigma(
   const stampWarnings: SoftWarning[] = [];
   try {
     if (partsLayout && partsPack) {
-      const { missing } = await stampPartsDoc(targetBackend, partsLayout, parsed.ir, partsPack);
+      const { missing } = await stampPartsDoc(targetBackend, partsLayout, ir, partsPack);
       for (const m of missing) {
         stampWarnings.push({
           code: SOFT_WARNING_CODES.W_STAMP_LAYOUT_MISMATCH,
@@ -350,7 +423,7 @@ export async function renderV2MarkdownToFigma(
         });
       }
     } else {
-      const { problems } = await stampRenderedDoc(targetBackend, rootInstanceId, parsed.ir, input.assetMap);
+      const { problems } = await stampRenderedDoc(targetBackend, rootInstanceId, ir, input.assetMap);
       for (const p of problems) {
         stampWarnings.push({ code: SOFT_WARNING_CODES.W_STAMP_LAYOUT_MISMATCH, message: p });
       }
@@ -362,20 +435,147 @@ export async function renderV2MarkdownToFigma(
     });
   }
 
-  return {
-    ok: true,
-    mode: 'create',
-    rootInstanceId,
-    errors: [],
-    warnings: [...parsed.warnings, ...keyWarnings, ...figures.warnings, ...stampWarnings, ...roleWarnings],
-    summary: {
-      ...summarize(parsed.ir, input.assetMap),
-      figuresPlaced: figures.placed
-    }
+    return {
+      ok: true,
+      mode: 'create',
+      rootInstanceId,
+      ...packFields,
+      errors: [],
+      warnings: [
+        ...parsed.warnings,
+        ...keyWarnings,
+        ...figures.warnings,
+        ...stampWarnings,
+        ...roleWarnings,
+        ...placement.warnings,
+        ...alignWarnings(figures.alignNormalized)
+      ],
+      summary: {
+        ...summarize(ir, input.assetMap),
+        figuresPlaced: figures.placed,
+        figuresPlaceholder: figures.placeholders
+      }
+    };
   };
+
+  return renderWithRetry(createOnce, input.retry);
 }
 
-// --- Target file binding -------------------------------------------------
+/** 落点计算的结果：坐标 + 需要随渲染一起返回的告警。 */
+interface Placement {
+  x: number;
+  y: number;
+  warnings: SoftWarning[];
+}
+
+/**
+ * 决定新文档落在页面上的哪个位置。
+ *
+ * `position` 是精确落点——人要的是「放到我预留的那块空白」，算法猜不准；
+ * `autoPlace` 只在没给坐标时生效，按页面现有内容的包围盒避让。
+ * 算不出来就回落 `(0,0)` 并告警，不动渲染本身。
+ */
+async function resolvePlacement(
+  input: RenderInput,
+  backend: FigmaBackend,
+  gapFallback: number
+): Promise<Placement> {
+  const warnings: SoftWarning[] = [];
+  if (input.position) {
+    if (input.autoPlace) {
+      warnings.push({
+        code: SOFT_WARNING_CODES.W_POSITION_OVERRIDE,
+        message: `同时给了 position 与 autoPlace="${input.autoPlace}"，按 position 落点`
+      });
+    }
+    return { x: input.position.x, y: input.position.y, warnings };
+  }
+  if (!input.autoPlace) return { x: 0, y: 0, warnings };
+
+  const pageId = input.target?.pageId;
+  if (!pageId) {
+    warnings.push({
+      code: SOFT_WARNING_CODES.W_AUTOPLACE_FALLBACK,
+      message: `autoPlace="${input.autoPlace}" 需要 target.pageId 才能算空位，已回落 (0,0)`
+    });
+    return { x: 0, y: 0, warnings };
+  }
+
+  try {
+    const page = await backend.getNodeInfo(pageId);
+    const kids = page.childIds ?? [];
+    if (kids.length === 0) return { x: 0, y: 0, warnings };
+    const infos = await backend.getNodesInfo(kids);
+    const boxes = infos
+      .map((n) => n.absoluteBoundingBox)
+      .filter((b): b is NonNullable<typeof b> => b !== undefined);
+    if (boxes.length === 0) {
+      warnings.push({
+        code: SOFT_WARNING_CODES.W_AUTOPLACE_FALLBACK,
+        message: `autoPlace 拿不到页面子节点尺寸（${kids.length} 个节点无 bbox），已回落 (0,0)`
+      });
+      return { x: 0, y: 0, warnings };
+    }
+    if (input.autoPlace === 'right') {
+      const right = Math.max(...boxes.map((b) => b.x + b.width));
+      const top = Math.min(...boxes.map((b) => b.y));
+      return { x: Math.round(right + gapFallback), y: Math.round(top), warnings };
+    }
+    const bottom = Math.max(...boxes.map((b) => b.y + b.height));
+    const widest = boxes.reduce((a, b) => (b.width > a.width ? b : a));
+    return { x: Math.round(widest.x), y: Math.round(bottom + gapFallback), warnings };
+  } catch (e) {
+    warnings.push({
+      code: SOFT_WARNING_CODES.W_AUTOPLACE_FALLBACK,
+      message: `autoPlace 计算失败，已回落 (0,0)：${(e as Error).message}`
+    });
+    return { x: 0, y: 0, warnings };
+  }
+}
+
+/**
+ * 把一次模板包解析的结果摊成返回字段。
+ *
+ * 命中 → 摘要（路径 / 来源 / 项目 / 4 个 key / 8 项能力）；未命中 → `packMissing`
+ * 加候选轨迹。轨迹只在缺包时给，正常路径的返回体不该被 4 条诊断撑大。
+ */
+function packResultFields(
+  resolution: PackResolution
+): Pick<RenderResult, 'pack' | 'packMissing' | 'packCandidates'> {
+  const hit = resolution.hit;
+  if (hit) {
+    return {
+      pack: {
+        path: hit.path,
+        origin: hit.origin,
+        ...(hit.pack.project ? { project: hit.pack.project } : {}),
+        components: hit.pack.components,
+        capabilities: hit.pack.capabilities
+      }
+    };
+  }
+  if (resolution.disabledByEnv) return {};
+  return { packMissing: true, packCandidates: resolution.candidates };
+}
+
+/** 缺包的一句话说明：查了哪几个路径、各自为什么没成。原样贴进错误 message。 */
+function describeMissingPack(resolution: PackResolution, detail?: string): string {
+  if (resolution.disabledByEnv) {
+    return (
+      `模板包查找被 $GISOP_TEMPLATE_PACK=off 关闭，本次按 legacy 模板渲染` +
+      (detail ? `。原始错误：${detail}` : '')
+    );
+  }
+  const lines = resolution.candidates.map((c) => {
+    const why = c.reason ? `（${c.reason}）` : '';
+    return `- [${c.origin}] ${c.path}: ${c.state}${why}`;
+  });
+  return (
+    `模板包未命中，已查 ${resolution.candidates.length} 个路径：\n` +
+    lines.join('\n') +
+    (detail ? `\n原始错误：${detail}` : '')
+  );
+}
 
 /** Node types that a usable 1:14 template could plausibly be. */
 const TEMPLATE_CONTAINER_TYPES: ReadonlyArray<NodeInfo['type']> = [
@@ -440,12 +640,94 @@ export async function reconcileWithRetry(
   return last!;
 }
 
+// --- Target file binding -------------------------------------------------
+
+/**
+ * 创建路径的瞬时错误重试。
+ *
+ * 同步侧早有 `reconcileWithRetry`；创建侧没有，于是「第一次 Cannot connect、
+ * 第三次才成」被当成随机失败。判据与同步共用 `isTransientBridgeError`，
+ * 重试是整轮重跑——`createOnce` 自己会先回滚上一次的根帧。
+ */
+async function renderWithRetry(
+  run: () => Promise<RenderResult>,
+  opts: { attempts?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {}
+): Promise<RenderResult> {
+  const attempts = Math.max(1, opts.attempts ?? 2);
+  const delayMs = opts.delayMs ?? 5000;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  let last = await run();
+  for (let attempt = 2; attempt <= attempts; attempt += 1) {
+    if (last.ok) return last;
+    const message = last.errors.map((e) => e.message).join(' ');
+    if (!isTransientBridgeError(message)) return last;
+    process.stderr.write(
+      `[figma-interaction-doc-engine] render hiccup (attempt ${attempt - 1}/${attempts}): ` +
+        `${message.slice(0, 120)} — retrying in ${delayMs}ms\n`
+    );
+    await sleep(delayMs);
+    const retried = await run();
+    if (retried.ok) {
+      return {
+        ...retried,
+        warnings: [
+          ...retried.warnings,
+          {
+            code: SOFT_WARNING_CODES.W_RENDER_RETRIED,
+            message: `首轮渲染遇到瞬时连接错误，整轮重试后成功（${attempts} 次上限）：${message.slice(0, 120)}`
+          }
+        ]
+      };
+    }
+    last = retried;
+  }
+  return last;
+}
+
+/**
+ * 错误 message 收敛成一句结论，明细另放。
+ *
+ * 真机：报错里塞整段节点 / 选区 dump，关键结论要翻很久才找得到。规则是
+ * message 最多一行（≤200 字符），其余进 `details`，调用方按需展开。
+ */
+function splitDiagnostic(raw: string): { message: string; details?: string } {
+  const text = raw.trim();
+  if (text.length <= 200 && !text.includes('\n')) return { message: text };
+  const firstLine = text.split('\n')[0] ?? text;
+  const message = firstLine.length > 200 ? `${firstLine.slice(0, 199)}…` : firstLine;
+  return message === text ? { message } : { message, details: text };
+}
+
 async function bindTargetFile(
   input: RenderInput,
-  backend: FigmaBackend
-): Promise<FigmaBackend> {
+  backend: FigmaBackend,
+  packResolution: PackResolution
+): Promise<{ backend: FigmaBackend; warnings: SoftWarning[] }> {
+  const warnings: SoftWarning[] = [];
   const fileKey = input.target?.fileKey;
-  if (!fileKey) return backend;
+  const packHit = packResolution.hit;
+
+  // 模板包显式指了路径却读不出来，是配置错误，不是「没配」——静默回落 legacy
+  // 会让人对着一个完全无关的模板调试。
+  const envCandidate = packResolution.candidates.find((c) => c.origin === 'env');
+  if (!packHit && envCandidate && envCandidate.state !== 'hit') {
+    throw Object.assign(new Error(describeMissingPack(packResolution)), {
+      code: 'V2_TEMPLATE_PACK_MISSING'
+    });
+  }
+
+  // `template` 只喂 legacy 模板寻址（fileKey / nodeId / componentKey），改不了
+  // 「用哪个模板包」。pack 命中时传这两个字段等于没传，必须说出来。
+  if (packHit && (input.template?.fileKey || input.template?.nodeId)) {
+    warnings.push({
+      code: SOFT_WARNING_CODES.W_TEMPLATE_ARG_IGNORED,
+      message:
+        `已命中模板包 ${packHit.path}（origin=${packHit.origin}），` +
+        `template.fileKey/nodeId 只影响 legacy 模板寻址，本次未参与任何决策`
+    });
+  }
+
+  if (!fileKey) return { backend, warnings };
 
   if (!backend.withFileKey) {
     throw Object.assign(
@@ -464,11 +746,11 @@ async function bindTargetFile(
   // Library mode: the template lives in a published library, not in the target
   // file. Nothing to probe — the node id would resolve to an unrelated node in
   // whatever file happens to be open.
-  if (template.componentKey) return bound;
+  if (template.componentKey) return { backend: bound, warnings };
 
   // 多部件模式：渲染目标是任意空文件，模板在库文件里，目标文件里没有 `1:14`
   // 可探；探了必然报「node not found」。
-  if (loadPartsPack() !== undefined) return bound;
+  if (packHit) return { backend: bound, warnings };
 
   const templateNodeId = template.nodeId ?? DEFAULT_TEMPLATE.nodeId;
 
@@ -478,8 +760,10 @@ async function bindTargetFile(
   } catch (e) {
     throw Object.assign(
       new Error(
-        `cannot read template node ${templateNodeId} in file ${fileKey}: ` +
-          `${(e as Error).message}. Is the Desktop Bridge plugin running in that file?`
+        `模板包未命中（已查 ${packResolution.candidates.length} 个路径，见 packCandidates）。` +
+          `因此回落到 legacy 模板：在目标文件 ${fileKey} 中查找节点 ${templateNodeId}。` +
+          `该文件不是模板文件，这里失败通常是模板包没配好，而不是目标文件有问题。` +
+          `原始错误：${(e as Error).message}。Is the Desktop Bridge plugin running in that file?`
       ),
       { code: 'V2_TARGET_FILE_UNREACHABLE' }
     );
@@ -500,7 +784,7 @@ async function bindTargetFile(
     );
   }
 
-  return bound;
+  return { backend: bound, warnings };
 }
 
 // --- Inner renderer ------------------------------------------------------
@@ -512,7 +796,15 @@ export async function renderInner(
   figures: FigureState,
   onRootCreated?: (id: string) => void,
   report?: (w: SoftWarning) => void,
-  onPartsLayout?: (layout: PartsDocLayout) => void
+  onPartsLayout?: (layout: PartsDocLayout) => void,
+  /**
+   * 入口解析好的模板包。`undefined` = 交给这里自己查（老调用方）；
+   * 传进来的 `hit` 为空即「确认没有包」，此时**不再**回查——否则会把机器上
+   * 的 `default.json` 捞出来，替用户悄悄换掉模板。
+   */
+  resolvedPack?: PackResolution,
+  /** 新文档落点（页面坐标）。 */
+  placement?: { x: number; y: number }
 ): Promise<string> {
   // 1. Clone master template into target page.
   const template = resolveTemplateConfig(input.template);
@@ -526,7 +818,12 @@ export async function renderInner(
   assertRoleBlocksAvailable(ir, roleBlocks);
 
   // 模板包带 4 部件 → 多部件渲染；否则完全走旧路径（一行不改）。
-  const packHit = loadPartsPack();
+  // 入口已经查过一次，这里优先用传下来的结果，避免同一轮读到两份不同的包。
+  const packHit = resolvedPack
+    ? resolvedPack.hit
+      ? { pack: resolvedPack.hit.pack }
+      : undefined
+    : loadPartsPack();
   const partsReady = packHit !== undefined;
   process.stderr.write(`[render] render mode: ${partsReady ? 'parts' : 'legacy'}\n`);
   if (packHit && partsReady) {
@@ -535,11 +832,13 @@ export async function renderInner(
       pack: packHit.pack,
       ...(input.assetMap ? { assetMap: input.assetMap } : {}),
       ...(input.target?.pageId ? { pageId: input.target.pageId } : {}),
+      ...(placement ? { origin: placement } : {}),
       backend,
       ...(onRootCreated ? { onRootCreated } : {})
     });
     for (const w of partsResult.warnings) report?.(w);
     figures.placed += partsResult.summary.figuresPlaced;
+    figures.placeholders += partsResult.summary.figuresPlaceholder;
     onPartsLayout?.(partsResult.layout);
     return partsResult.rootId;
   }
@@ -575,6 +874,11 @@ export async function renderInner(
   }
   // Expose root.id immediately so the outer catch can delete it on failure.
   onRootCreated?.(root.id);
+
+  // 落点：克隆/实例化都沿用模板原坐标（(0,0)），迁到指定位置。
+  if (placement && backend.moveNode && (placement.x !== 0 || placement.y !== 0)) {
+    await backend.moveNode(root.id, placement.x, placement.y);
+  }
 
   // 2. Resolve all named children of the cloned subtree we need:
   //    - 标题组件 → 4 TEXT slots + 文档标题 (we re-resolve by ID using HEADER_SLOTS' position-equivalents inside the clone)
@@ -917,6 +1221,8 @@ async function renderSection(
     await applyAsset(backend, mainPlaceholder, asset);
     // Hide the "主图占位 待手动替换" hint once image is applied (Bug 8).
     if (asset.type !== 'skip') {
+      // 占位虚线是模板自带描边，填图不清就压在截图上。
+      if (backend.clearStrokes) await backend.clearStrokes([mainPlaceholder.id]);
       const hint = named[SECTION_CHILD_NAMES.mainImagePlaceholderHint];
       if (hint) {
         await backend.deleteNodes([hint.id]);
@@ -1006,13 +1312,17 @@ export interface FigureState {
   /** Record families that had no bold weight for state lines (warned once each). */
   textWritten(r: TextWriteResult): void;
   placed: number;
+  /** 声明了配图却没有资产、只能留占位灰板的槽数。 */
+  placeholders: number;
+  /** 段落对齐被归一化的正文层数（聚合告警用）。 */
+  alignNormalized: number;
   readonly warnings: SoftWarning[];
 }
 
 export function makeFigureState(assetMap: Record<string, AssetSpec> | undefined): FigureState {
   const warnings: SoftWarning[] = [];
   const boldMissing = new Set<string>();
-  return {
+  const state: FigureState = {
     lookup: (prefix, ordinal) => assetMap?.[`${prefix}/${ordinal}`],
     warn(key, message) {
       warnings.push({ code: SOFT_WARNING_CODES.W_FIGURE_FILL_FAILED, message, context: key });
@@ -1023,10 +1333,14 @@ export function makeFigureState(assetMap: Record<string, AssetSpec> | undefined)
         boldMissing.add(family);
         warnings.push(boldUnavailableWarning(family));
       }
+      if (r.alignNormalized) state.alignNormalized += r.alignNormalized;
     },
     placed: 0,
+    placeholders: 0,
+    alignNormalized: 0,
     warnings
   };
+  return state;
 }
 
 export function boldUnavailableWarning(family: string): SoftWarning {
@@ -1035,6 +1349,17 @@ export function boldUnavailableWarning(family: string): SoftWarning {
     message: `字体族 ${family} 没有可用的粗体字重，状态名未加粗`,
     context: family
   };
+}
+
+/** 一条聚合：正文对齐被拉回 LEFT 的条数。逐条报会淹没真问题。 */
+function alignWarnings(count: number): SoftWarning[] {
+  if (count <= 0) return [];
+  return [
+    {
+      code: SOFT_WARNING_CODES.W_TEXT_ALIGN_NORMALIZED,
+      message: `${count} 条正文层的段落对齐被归一化为 LEFT（模板原为其它对齐）`
+    }
+  ];
 }
 
 /** `("01", 0)` → `"01/1"` — section index + 1-based cluster number. */
@@ -1328,7 +1653,13 @@ async function fillBlockContent(
         .replace(/\*\*([^*]+)\*\*/g, '$1')
         .replace(/__([^_]+)__/g, '$1')
         .trim();
-      bulletUpdates.push({ nodeId: node.id, characters: body, bold: stateBoldLength(body) });
+      bulletUpdates.push({
+        nodeId: node.id,
+        characters: body,
+        bold: stateBoldLength(body),
+        align: 'LEFT',
+        autoResize: 'HEIGHT'
+      });
     }
   }
   if (bulletUpdates.length > 0) {
@@ -1488,7 +1819,15 @@ async function appendBulletsInOrder(
       const node = cloned[j];
       if (node) {
         const characters = normalizeBulletText(pending[j] ?? '');
-        out.textUpdates.push({ nodeId: node.id, characters, bold: stateBoldLength(characters) });
+        out.textUpdates.push({
+          nodeId: node.id,
+          characters,
+          bold: stateBoldLength(characters),
+          // 正文左对齐 + 自动增高：模板的 `正文/规则` 常常是居中单行（真机 102 条全居中），
+          // 克隆继承过来就成了整篇居中。
+          align: 'LEFT',
+          autoResize: 'HEIGHT'
+        });
       }
     }
     pending = [];
@@ -1570,6 +1909,14 @@ async function finishBlockFigures(
   }
 ): Promise<void> {
   const updates = [...p.textUpdates];
+  /**
+   * 只喂给 `growHintTexts` 的占位文案 id。
+   *
+   * 以前这里传的是 `updates.map(...)`——把**正文**也一起拉宽、设 HEIGHT、并在
+   * `growHintTexts` 里设成 CENTER、再按组居中挪位。真机 M1 的「102 条正文全居中」
+   * 就是这么来的：不是样式继承，是这段收尾把正文当占位文案处理了。
+   */
+  const hintUpdateIds: string[] = [];
   const toFill: Array<{ img: AppendedImage; key: string; asset: FigmaNodeAsset }> = [];
   const parts = new Map<string, { rectId?: string; hintId?: string }>();
   /** 裸矩形配图槽：槽位本身就是要填图的矩形（蛋仔这类模板没有外层 GROUP）。 */
@@ -1606,12 +1953,15 @@ async function finishBlockFigures(
       p.figures.warn(key, `assetMap["${key}"] type "${asset.type}" is not supported for 配图; only figma_node / skip`);
     }
     const hintId = parts.get(img.groupId)?.hintId;
-    if (hintId && img.desc) updates.push({ nodeId: hintId, characters: `配图占位：${img.desc}` });
+    if (hintId && img.desc) {
+      updates.push({ nodeId: hintId, characters: `配图占位：${img.desc}` });
+      hintUpdateIds.push(hintId);
+    }
   }
 
   if (updates.length > 0) {
     p.figures.textWritten(await backend.setMultipleTextContents(updates));
-    await growHintTexts(backend, updates.map((u) => u.nodeId));
+    if (hintUpdateIds.length > 0) await growHintTexts(backend, hintUpdateIds);
   }
 
   for (const { img, key, asset } of toFill) {

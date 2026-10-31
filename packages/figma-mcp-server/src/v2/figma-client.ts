@@ -430,6 +430,14 @@ export interface FigmaBackend {
   clearFills?(nodeIds: string[]): Promise<void>;
 
   /**
+   * 清空描边（含 `dashPattern`）。
+   *
+   * 模板的 `主图占位` 带 `dashPattern: [12,12]` 的虚线框；填图只换 fill 的话，
+   * 截图外面会留一圈虚线（真机 6 条，手工清）。
+   */
+  clearStrokes?(nodeIds: string[]): Promise<void>;
+
+  /**
    * 读节点的纯色填充 / 描边（第一个可见 SOLID）。
    *
    * 编译期靠它把模板的底色、占位色抄进 pack —— 这些是模板身份的一部分，
@@ -750,11 +758,20 @@ export interface TextUpdate {
   characters: string;
   /** Number of leading characters to set bold; see setMultipleTextContents. */
   bold?: number;
+  /**
+   * 段落对齐。克隆来的正文层可能继承模板的 `CENTER`（真机：102 条正文全居中），
+   * 写入时显式给值，别指望模板。同一次批量里生效，不额外开往返。
+   */
+  align?: 'LEFT' | 'CENTER' | 'RIGHT';
+  /** 自适应模式。正文用 `HEIGHT` 才能换行增高。 */
+  autoResize?: 'NONE' | 'HEIGHT' | 'WIDTH_AND_HEIGHT';
 }
 
 export interface TextWriteResult {
   /** Font families with no loadable bold weight; their bold ranges were skipped. */
   boldUnavailable: string[];
+  /** How many nodes had their paragraph alignment overridden (for the aggregate warning). */
+  alignNormalized?: number;
 }
 
 /** 一段文本里要单独上色的字符区间（`start` 含、`end` 不含）。 */

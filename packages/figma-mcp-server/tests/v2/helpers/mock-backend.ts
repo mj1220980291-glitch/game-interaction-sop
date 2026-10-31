@@ -233,12 +233,20 @@ export function makeBackend() {
     const src = store[srcId];
     if (!src) throw new Error(`mock clone: src ${srcId} not found`);
     const newId = uid('clone');
-    const extra = src as NodeStore[string] & { stamp?: string; fill?: string };
+    const extra = src as NodeStore[string] & {
+      stamp?: string;
+      fill?: string;
+      textAlignHorizontal?: string;
+      textAutoResize?: string;
+    };
+    // 真机 clone 会连段落样式一起带走——正文「继承居中」正是这么来的。
     addNode(newParentId, newId, newName ?? src.name, src.type, {
       characters: (src as NodeInfo).characters,
       ...(src.absoluteBoundingBox ? { absoluteBoundingBox: { ...src.absoluteBoundingBox } } : {}),
       ...(extra.stamp ? { stamp: extra.stamp } : {}),
-      ...(extra.fill ? { fill: extra.fill } : {})
+      ...(extra.fill ? { fill: extra.fill } : {}),
+      ...(extra.textAlignHorizontal ? { textAlignHorizontal: extra.textAlignHorizontal } : {}),
+      ...(extra.textAutoResize ? { textAutoResize: extra.textAutoResize } : {})
     } as Partial<NodeInfo>);
     for (const childId of src.children) {
       deepClone(childId, newId);
@@ -381,14 +389,21 @@ export function makeBackend() {
     },
     async setMultipleTextContents(updates) {
       const unavailable = new Set<string>();
-      for (const { nodeId, characters, bold } of updates) {
+      let alignNormalized = 0;
+      for (const { nodeId, characters, bold, align, autoResize } of updates) {
         const n = store[nodeId] as Extra | undefined;
         if (!n) continue;
         (n as NodeInfo & { characters: string }).characters = characters;
         const miss = writeBold(n, bold);
         if (miss) unavailable.add(miss);
+        if (align) {
+          const prev = (n as { textAlignHorizontal?: string }).textAlignHorizontal;
+          if (prev && prev !== align) alignNormalized += 1;
+          n.textAlignHorizontal = align;
+        }
+        if (autoResize) n.textAutoResize = autoResize;
       }
-      return { boldUnavailable: [...unavailable] };
+      return { boldUnavailable: [...unavailable], alignNormalized };
     },
     async deleteNodes(ids) {
       for (const id of ids) {

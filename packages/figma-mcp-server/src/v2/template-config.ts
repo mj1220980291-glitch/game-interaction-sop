@@ -19,7 +19,7 @@
  * / bullet slots are still resolved by the names in `template-map.ts`.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { TEMPLATE_FILE_KEY, TEMPLATE_NODE_ID } from './template-map.js';
@@ -112,7 +112,36 @@ export interface TemplatePackLookupOptions {
   /** Directory treated as the project root. Defaults to `process.cwd()`. */
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  /** Home directory override — tests need a hermetic `~`. Defaults to `os.homedir()`. */
+  home?: string;
 }
+
+/** Where a candidate path came from — mirror of the lookup order. */
+export type PackCandidateOrigin = 'env' | 'cwd' | 'project' | 'default';
+
+/**
+ * `hit` 命中；`missing` 文件不存在；`invalid` JSON 或协议不合法；
+ * `incomplete` 缺 `top` / `chapter` / `cluster` 任一 key（半套 key 拼不出文档）。
+ */
+export type PackCandidateState = 'hit' | 'missing' | 'invalid' | 'incomplete';
+
+export interface PackCandidate {
+  path: string;
+  origin: PackCandidateOrigin;
+  state: PackCandidateState;
+  /** Why `invalid` / `incomplete` — surfaced in errors so nobody has to guess. */
+  reason?: string;
+}
+
+export interface PackResolution {
+  hit?: { path: string; origin: PackCandidateOrigin; pack: TemplatePack };
+  /** Empty when `disabledByEnv` — nothing was looked up. */
+  candidates: PackCandidate[];
+  disabledByEnv?: boolean;
+}
+
+/** Keys without which a pack cannot produce a document. */
+const REQUIRED_PACK_KEYS = ['top', 'chapter', 'cluster'] as const;
 
 /**
  * Locate the project template pack. Order (first hit wins, spec D8):
@@ -122,48 +151,95 @@ export interface TemplatePackLookupOptions {
  *   3. `~/.game-interaction-sop/templates/<project>.json` (`$GISOP_PROJECT`)
  *   4. `~/.game-interaction-sop/templates/default.json`
  *
- * Never throws: an unreadable or invalid pack is skipped, and rendering falls
- * back to the pre-pack behaviour of {@link resolveTemplateConfig}.
+ * Never throws. Every candidate's outcome is kept so a miss can be explained:
+ * 「没配 pack」和「配了但写错」以前都是静默跳过，报错只能猜。
  */
+export function resolvePackWithTrace(opts: TemplatePackLookupOptions = {}): PackResolution {
+  const env = opts.env ?? process.env;
+  if (env.GISOP_TEMPLATE_PACK === 'off') return { candidates: [], disabledByEnv: true };
+
+  const home = opts.home ?? homedir();
+  const project = env.GISOP_PROJECT;
+  const candidates: Array<{ path: string; origin: PackCandidateOrigin }> = [];
+  if (env.GISOP_TEMPLATE_PACK) {
+    candidates.push({ path: env.GISOP_TEMPLATE_PACK, origin: 'env' });
+  }
+  candidates.push({
+    path: join(opts.cwd ?? process.cwd(), '.interaction-sop', 'template.json'),
+    origin: 'cwd'
+  });
+  if (project) {
+    candidates.push({
+      path: join(home, '.game-interaction-sop', 'templates', `${project}.json`),
+      origin: 'project'
+    });
+  }
+  candidates.push({
+    path: join(home, '.game-interaction-sop', 'templates', 'default.json'),
+    origin: 'default'
+  });
+
+  const trace: PackCandidate[] = [];
+  for (const candidate of candidates) {
+    if (!existsSync(candidate.path)) {
+      trace.push({ ...candidate, state: 'missing' });
+      continue;
+    }
+    const raw = readJson(candidate.path);
+    if (raw === undefined) {
+      trace.push({ ...candidate, state: 'invalid', reason: 'not readable as JSON' });
+      if (candidate.origin === 'env') return { candidates: trace };
+      continue;
+    }
+    const parsed = parseTemplatePack(raw);
+    if (!parsed.ok) {
+      trace.push({
+        ...candidate,
+        state: 'invalid',
+        reason: parsed.errors.slice(0, 2).join('; ')
+      });
+      if (candidate.origin === 'env') return { candidates: trace };
+      continue;
+    }
+    const missingKeys = REQUIRED_PACK_KEYS.filter((k) => !parsed.pack.components[k]);
+    if (missingKeys.length > 0) {
+      trace.push({
+        ...candidate,
+        state: 'incomplete',
+        reason: `missing components.${missingKeys.join(' / components.')}`
+      });
+      // 显式指定的路径是唯一的权威：它坏了就停下，别拿机器上的 default.json
+      // 顶上——那正是「明明配了这个项目，渲染出来却是官方模板」的成因。
+      if (candidate.origin === 'env') return { candidates: trace };
+      continue;
+    }
+    trace.push({ ...candidate, state: 'hit' });
+    return {
+      hit: { path: candidate.path, origin: candidate.origin, pack: parsed.pack },
+      candidates: trace
+    };
+  }
+  return { candidates: trace };
+}
+
+/** Thin wrapper — see {@link resolvePackWithTrace} for the diagnostics. */
 export function loadTemplatePack(
   opts: TemplatePackLookupOptions = {}
 ): { path: string; pack: TemplatePack } | undefined {
-  const env = opts.env ?? process.env;
-  const explicit = env.GISOP_TEMPLATE_PACK;
-  if (explicit === 'off') return undefined;
-
-  const home = homedir();
-  const project = env.GISOP_PROJECT;
-  const candidates = [
-    explicit,
-    join(opts.cwd ?? process.cwd(), '.interaction-sop', 'template.json'),
-    project ? join(home, '.game-interaction-sop', 'templates', `${project}.json`) : undefined,
-    join(home, '.game-interaction-sop', 'templates', 'default.json')
-  ];
-
-  for (const path of candidates) {
-    if (!path) continue;
-    const raw = readJson(path);
-    if (raw === undefined) continue;
-    const parsed = parseTemplatePack(raw);
-    if (parsed.ok) return { path, pack: parsed.pack };
-  }
-  return undefined;
+  const hit = resolvePackWithTrace(opts).hit;
+  return hit ? { path: hit.path, pack: hit.pack } : undefined;
 }
 
 /**
  * 找一个可用于「多部件渲染」的模板包：`top` / `chapter` / `cluster` 三 key 齐全。
  *
- * 缺任何一个都视为不可用——半套 key 拼不出文档，应该回落旧路径而不是画到一半失败。
+ * 齐全性已由 {@link resolvePackWithTrace} 判为 `hit`，这里保留名字是因为调用点
+ * 表达的是「能不能走多部件渲染」，不是「找没找到包」。
  */
 export function loadPartsPack(
   opts: TemplatePackLookupOptions = {}
 ): { path: string; pack: TemplatePack } | undefined {
-  const hit = loadTemplatePack(opts);
-  if (!hit) return undefined;
-  const c = hit.pack.components;
-  if (!c.top || !c.chapter || !c.cluster) return undefined;
-  return hit;
+  return loadTemplatePack(opts);
 }
 
 /**
@@ -173,7 +249,7 @@ export function loadPartsPack(
 export function resolveTemplateConfig(
   explicit?: Partial<TemplateRef>,
   env: NodeJS.ProcessEnv = process.env,
-  opts: { cwd?: string } = {}
+  opts: { cwd?: string; home?: string } = {}
 ): TemplateConfig {
   const file = loadConfigFile(env);
   const fileKey =
@@ -209,7 +285,7 @@ export function resolveTemplateConfig(
         }
       : {}),
     ...(() => {
-      const found = loadTemplatePack({ cwd: opts.cwd, env });
+      const found = loadTemplatePack({ cwd: opts.cwd, home: opts.home, env });
       return found ? { pack: found.pack, packPath: found.path } : {};
     })()
   };

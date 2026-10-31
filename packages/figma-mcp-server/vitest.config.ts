@@ -8,7 +8,11 @@ export default defineConfig({
     globals: false,
     env: {
       // Tests must not inherit a developer's ~/.game-interaction-sop/template.json.
-      GISOP_TEMPLATE_CONFIG: 'off'
+      GISOP_TEMPLATE_CONFIG: 'off',
+      // Same for the pack lookup: `~/.game-interaction-sop/templates/default.json`
+      // exists on a configured machine and would silently turn every legacy
+      // render test into a parts render. Pack tests set the variable themselves.
+      GISOP_TEMPLATE_PACK: 'off'
     },
     coverage: {
       provider: 'istanbul',

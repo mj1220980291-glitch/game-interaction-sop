@@ -6,7 +6,7 @@
  *   - `detachInstance` returns a NEW id (renderer must re-resolve slots)
  *   - `cloneNode` deep-clones, `deleteNodes` cascades
  *
- * Spec: template-render（拼�?/ 清空 / 布局�? */
+ * Spec: template-render（拼�?/ 清空 / 布局�? */
 
 import type { FigmaBackend, NodeInfo } from '../../../src/v2/figma-client.js';
 
@@ -278,12 +278,27 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
       const n = nodes.get(nodeId);
       if (n) n.characters = characters;
     },
-    async setMultipleTextContents(updates: Array<{ nodeId: string; characters: string }>) {
+    async setMultipleTextContents(
+      updates: Array<{
+        nodeId: string;
+        characters: string;
+        align?: 'LEFT' | 'CENTER' | 'RIGHT';
+        autoResize?: 'NONE' | 'HEIGHT' | 'WIDTH_AND_HEIGHT';
+      }>
+    ) {
+      let alignNormalized = 0;
       for (const u of updates) {
         const n = nodes.get(u.nodeId);
-        if (n) n.characters = u.characters;
+        if (!n) continue;
+        n.characters = u.characters;
+        if (u.align) {
+          const prev = (n as { textAlignHorizontal?: string }).textAlignHorizontal;
+          if (prev && prev !== u.align) alignNormalized += 1;
+          (n as { textAlignHorizontal?: string }).textAlignHorizontal = u.align;
+        }
+        if (u.autoResize) (n as { textAutoResize?: string }).textAutoResize = u.autoResize;
       }
-      return { boldUnavailable: [] as string[] };
+      return { boldUnavailable: [] as string[], alignNormalized };
     },
     async deleteNodes(ids: string[]) {
       calls.push(`delete:${ids.length}`);

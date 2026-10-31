@@ -200,14 +200,28 @@ export function buildSnapshot(tree: Tree, profile?: StructureProfile): DocSnapsh
     (structure.id === 'parts' ? root : undefined);
   const foreign: TNode[] = [];
   const presentSections: SnapSection[] = [];
-  for (const c of sectionsContainer ? tree.children(sectionsContainer.id) : []) {
-    const s = c.parsed;
-    const ok = s?.kind === 'section' ? accept(s.sid, 'doc', c) : false;
-    if (s?.kind === 'section' && ok) {
+  /**
+   * 章节按**标记**收集，不假设「所有章节是容器直属子级」。
+   *
+   * 多部件渲染按 `sectionShell` 给每章各套一层「章节外框」，章节因此在各自
+   * 的壳里。以前只遍历容器直属子级，于是所有章节都被判「设计师删了」——
+   * 同步恒为空却报成功。
+   */
+  const sectionNodes = tree.findAll(root.id, (n) => n.parsed?.kind === 'section');
+  const sectionIds = new Set(sectionNodes.map((n) => n.id));
+  for (const c of sectionNodes) {
+    const s = c.parsed as SectionStamp;
+    const ok = accept(s.sid, 'doc', c);
+    if (ok) {
       presentSections.push({ ...snapSection(tree, c, s, accept, structure), orphan: ok === 'orphan' });
-    } else if (!s || s.kind === 'section') {
-      foreign.push(c);
     }
+  }
+  for (const c of sectionsContainer ? tree.children(sectionsContainer.id) : []) {
+    if (sectionIds.has(c.id)) continue;
+    // 结构层（章节外框）：子树里有章节就不是「人加的」，不进 foreign。
+    if (tree.find(c.id, (n) => n.id !== c.id && sectionIds.has(n.id))) continue;
+    const s = c.parsed;
+    if (!s || s.kind === 'section') foreign.push(c);
   }
   const sections = mergeWithTombstones(
     presentSections,

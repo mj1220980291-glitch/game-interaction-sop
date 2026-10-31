@@ -42,6 +42,11 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
 - 模板重编后 `verify` 会返回 `mdContract`；把它落盘到 `<项目根>/.interaction-sop/md-contract.md`。没有模板变更时用 `figma_compile_template({ phase: "contract", project })` 重新生成，不写画布
 - Markdown 里有 `- @职能：` 条目时，确认 `roleBlock.componentSetId` 已配置，且该组件集在**同一个文件**里、角色变体齐全。缺配置就明确告诉用户，不要先渲染再报错
 - 用户在别的文件里做设计时，先让用户把连接插件切到目标文件
+- **落点**：新文档默认落 `(0,0)`，会压在设计稿上。调用时给一个：
+  - `position: { x, y }` — 用户指定位置（首选，人最清楚哪块是空的）
+  - `autoPlace: "below" | "right"` — 按页面现有内容自动避让（需要 `target.pageId`）
+  - 两者同给时以 `position` 为准，返回 `V2_W_POSITION_OVERRIDE`
+- **返回要读 `pack`**：`pack.path` / `origin` 说明这次用了哪个模板包；没有 `pack` 而有 `packMissing` 时，先解决模板包配置再谈渲染结果
 
 **连不上 Figma 时，按这个顺序处理**（读取与写入都适用）：
 
@@ -166,7 +171,10 @@ Phase 4 只用得到两个工具：
 `warnings` 里有配图相关软告警时，附在成功报告后逐条说明，**不重渲染**：
 
 - `V2_W_FIGURE_FILL_FAILED` — 某张配图没贴上（message 带键名和 nodeId，常见原因：源节点不在目标文件 / 被删 / 导出失败）。该占位保留了描述文案，告诉用户是哪张、为什么，问要不要修好 `asset_map` 后用同步模式（带 `rootId`，`assetMap` 只写这一张）补上
+- `V2_W_FIGURE_ASSET_MISSING` — md 写了 `配图：` 但 `assetMap` 没有对应键，图位留灰板。问用户：补图，还是删掉这条 `配图：`
 - `V2_W_ASSET_KEY_UNMATCHED` — `asset_map` 里某个键在文档里找不到对应章节/配图，多半是编键时数错了 C 或 K。回 `phase3-asset.md` 核对编键
+- `V2_W_RENDER_RETRIED` — 首轮撞上瞬时连接错误，引擎整轮重试后成功。告知用户即可，不用重跑
+- `V2_W_TEMPLATE_ARG_IGNORED` — 传了 `template.fileKey/nodeId` 但模板包已命中，这两个字段没参与决策。下次别传
 
 #### 结果 B：v2 强校验失败
 

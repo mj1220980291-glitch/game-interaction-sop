@@ -262,6 +262,22 @@ export async function stampPartsDoc(
     }))
   ];
 
+  // 章节外框（`geometry.sectionShell`）：每章外面那几层是结构层，不标就会被
+  // 同步当成「人加的节点」。按父级链一路标 template，直到根帧。
+  const stamped = new Set(writes.map((w) => w.nodeId));
+  for (const s of sections) {
+    try {
+      let cur = (await backend.getNodeInfo(s.nodeId)).parentId;
+      while (cur && cur !== layout.rootId && !stamped.has(cur)) {
+        writes.push({ nodeId: cur, stamp: { kind: 'slot', role: 'template' } as Record<string, unknown> });
+        stamped.add(cur);
+        cur = (await backend.getNodeInfo(cur)).parentId;
+      }
+    } catch {
+      /* 标不上只是少一层结构标记，不影响成图 */
+    }
+  }
+
   await backend.stampNodes(writes);
   const written = new Map(writes.map((w) => [w.nodeId, w.stamp] as const));
   return { stamps: writes.length, missing, written };
