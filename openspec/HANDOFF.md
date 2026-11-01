@@ -37,7 +37,8 @@
 | `figure-slot-lifecycle` | 4/27 | ①同步删槽后的几何重算断言 ②HEIGHT 自适应的章节总高断言 ③legacy 路径三态计数 |
 | `sanitize-inherited-style` | 2/19 | ①清描边失败降级为 `W_FILL_STROKE_RESIDUAL`（现在会直接抛错）②HEIGHT 高度断言 |
 | `render-call-surface` | 1/21 | 渲染途中重启 Desktop Bridge，看是否自动重试并回 `V2_W_RENDER_RETRIED` |
-| `resolve-sections-under-shell` | **Complete** | 可归档 |
+
+`resolve-sections-under-shell` 已归档（`openspec/changes/archive/2026-11-01-resolve-sections-under-shell`），delta spec 已并入主 spec `render-reconcile-parts`。
 
 **用户待验收（我这侧做不了）**：
 1. 手改一条正文 + 换一张配图 → 同步 → 文字/图不被覆盖，`preserved` 出现两条 `hand-edit`
