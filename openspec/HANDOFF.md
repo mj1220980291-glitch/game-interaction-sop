@@ -1,15 +1,56 @@
-# 交接说明（2026-10-30）
+# 交接说明（2026-11-01）
 
-## 当前状态快照（2026-10-30 22:50，换对话先读这一节）
+## 当前状态快照（2026-11-01 17:50，换对话先读这一节）
 
-**一句话**：蛋仔包全链路打通、库按项目分页、同步真机验证完成、4 个 change 已归档；**新踩到一个「模板包配置缺失 → 静默退回克隆模板文件」的坑（已用全局 `default.json` 兜住，代码层还没改成显式报错）**，这是推广前必须处理的一条。
+**一句话**：M1 真实文档（4 章 18 簇 18 图）真机全链路跑通并验收；10-30 那份「引擎问题反馈」11 条 + 2 条新发现的隐藏 bug 已修完并推送；遗留只剩 7 条「需要人为制造条件」的真机项。
 
-**代码状态**：`npm run build` + `npm test` **484/484** 通过，`openspec validate --all --strict` **17/17** 通过。最近提交：`3c76331`（常驻桥默认关闭 + 记录）← `b538b68`（宿主 opt-in）← `38f20f4`（临时端口 + Windows spawn 修复）← `8cdcdbf`（中转帧测试）← `7c02336`（常驻桥宿主）。已推送到 GitLab + GitHub。
+**代码状态**：`npm run build` 通过，`npm test` **65 files / 517 tests** 全绿，`openspec validate --all --strict` **22/22** 通过。最近提交 **`b926ec4`**（fix(render,sync)：56 files，+3089/-125），已推送 GitLab + GitHub。工作区干净。
+
+**本会话（10-31 → 11-01）做完的事**：
+
+1. 把 `引擎问题反馈.md` 的 11 条拆成 5 个 change（P0 合并、P1 按修复面拆），逐个实现 + 单测 + 真机验收
+2. **模板包可观测**：`resolvePackWithTrace`（4 候选带 `missing/invalid/incomplete/hit` 轨迹）；返回 `pack{path,origin,project,components,capabilities}`；`$GISOP_TEMPLATE_PACK` 坏路径 → `V2_TEMPLATE_PACK_MISSING`；`template.*` 与 pack 无关时给 `W_TEMPLATE_ARG_IGNORED`
+3. **配图槽三态**：filled / placeholder / hidden；`loose` 从「按条目顺序」改成「子树配图组 − 已认领」求差集——真机 27 个空框就是这么漏的；新增 `W_FIGURE_ASSET_MISSING` + `summary.figuresPlaceholder`
+4. **样式归一化**：正文写入带 `align=LEFT` + `autoResize=HEIGHT`（一次 exec）；新增后端 `clearStrokes`，主图填图后清 `strokes`/`dashPattern`
+5. **调用面**：`position` / `autoPlace` 落点；`renderWithRetry`（撤销点移进 try）；报错 message 一行 + `details`
+6. **发现并修掉两个反馈里没有的 bug**（见坑 29 / 30）：正文被 `growHintTexts` 当占位文案处理；`sectionShell` 下同步认不到章节
+7. 同步语义定稿：新增条目走 scratch 新建槽、删除未手改整组删、手改报冲突、只改描述不重建节点（都是既有行为，补规范 + 4 条测试锁定）
+8. `vitest.config.ts` 注入 `GISOP_TEMPLATE_PACK=off`：机上的 `default.json` 不再把老测试带进 parts 路径
+
+**真机验收结果（`kiroro主串联` / page「SOP引擎验收 1031」`4231:55123`）**：
+
+| 项 | 结果 |
+|---|---|
+| M1 全量渲染 `4233:58395` | 4 章 / 18 簇 / 18 图 / `figuresPlaceholder 0` / warnings 空 |
+| 正文对齐 | **71/71 LEFT**（修复前 71/71 CENTER） |
+| 空配图槽 | 36 个 `配图` 组 → 18 个 `visible=false` |
+| 主图描边 | 4/4 `strokes` 与 `dashPattern` 全空 |
+| 打标 | 176 stamp / 4 section；`章节外框` 带 `{kind:slot,role:template}` |
+| 同步幂等 | dryRun 与正式同步均 `changes:[] preserved:[]`（修复前报 4 条 `designer-deleted`） |
+| 落点 | `position{0,8000}` 精确；`autoPlace:below` = 页面底 + **100**（rootGap 默认） |
+
+**遗留待办（7 条，全部需要人为制造条件或更细的 mock）**：
+
+| change | 剩什么 | 怎么验 |
+|---|---|---|
+| `make-pack-resolution-observable` | 1/22 | 把 `GISOP_TEMPLATE_PACK` 指到坏文件（要改 MCP 环境变量后重启），看 `V2_TEMPLATE_PACK_MISSING` 是否列全 4 路径 |
+| `figure-slot-lifecycle` | 4/27 | ①同步删槽后的几何重算断言 ②HEIGHT 自适应的章节总高断言 ③legacy 路径三态计数 |
+| `sanitize-inherited-style` | 2/19 | ①清描边失败降级为 `W_FILL_STROKE_RESIDUAL`（现在会直接抛错）②HEIGHT 高度断言 |
+| `render-call-surface` | 1/21 | 渲染途中重启 Desktop Bridge，看是否自动重试并回 `V2_W_RENDER_RETRIED` |
+| `resolve-sections-under-shell` | **Complete** | 可归档 |
+
+**用户待验收（我这侧做不了）**：
+1. 手改一条正文 + 换一张配图 → 同步 → 文字/图不被覆盖，`preserved` 出现两条 `hand-edit`
+2. md 加一条规则、删一条 `配图：` → 同步 → 位置正确、下方内容跟着移动、不留空洞，`changes` 有 `insert`/`delete`
+
+**Figma 现场（本轮新增）**：`kiroro主串联` `32LjMNqRsQOFEwbx3k3iQ3` 页「SOP引擎验收 1031」`4231:55123` 只剩 M1 `4233:58395`（`(0,0)`，高 18773），5 个探针已删。设计稿源节点仍在：`4216:41127/41128/41130/41131/41132/41133/41134`。M1/M2 md 在 `F:\vibecoding\kiroro\主串联\`。
+
+**历史快照（2026-10-30 22:50）**：蛋仔包全链路打通、库按项目分页、同步真机验证完成、4 个 change 归档；当时新踩坑 27（模板包缺失静默回落），已在 10-31 修掉。
+
 
 **本会话（10-30）做完的事**：
 1. 蛋仔包发布 → 回填（新 keys + `rootGap`/`docPadding`/`footerGap`/`bubbleGrid`/`badgeSize`）→ 真机对齐原稿
-2. 占位文案：颜色跟灰板亮度 + 框拉到板宽居中（parts 与 legacy 两条路径）
-3. 图上标号：章节补 `气泡`（`121:9337`）+ `标号/母版`（`121:9338`），`badgeSlot: container`；母版必须 `clipsContent=false`
+2. 占位文案：颜色跟灰板亮度 + 框拉到板宽居中（parts 与 legacy 两条路径）3. 图上标号：章节补 `气泡`（`121:9337`）+ `标号/母版`（`121:9338`），`badgeSlot: container`；母版必须 `clipsContent=false`
 4. 模板库按项目分页：`官方1.14` `125:9364` / `蛋仔派对` `125:9365`，旧 `部件/零件` 页删除，**所有 key 未变**
 5. 蛋仔顶部补 `需求组` 行（值文本命名 `需求组名称`），渲染实测写入 `局内交互`
 6. 同步真机验证：插入章节、`foreign` 保留、`hand-edit` 保留、`conflicts` 报出
@@ -51,7 +92,7 @@
 | `~/.game-interaction-sop/templates/default.json` | **本次新建**：= 官方1.14 包。任何没有本地配置的项目都会走库模式（不再要求打开模板文件） |
 | 多窗口现场（22:50 观测） | 三个桥：9223 `39504`、9224 `33496`、9225（当前会话，`portFallbackUsed: true`）；插件连在 9225 的 `kiroro主串联` |
 
-**坑位（累积）**：1（端口，已修）/ 2（`phase=verify` 不可用）/ 3（发布后 import 假死，沙盒要去 `Assets → Libraries` 关开一次）/ 4（大图截图用 `exportAsync`）/ 5（补标号容器要扫产物）/ 6（`overview.*` 标在 `#Content`）/ 7（模板空槽标 `template`）/ 8（配图按填充类型判断）/ 9（簇级改动两种路径）/ 10（标号网格按 1920×1080 定义）/ 11–14（run、归一化、配图判定、badgeSlot 传参）/ 15（verify + 截图要切 active file）/ 16–18（外框、标题间距、文案框）/ 19（编译要库文件 active）/ 20–21（配图实例一次 exec、几何来源）/ 22（端口，已修）/ **23（母版 frame 默认裁剪：三角/数字落在框外会被裁掉，母版必须 `clipsContent = false`）** / **24（改库后不发布 → 跨文件 import 挂 30s；发布 + Libraries 关开才能好）** / **25（手工改 `.interaction-sop/template.json` 时不重拷就会用旧副本，`bubbleGrid` 曾因此不生效）** / **26（worker 重启后旧 bridge child 不死：新旧 child 分占 9223 / 9224，插件只连其中一个 → 渲染报 `Cannot connect`，而代理的 `figma_execute` 正常。判定方法：看报错里的端口号与 `figma_get_status` 的端口是否一致；处理：杀掉所有 `figma-console-mcp` 子进程再 `touch dist` 换 worker。**已加自检（`36431bd`）**：worker 起来后异步读一次子进程端口，退端口就清掉占位者并留一条可搜的 `WARNING: bridge child fell back`——不自动重启子进程，实测抢不回端口还拖慢启动）** / **27（找不到模板包会**静默**退回「克隆模板文件里的 `1:14`」老路，于是报「请打开模板文件插件」，让人误以为组件库没生效。模板包查找顺序：`$GISOP_TEMPLATE_PACK` → `<cwd>/.interaction-sop/template.json` → `~/.game-interaction-sop/templates/<项目名>.json` → `templates/default.json`；**注意 `~/.game-interaction-sop/template.json` 不在这个顺序里**（那是给 legacy 的 `resolveTemplateConfig` 用的）。已补 `templates/default.json`，但代码仍是静默降级，未改成显式报错）** / **27-fix（2026-10-31，`make-pack-resolution-observable`）：模板包查找改为带轨迹（`resolvePackWithTrace`，4 个候选各记 `missing` / `invalid` / `incomplete` / `hit`）；渲染返回 `pack{path,origin,project,components,capabilities}`，缺包时 `packMissing:true` + `packCandidates`；`$GISOP_TEMPLATE_PACK` 显式路径坏掉 → `V2_TEMPLATE_PACK_MISSING`（不再被 `default.json` 顶上）；`template.fileKey/nodeId` 与 pack 查找无关，命中时传了给 `V2_W_TEMPLATE_ARG_IGNORED`。**另外 vitest 里加了 `GISOP_TEMPLATE_PACK=off`**，机上的 `default.json` 不再污染老测试（以前「用完必须删」的注意事项作废））** / **28（多开 CodeMaker 窗口 = 多套引擎 = 多个 figma-console 子进程，各自占 9223/9224/9225；插件只会连其中一个，于是「我这边的工具调用」可能连不到你正在看的文件。判定：`figma_get_status` 里 `otherInstances` 非空、`portFallbackUsed: true`。临时处理：只留一个窗口跑图，或杀掉全部 `figma-console-mcp` 再重启当前窗口的 MCP）**
+**坑位（累积）**：1（端口，已修）/ 2（`phase=verify` 不可用）/ 3（发布后 import 假死，沙盒要去 `Assets → Libraries` 关开一次）/ 4（大图截图用 `exportAsync`）/ 5（补标号容器要扫产物）/ 6（`overview.*` 标在 `#Content`）/ 7（模板空槽标 `template`）/ 8（配图按填充类型判断）/ 9（簇级改动两种路径）/ 10（标号网格按 1920×1080 定义）/ 11–14（run、归一化、配图判定、badgeSlot 传参）/ 15（verify + 截图要切 active file）/ 16–18（外框、标题间距、文案框）/ 19（编译要库文件 active）/ 20–21（配图实例一次 exec、几何来源）/ 22（端口，已修）/ **23（母版 frame 默认裁剪：三角/数字落在框外会被裁掉，母版必须 `clipsContent = false`）** / **24（改库后不发布 → 跨文件 import 挂 30s；发布 + Libraries 关开才能好）** / **25（手工改 `.interaction-sop/template.json` 时不重拷就会用旧副本，`bubbleGrid` 曾因此不生效）** / **26（worker 重启后旧 bridge child 不死：新旧 child 分占 9223 / 9224，插件只连其中一个 → 渲染报 `Cannot connect`，而代理的 `figma_execute` 正常。判定方法：看报错里的端口号与 `figma_get_status` 的端口是否一致；处理：杀掉所有 `figma-console-mcp` 子进程再 `touch dist` 换 worker。**已加自检（`36431bd`）**：worker 起来后异步读一次子进程端口，退端口就清掉占位者并留一条可搜的 `WARNING: bridge child fell back`——不自动重启子进程，实测抢不回端口还拖慢启动）** / **27（找不到模板包会**静默**退回「克隆模板文件里的 `1:14`」老路，于是报「请打开模板文件插件」，让人误以为组件库没生效。模板包查找顺序：`$GISOP_TEMPLATE_PACK` → `<cwd>/.interaction-sop/template.json` → `~/.game-interaction-sop/templates/<项目名>.json` → `templates/default.json`；**注意 `~/.game-interaction-sop/template.json` 不在这个顺序里**（那是给 legacy 的 `resolveTemplateConfig` 用的）。已补 `templates/default.json`，但代码仍是静默降级，未改成显式报错）** / **27-fix（2026-10-31，`make-pack-resolution-observable`）：模板包查找改为带轨迹（`resolvePackWithTrace`，4 个候选各记 `missing` / `invalid` / `incomplete` / `hit`）；渲染返回 `pack{path,origin,project,components,capabilities}`，缺包时 `packMissing:true` + `packCandidates`；`$GISOP_TEMPLATE_PACK` 显式路径坏掉 → `V2_TEMPLATE_PACK_MISSING`（不再被 `default.json` 顶上）；`template.fileKey/nodeId` 与 pack 查找无关，命中时传了给 `V2_W_TEMPLATE_ARG_IGNORED`。**另外 vitest 里加了 `GISOP_TEMPLATE_PACK=off`**，机上的 `default.json` 不再污染老测试（以前「用完必须删」的注意事项作废））** / **28（多开 CodeMaker 窗口 = 多套引擎 = 多个 figma-console 子进程，各自占 9223/9224/9225；插件只会连其中一个，于是「我这边的工具调用」可能连不到你正在看的文件。判定：`figma_get_status` 里 `otherInstances` 非空、`portFallbackUsed: true`。临时处理：只留一个窗口跑图，或杀掉全部 `figma-console-mcp` 再重启当前窗口的 MCP）** / **29（`growHintTexts` 被喂了正文 id：`finishBlockFigures` 收尾时传的是 `updates.map(nodeId)`，正文被拉宽到 ≥480、设 `HEIGHT`、**设 `CENTER`**、还按组居中挪位。真机「102 条正文全居中」的真凶是它，不是样式继承。已修：只传占位文案 id（`hintUpdateIds`）。2026-10-31）** / **30（多部件 + `sectionShell` 时同步恒为空却报成功：`snapshot.ts` 只扫容器直属子级、`layout.ts` 用「第一个章节的父级」推容器，而每章各有一层「章节外框」。症状是 `ok:true, changes:[]` + 所有章节 `designer-deleted` + 每层壳 `foreign`。已修：章节按 stamp 全树收集、结构层不进 foreign、渲染期给壳补 `template` 标（`resolve-sections-under-shell`）。2026-10-31）**
 
 **接入 / 推广清单（给其他团队装的时候照着走）**：
 
