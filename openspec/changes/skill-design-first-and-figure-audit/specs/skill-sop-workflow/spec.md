@@ -23,9 +23,9 @@ SOP 进入 Phase 1 的第一回合，LLM SHALL 先询问用户是否已有设计
 
 ### Requirement: Phase 2 每簇默认配图
 
-Phase 2 产出的 v2 Markdown SHALL 为每个簇（`###`）至少提供一条 `配图：`，除非该簇无任何可指认的视觉对象。
+Phase 2 产出的 v2 Markdown SHALL 为每个簇（`###`）至少提供一条 `配图：`，除非该簇无任何可指认的视觉对象，或用户明确要求本次不配图。
 
-无配图的簇 SHALL 显式写 `- 配图：无（理由：…）` 并接受用户推翻；SHALL NOT 静默省略。
+无配图的簇 SHALL 显式写 `- 配图：无（理由：…）` 并接受用户推翻；SHALL NOT 静默省略。用户要求本次不配图时 SHALL 记 `figure_opt_out = true`。
 
 自检清单 SHALL 含一条配图覆盖项，逐簇核对"已配图"或"已写明无配图理由"。
 
@@ -47,6 +47,8 @@ Phase 2 产出的 v2 Markdown SHALL 为每个簇（`###`）至少提供一条 `�
 ### Requirement: Phase 4 渲染后配图审计
 
 Phase 4 在渲染成功或用同步模式完成写入后，LLM SHALL 执行配图审计并把结果报给用户；审计 SHALL NOT 阻塞交付，SHALL NOT 触发自动重渲染。
+
+会话级 `figure_opt_out` 为真时（Phase 2 用户要求不配图，或 Phase 3 用户说"配图先不贴"），LLM SHALL 跳过审计，只报一句"按你要求本次不配图，未做配图审计"。
 
 审计 SHALL 同时使用两层依据：
 
@@ -74,5 +76,10 @@ Phase 4 在渲染成功或用同步模式完成写入后，LLM SHALL 执行配�
 
 #### Scenario: 用户主动要求不配图
 
-- **WHEN** 用户此前明确说过"这次不用配图"
-- **THEN** 审计清单 SHALL 把对应条目标为"未配（按你要求跳过）"，SHALL NOT 重复提醒补图
+- **WHEN** 用户在 Phase 2 或 Phase 3 明确说过"这次不用配图 / 配图先不贴"
+- **THEN** LLM SHALL 置 `figure_opt_out = true`，Phase 4 SHALL 跳过审计，报告只写一句"按你要求本次不配图"，SHALL NOT 列缺图清单或重复提醒
+
+#### Scenario: 主图已覆盖的簇
+
+- **WHEN** 某簇描述的状态主图已完整覆盖
+- **THEN** 该簇 SHALL 仍写一条 `配图：` 指向主图区域，或走 `- 配图：无（理由：…）`，SHALL NOT 因此留空

@@ -40,7 +40,7 @@
 
 `resolve-sections-under-shell` 已归档（`openspec/changes/archive/2026-11-01-resolve-sections-under-shell`），delta spec 已并入主 spec `render-reconcile-parts`。
 
-`skill-design-first-and-figure-audit` 已实现（skill `2.3.0`，引擎无改动）：Phase 1 开场先要设计稿、Phase 2 每簇默认配图、Phase 4 渲染后截图审计 + 缺图提醒。待实际跑一轮需求验证话术与审计输出。
+`skill-design-first-and-figure-audit` 已实现（skill `2.3.0`，引擎无改动）：Phase 1 开场先要设计稿、Phase 2 每簇默认配图、Phase 4 渲染后截图审计 + 缺图提醒。外部验收提的 4 条 CRITICAL（Phase 1 双模板对冲、Phase 2 例外清单反向冲销、opt-out 两阶段口径不一致、Phase 2 无 opt-out 出口）+ 6 条 WARNING 已全部修完；待实际跑一轮需求验证话术与审计输出。
 
 **用户待验收（我这侧做不了）**：
 1. 手改一条正文 + 换一张配图 → 同步 → 文字/图不被覆盖，`preserved` 出现两条 `hand-edit`

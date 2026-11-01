@@ -33,3 +33,17 @@
 - [x] 6.1 `npx openspec validate skill-design-first-and-figure-audit --strict` 通过
 - [x] 6.2 通读 `SKILL.md` + 四份 phase 文件，确认"先要图"与"配图审计"在三处描述无矛盾
 - [x] 6.3 `npm run build` + `npm test` 仍全绿（本轮不改代码，作回归确认）
+
+## 7. 验收返工（外部验收发现 4 CRITICAL + 6 WARNING）
+
+- [x] 7.1 C1 · `phase1-analysis.md` 第一回合模板加硬约束，情况 A/B 模板首行改为材料确认句
+- [x] 7.2 C2 · `phase2-markdown.md` 删除"不加配图"清单，改为"主图已覆盖也必须写配图或走例外"
+- [x] 7.3 C3 · `phase3-asset.md` 记录 `figure_opt_out`，`phase4-figma.md` 审计触发条件改读该标记
+- [x] 7.4 C4 · `phase2-markdown.md` 例外写法增加"用户显式 opt-out"出口（四类判据）
+- [x] 7.5 W1 · `phase1-analysis.md`「不准反复索要」限定作用域为同一阶段
+- [x] 7.6 W2 · `markdown-v2-spec.md` T10 示例去掉"可选"，改"SOP 产出默认必配"
+- [x] 7.7 W3 · `SKILL.md`「何时启用本 skill」加入设计稿 / Figma 链接 / 配图检查信号
+- [x] 7.8 W4 · `packages/skill/README.md` 阶段表改为设计稿优先 + 默认配图 + 配图审计
+- [x] 7.9 W5 · `phase4-figma.md` 写明超 8 章未截部分如何进清单（状态 `待核对`）
+- [x] 7.10 W6 · `phase4-figma.md` 状态枚举补 `无配图（例外）` / `待核对`，例外簇不计入缺图
+- [x] 7.11 返工后重跑 6.2 通读核对：无残留"配图可选 / 只在需要时加"口径

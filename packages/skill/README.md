@@ -4,10 +4,10 @@ Markdown assets that teach an AI agent (Claude / Codex / Cursor / Cline / CodeMa
 to run the 7-step game UI interaction-doc SOP:
 
 1. **Phase 0 · Recall** — look up the project pattern library (silently skipped when absent)
-2. **Phase 1 · Analysis** — confirm requirements, pick the active style mod
-3. **Phase 2 · Markdown** — write v2 Markdown passing strong validation, then save a diff snapshot
-4. **Phase 3 · Asset** — collect design nodes/images (masters must be placed as `figma_instance`)
-5. **Phase 4 · Figma** — preflight template config, render into the template
+2. **Phase 1 · Analysis** — first ask whether design mockups exist (image/Figma link first, spec doc as fallback), confirm requirements, pick the active style mod
+3. **Phase 2 · Markdown** — write v2 Markdown passing strong validation (every cluster carries a figure by default), then save a diff snapshot
+4. **Phase 3 · Asset** — confirm main images and map figure entries to `asset_map` (masters must be placed as `figma_instance`)
+5. **Phase 4 · Figma** — preflight template config, render into the template, then run the figure audit (per-chapter screenshots + missing-figure checklist)
 6. **Phase 5 · Style Learn** — distill this round's manual wording edits into the style file
 7. **Phase 6 · Library** — maintain the project pattern library
 
