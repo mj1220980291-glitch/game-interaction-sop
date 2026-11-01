@@ -156,6 +156,22 @@ export function isImageBullet(bullet: string): boolean {
   return IMAGE_BULLET_RE.test(bullet);
 }
 
+/**
+ * `- 配图：无（理由：本簇均为配表数值…）` 是 SOP 的声明式「本簇不配图」，
+ * 不是图槽：不建槽、不画灰板、不计 figuresPlaceholder、不抛
+ * W_FIGURE_ASSET_MISSING。判据只看 `配图：` 后面的正文。
+ */
+export function isDeclaredNoFigureBullet(bullet: string): boolean {
+  if (!IMAGE_BULLET_RE.test(bullet)) return false;
+  const desc = stripImageBulletPrefix(bullet);
+  return /^无\s*[（(]/u.test(desc) || /理由\s*[：:]/u.test(desc);
+}
+
+/** 真正需要图槽的 `配图：` 条目（排除声明式无配图）。 */
+export function isFigureSlotBullet(bullet: string): boolean {
+  return IMAGE_BULLET_RE.test(bullet) && !isDeclaredNoFigureBullet(bullet);
+}
+
 /** `- **文本**` → `文本`. The template TEXT does not interpret markdown. */
 export function normalizeBulletText(raw: string): string {
   return raw

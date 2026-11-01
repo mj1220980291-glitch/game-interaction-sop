@@ -87,8 +87,40 @@ describe('配图资产按键填充且占位尺寸按图片比例', () => {
     expect(r.summary?.figuresPlaced).toBe(1);
   });
 
-  it('K 跨 #### 连续计数', async () => {
+  it('声明式无配图（配图：无 + 理由）不建槽、不画灰板、不告警', async () => {
     const m = makeBackend();
+    m.addSource('S', 400, 200);
+
+    const r = await renderV2MarkdownToFigma(
+      {
+        markdown: doc(`## 01. 战斗界面
+
+### 阶段与倒计时
+@GUI
+
+- a
+- 配图：A
+
+### 结算数值
+@策划
+
+- 纯配表数值
+- 配图：无（理由：本簇均为配表数值）
+`),
+        assetMap: { '01/1/1': node('S') }
+      },
+      m.backend
+    );
+
+    expect(r.ok, JSON.stringify(r.errors)).toBe(true);
+    const bs = blocks(m.store, r.rootInstanceId!);
+    expect(figuresIn(m.store, bs[0]!.id)).toEqual(['IMG<400×200>']);
+    expect(figuresIn(m.store, bs[1]!.id)).toEqual([]);
+    expect(r.summary?.figuresPlaceholder).toBe(0);
+    expect(r.warnings.filter((w) => w.code === 'V2_W_FIGURE_ASSET_MISSING')).toEqual([]);
+  });
+
+  it('K 跨 #### 连续计数', async () => {    const m = makeBackend();
     m.addSource('S', 400, 200);
 
     const r = await renderV2MarkdownToFigma(

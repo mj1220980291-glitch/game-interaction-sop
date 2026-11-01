@@ -22,6 +22,7 @@ import {
   HEADER_KEYS,
   OVERVIEW_KEYS,
   STAMP_VERSION,
+  isDeclaredNoFigureBullet,
   isImageBullet,
   newId,
   normalizeBulletText,
@@ -60,6 +61,7 @@ export function expectedItems(cluster: SemanticCluster): ExpectedItem[] {
       if (role) {
         out.push({ t: 'role', text: role.text, role: role.role });
       } else if (isImageBullet(b)) {
+        if (isDeclaredNoFigureBullet(b)) continue;
         out.push({ t: 'figure', text: stripImageBulletPrefix(b), ordinal: ++ordinal });
       } else {
         out.push({ t: 'rule', text: normalizeBulletText(b) });

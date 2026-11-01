@@ -87,6 +87,7 @@ import { stateBoldLength } from './state-line.js';
 import { SOFT_WARNING_CODES } from './ir.js';
 import type { DocIR, HardError, SoftWarning, SemanticCluster } from './ir.js';
 import { stampRenderedDoc } from './reconcile/layout.js';
+import { isDeclaredNoFigureBullet } from './reconcile/stamp.js';
 import {
   reconcileV2,
   type ReconcileChange,
@@ -1083,6 +1084,11 @@ function isImageBullet(bullet: string): boolean {
   return IMAGE_BULLET_RE.test(bullet);
 }
 
+/** `配图：` 条目里真正要图槽的那些（`配图：无（理由：…）` 不算）。 */
+function isFigureSlotBullet(bullet: string): boolean {
+  return isImageBullet(bullet) && !isDeclaredNoFigureBullet(bullet);
+}
+
 async function renderSection(
   backend: FigmaBackend,
   sectionNode: NodeInfo,
@@ -1388,7 +1394,7 @@ function findUnmatchedAssetKeys(
         const section = ir.sections.find((s) => s.index === m[1]);
         const cluster = section?.clusters[Number(m[2]) - 1];
         const k = Number(m[3]);
-        const figureCount = cluster ? cluster.bullets.filter(isImageBullet).length : 0;
+        const figureCount = cluster ? cluster.bullets.filter(isFigureSlotBullet).length : 0;
         matched = k >= 1 && k <= figureCount;
       }
     }
@@ -1603,7 +1609,7 @@ async function fillBlockContent(
   // 原占位也删不掉 —— 真机就是文字跑到配图下面、一堆白框。嵌套结构一律走就地填充。
   const bulletParent = bulletTexts[0]?.parentId;
   const nestedShell = bulletParent !== undefined && bulletParent !== p.blockId;
-  const hasImageBullets = bullets.some(isImageBullet);
+  const hasImageBullets = bullets.some(isFigureSlotBullet);
 
   if (!nestedShell && (hasImageBullets || bullets.some((b) => parseRoleBullet(b) !== undefined))) {
     await fillBlockContentInline(backend, p, bulletTexts);
@@ -1693,7 +1699,7 @@ async function fillNestedFigures(
   p: FillBlockContentParams,
   slots: NodeInfo[]
 ): Promise<void> {
-  const descs = p.bullets.filter(isImageBullet).map((b) => b.replace(/^\s*[-·•*]+\s*/, '').replace(/^\s*配图\s*[：:]\s*/, '').trim());
+  const descs = p.bullets.filter(isFigureSlotBullet).map((b) => b.replace(/^\s*[-·•*]+\s*/, '').replace(/^\s*配图\s*[：:]\s*/, '').trim());
   const keyPrefix = figureKeyPrefix(p.sectionIndex, p.clusterIndex);
   if (slots.length === 0) {
     if (descs.length > 0) p.figures.warn(`${keyPrefix}/1`, '模板里没有「配图」槽，配图被丢弃');
@@ -1871,6 +1877,8 @@ async function appendBulletsInOrder(
       pending.push(bullet);
       continue;
     }
+    // 声明式「本簇不配图」：既不建图槽，也不当正文写入。
+    if (isDeclaredNoFigureBullet(bullet)) continue;
     const ordinal = p.ordinal.next++;
     await flushRules();
     if (!p.protoImageId) continue;

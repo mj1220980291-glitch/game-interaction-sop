@@ -29,6 +29,8 @@ Phase 2 产出的 v2 Markdown SHALL 为每个簇（`###`）至少提供一条 `�
 
 自检清单 SHALL 含一条配图覆盖项，逐簇核对"已配图"或"已写明无配图理由"。
 
+引擎 SHALL 把 `- 配图：无（理由：…）` 视为声明式无配图：不建图槽、不画占位灰板、不计入 `summary.figuresPlaceholder`、不抛 `V2_W_FIGURE_ASSET_MISSING`，且该条目不占用 `"NN/C/K"` 的 K 序号。
+
 #### Scenario: 常规界面簇
 
 - **WHEN** 某簇描述界面上可见的控件与状态
@@ -38,6 +40,16 @@ Phase 2 产出的 v2 Markdown SHALL 为每个簇（`###`）至少提供一条 `�
 
 - **WHEN** 某簇全部为配表数值或服务端规则，界面上无可指认对象
 - **THEN** 该簇 SHALL 写 `- 配图：无（理由：…）`，并在自检清单标注已确认
+
+#### Scenario: 例外簇渲染不产生灰板
+
+- **WHEN** 一份 1 章 2 簇的文档，簇 1 写正常 `配图：` 且给了 assetMap，簇 2 写 `- 配图：无（理由：纯配表数值）`
+- **THEN** 渲染结果 SHALL 只有簇 1 一个图槽，簇 2 SHALL NOT 出现灰板，`summary.figuresPlaceholder` SHALL 为 0，`warnings` SHALL NOT 含 `V2_W_FIGURE_ASSET_MISSING`
+
+#### Scenario: 主图已覆盖的簇
+
+- **WHEN** 某簇描述的状态主图已完整覆盖
+- **THEN** 该簇 SHALL 写 `- 配图：本界面主图，<区域>`（Phase 3 映射为主图节点 + `crop`）或走例外写法，SHALL NOT 因此留空
 
 #### Scenario: 自检清单核对配图覆盖
 
@@ -78,8 +90,3 @@ Phase 4 在渲染成功或用同步模式完成写入后，LLM SHALL 执行配�
 
 - **WHEN** 用户在 Phase 2 或 Phase 3 明确说过"这次不用配图 / 配图先不贴"
 - **THEN** LLM SHALL 置 `figure_opt_out = true`，Phase 4 SHALL 跳过审计，报告只写一句"按你要求本次不配图"，SHALL NOT 列缺图清单或重复提醒
-
-#### Scenario: 主图已覆盖的簇
-
-- **WHEN** 某簇描述的状态主图已完整覆盖
-- **THEN** 该簇 SHALL 仍写一条 `配图：` 指向主图区域，或走 `- 配图：无（理由：…）`，SHALL NOT 因此留空

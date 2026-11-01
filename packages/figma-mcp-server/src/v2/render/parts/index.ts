@@ -34,7 +34,7 @@ import {
   type FigureState
 } from '../../render.js';
 import { retryTransient } from '../../../server/retry.js';
-import { isImageBullet, stripImageBulletPrefix } from '../../reconcile/stamp.js';
+import { isFigureSlotBullet, stripImageBulletPrefix } from '../../reconcile/stamp.js';
 import {
   clusterItems,
   type PartsClusterLayout,
@@ -660,7 +660,7 @@ async function fillChapter(
   for (let i = 0; i < section.clusters.length; i += 1) {
     const cluster = section.clusters[i];
     if (!cluster) continue;
-    if (ctx.caps.figure === 'none' && cluster.bullets.some((b) => /配图\s*[：:]/.test(b))) {
+    if (ctx.caps.figure === 'none' && cluster.bullets.some(isFigureSlotBullet)) {
       ctx.warnings.push({
         code: SOFT_WARNING_CODES.W_FIGURE_DROPPED,
         message: `第 ${section.index} 章：模板没有配图槽（figure = none），「${cluster.title}」的配图被丢弃`
@@ -699,7 +699,7 @@ async function fillChapter(
       clusters.push(layout);
       // md 声明了配图却没有资产——以前是**完全静默**的：图位空着，warnings 里一个字
       // 都没有。逐条报出来，别让人对着一张缺图文档猜。
-      const imageBullets = cluster.bullets.filter((bullet) => /配图\s*[：:]/.test(bullet));
+      const imageBullets = cluster.bullets.filter(isFigureSlotBullet);
       const prefix = `${section.index}/${i + 1}`;
       for (let k = 0; k < imageBullets.length; k += 1) {
         const asset = ctx.figures.lookup(prefix, k + 1);
@@ -794,7 +794,7 @@ async function collectClusterLayout(
 ): Promise<PartsClusterLayout> {
   const nodes = preScanned ?? (await backend.scanSubtree(node.id, 20000)).nodes;
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const figureTexts = cluster.bullets.filter(isImageBullet).map(stripImageBulletPrefix);
+  const figureTexts = cluster.bullets.filter(isFigureSlotBullet).map(stripImageBulletPrefix);
   const ordered = clusterItems(nodes, node.id);
 
   // 哪个配图槽是真的放了图？看组里 `配图占位` 矩形的 IMAGE 填充。

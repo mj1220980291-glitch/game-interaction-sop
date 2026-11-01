@@ -163,12 +163,14 @@ Phase 4 只用得到两个工具：
 - 文档 rootId：[rootInstanceId]（之后再写入这份文档要用它走同步模式）
 - 共 N 个界面 / M 个气泡 / K 个语义簇
 - 主图：[N 张已置入 / M 张占位]
-- 配图：[summary.figuresPlaced 张已置入 / summary.figuresPlaceholder 张占位]
+- 配图：[summary.figuresPlaced 张已置入 / summary.figuresPlaceholder 张占位]（`figure_opt_out` 为真时写「按你要求未配图」）
 
 请在 Figma 检查，需要任何手动微调（气泡位置 / 文字修订）随时告诉我。手改的内容之后同步不会被覆盖。
 ```
 
 这份报告发出去**之前**先跑「配图审计」（见下方小节），把垫底的缺图清单一起附上。
+
+`figure_opt_out` 为真时跳过本节：配图类软告警（`V2_W_FIGURE_ASSET_MISSING` / `V2_W_FIGURE_FILL_FAILED`）一律不提，只在审计位置写一句「按你要求本次不配图」。否则按下面逐条说明：
 
 `warnings` 里有配图相关软告警时，附在成功报告后逐条说明，**不重渲染**：
 

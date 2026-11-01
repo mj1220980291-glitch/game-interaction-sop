@@ -47,3 +47,12 @@
 - [x] 7.9 W5 · `phase4-figma.md` 写明超 8 章未截部分如何进清单（状态 `待核对`）
 - [x] 7.10 W6 · `phase4-figma.md` 状态枚举补 `无配图（例外）` / `待核对`，例外簇不计入缺图
 - [x] 7.11 返工后重跑 6.2 通读核对：无残留"配图可选 / 只在需要时加"口径
+
+## 8. 第二轮验收返工（2 CRITICAL + 2 WARNING + 2 建议）
+
+- [x] 8.1 逐条核对 `配图：` 相关写法（例外 / 指向主图 / opt-out）在引擎 render 路径有对应处理，参照 `packages/figma-mcp-server/src/v2/render/parts/index.ts:700-740`
+- [x] 8.2 引擎识别声明式无配图：`reconcile/stamp.ts` 新增 `isDeclaredNoFigureBullet` / `isFigureSlotBullet`；`render.ts`、`render/parts/index.ts`、`reconcile/layout.ts` 全部改走 `isFigureSlotBullet`，不建槽、不画灰板、不计 `figuresPlaceholder`、不抛 `V2_W_FIGURE_ASSET_MISSING`
+- [x] 8.3 单测：`tests/v2/render-figure-assets.spec.ts` 增「声明式无配图」用例（簇 2 无图槽、`figuresPlaceholder === 0`、无 `V2_W_FIGURE_ASSET_MISSING`）
+- [x] 8.4 `phase4-figma.md`：`figure_opt_out` 短路 warnings 逐条说明；结果 A 模板补「按你要求未配图」
+- [x] 8.5 `CHANGELOG.md` v2.3.0 按现状重写（四类例外判据 / opt-out 整节跳过 / package-lock 版本口径 / 引擎行为）
+- [x] 8.6 `markdown-v2-spec.md` W3 收录 `- 配图：本界面主图，<区域>`；`phase3-asset.md` 补该来源映射与「例外条目不编键」
