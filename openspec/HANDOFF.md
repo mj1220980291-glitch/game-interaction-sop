@@ -45,6 +45,9 @@
 - 第一轮外部验收提的 4 条 CRITICAL（Phase 1 双模板对冲、Phase 2 例外清单反向冲销、opt-out 两阶段口径不一致、Phase 2 无 opt-out 出口）+ 6 条 WARNING 已修完
 - 第二轮外部验收提的 2 CRITICAL + 2 WARNING：①`配图：无（理由：…）` 引擎侧无落地路径 → 选了改引擎（A 方案），`reconcile/stamp.ts` 新增 `isDeclaredNoFigureBullet` / `isFigureSlotBullet`，legacy 与 parts 两条渲染路径都不再为该条建槽 / 画灰板 / 计 `figuresPlaceholder` / 抛 `V2_W_FIGURE_ASSET_MISSING`，也不占 `NN/C/K` 的 K 号；单测 `tests/v2/render-figure-assets.spec.ts`「声明式无配图」用例锁定 ②opt-out 只豁免审计、没豁免 warnings 逐条说明 → `phase4-figma.md:173` 加短路 ③CHANGELOG 三处与实现相反已按现状重写 ④W3 未收录「配图：本界面主图，<区域>」→ `markdown-v2-spec.md` 与 `phase3-asset.md` 补该形态与映射规则
 - **引擎已改，不再是纯文档 change**：升级安装后需重跑 `npm run install-mcp`（或重启 MCP）才会生效；旧版引擎遇到例外写法仍会画一块「配图占位：无（理由…）」灰板并报缺图
+- 第三轮外部验收（`3ecf773` 之后）又发现 3 条，均已修（见 `tasks.md` 第 9 节）：①例外条目在 legacy 非嵌套路径被写进正文（`render.ts` 的 `visibleBullets` 只在 `nestedShell` 时过滤）②例外判定把正文含「理由：」的正常描述误判成例外（`配图：失败提示（理由：网络断开）` 会静默丢图）③裸 `- 配图：无` 仍按图槽处理
+- **已知债务（本轮不做）**：例外判定目前散在 render / stamp / reconcile / parts 四侧各自调 `isFigureSlotBullet`，第三轮就是"漏一处"。后续应在 `parser.ts` 生成 `SemanticCluster` 时就把声明式无配图分流出去，让三侧天然一致
+- **旧文档迁移**：用 `3f2aa21` 及更早渲染的文档里存在例外灰板。升级后首次同步会把该条目按 `itemClean` 判定——干净则 delete（灰板消失），手改过则进 `conflicts`（`kind: figure`）。**首次同步报一条 figure 冲突属正常**，按冲突处理走即可
 - 仍待实际跑一轮需求验证话术与审计输出
 
 **用户待验收（我这侧做不了）**：

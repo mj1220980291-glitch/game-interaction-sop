@@ -29,7 +29,7 @@ Phase 2 产出的 v2 Markdown SHALL 为每个簇（`###`）至少提供一条 `�
 
 自检清单 SHALL 含一条配图覆盖项，逐簇核对"已配图"或"已写明无配图理由"。
 
-引擎 SHALL 把 `- 配图：无（理由：…）` 视为声明式无配图：不建图槽、不画占位灰板、不计入 `summary.figuresPlaceholder`、不抛 `V2_W_FIGURE_ASSET_MISSING`，且该条目不占用 `"NN/C/K"` 的 K 序号。
+引擎 SHALL 把 `- 配图：无（理由：…）` 视为声明式无配图：不建图槽、不画占位灰板、不计入 `summary.figuresPlaceholder`、不抛 `V2_W_FIGURE_ASSET_MISSING`，且该条目不占用 `"NN/C/K"` 的 K 序号。裸 `- 配图：无` 同样按声明式无配图处理（旧文档兜底）；正文里出现「理由：」但开头不是 `无（` 的描述仍是图槽。
 
 #### Scenario: 常规界面簇
 

@@ -159,12 +159,13 @@ export function isImageBullet(bullet: string): boolean {
 /**
  * `- 配图：无（理由：本簇均为配表数值…）` 是 SOP 的声明式「本簇不配图」，
  * 不是图槽：不建槽、不画灰板、不计 figuresPlaceholder、不抛
- * W_FIGURE_ASSET_MISSING。判据只看 `配图：` 后面的正文。
+ * W_FIGURE_ASSET_MISSING。只认「无 + 括号 + 理由」或裸 `无`——正文里出现
+ * 「理由：」的正常描述（如 `配图：失败提示（理由：网络断开）`）仍是图槽。
  */
 export function isDeclaredNoFigureBullet(bullet: string): boolean {
   if (!IMAGE_BULLET_RE.test(bullet)) return false;
   const desc = stripImageBulletPrefix(bullet);
-  return /^无\s*[（(]/u.test(desc) || /理由\s*[：:]/u.test(desc);
+  return /^无\s*[（(]\s*理由\s*[：:]/u.test(desc) || /^无\s*$/u.test(desc);
 }
 
 /** 真正需要图槽的 `配图：` 条目（排除声明式无配图）。 */

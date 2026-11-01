@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { renderV2MarkdownToFigma, type AssetSpec } from '../../src/v2/render.js';
+import { isDeclaredNoFigureBullet } from '../../src/v2/reconcile/stamp.js';
 import { makeBackend, collectByName, type NodeStore } from './helpers/mock-backend.js';
 
 const HEAD = `# 配图资产
@@ -116,11 +117,17 @@ describe('配图资产按键填充且占位尺寸按图片比例', () => {
     const bs = blocks(m.store, r.rootInstanceId!);
     expect(figuresIn(m.store, bs[0]!.id)).toEqual(['IMG<400×200>']);
     expect(figuresIn(m.store, bs[1]!.id)).toEqual([]);
+    expect(
+      collectByName(m.store, bs[1]!.id, '正文/规则').map((t) => t.characters)
+    ).toEqual(['纯配表数值']);
     expect(r.summary?.figuresPlaceholder).toBe(0);
     expect(r.warnings.filter((w) => w.code === 'V2_W_FIGURE_ASSET_MISSING')).toEqual([]);
+    expect(r.warnings.filter((w) => w.code === 'V2_W_STAMP_LAYOUT_MISMATCH')).toEqual([]);
+    expect(r.warnings).toEqual([]);
   });
 
-  it('K 跨 #### 连续计数', async () => {    const m = makeBackend();
+  it('K 跨 #### 连续计数', async () => {
+    const m = makeBackend();
     m.addSource('S', 400, 200);
 
     const r = await renderV2MarkdownToFigma(
@@ -278,5 +285,20 @@ describe('配图资产按键填充且占位尺寸按图片比例', () => {
     expect(r.warnings).toEqual([]);
     const bs = blocks(m.store, r.rootInstanceId!);
     expect(figuresIn(m.store, bs[0]!.id)).toEqual(['配图占位：A', '配图占位：B']);
+  });
+});
+
+describe('声明式无配图判定', () => {
+  it('「无 + 括号 + 理由」算例外', () => {
+    expect(isDeclaredNoFigureBullet('- 配图：无（理由：本簇均为配表数值）')).toBe(true);
+  });
+
+  it('裸「配图：无」也算例外（旧文档兜底）', () => {
+    expect(isDeclaredNoFigureBullet('- 配图：无')).toBe(true);
+  });
+
+  it('正文里出现「理由」的正常描述仍是图槽', () => {
+    expect(isDeclaredNoFigureBullet('- 配图：失败提示（理由：网络断开）')).toBe(false);
+    expect(isDeclaredNoFigureBullet('- 配图：无边框按钮默认态')).toBe(false);
   });
 });

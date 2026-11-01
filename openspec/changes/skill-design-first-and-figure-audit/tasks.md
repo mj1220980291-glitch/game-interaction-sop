@@ -56,3 +56,13 @@
 - [x] 8.4 `phase4-figma.md`：`figure_opt_out` 短路 warnings 逐条说明；结果 A 模板补「按你要求未配图」
 - [x] 8.5 `CHANGELOG.md` v2.3.0 按现状重写（四类例外判据 / opt-out 整节跳过 / package-lock 版本口径 / 引擎行为）
 - [x] 8.6 `markdown-v2-spec.md` W3 收录 `- 配图：本界面主图，<区域>`；`phase3-asset.md` 补该来源映射与「例外条目不编键」
+
+## 9. 第三轮验收返工（1 CRITICAL + 2 WARNING）
+
+- [x] 9.1 R1 · `render.ts` `visibleBullets` 改为无条件过滤 image bullet（此前只在 `nestedShell` 时过滤，例外条目被写成正文并触发 `V2_W_STAMP_LAYOUT_MISMATCH`）
+- [x] 9.2 R1 回归断言：`tests/v2/render-figure-assets.spec.ts`「声明式无配图」用例补正文文本断言 + `V2_W_STAMP_LAYOUT_MISMATCH` 为空 + `warnings` 全空
+- [x] 9.3 R2 · `stamp.ts` 判定收窄为 `/^无\s*[（(]\s*理由\s*[：:]/`，正文含「理由：」的正常描述不再被判成例外
+- [x] 9.4 R3 · 裸 `- 配图：无` 纳入判定（`/^无\s*$/`）；`markdown-v2-spec.md` W3 注明「旧文档兜底，SOP 产出必须带理由」
+- [x] 9.5 R2/R3 单测：3 条判定用例（带理由例外 / 裸无 / 正常描述仍建槽）
+- [x] 9.6 R5 · `HANDOFF.md` 记旧文档首次同步可能报一条 `figure` 冲突
+- [x] 9.7 R4 · `HANDOFF.md` 记「例外判定应收敛到 parser」为已知债务（本轮不做）

@@ -1618,7 +1618,8 @@ async function fillBlockContent(
 
   // Bullets: 1 TEXT ("正文/规则") = 1 bullet. Clone or trim to match count.
   // `配图：` 条目不是正文，交给下面的配图槽处理。
-  const visibleBullets = nestedShell ? bullets.filter((b) => !isImageBullet(b)) : bullets;
+  // 非嵌套路径此前不过滤，声明式无配图（`配图：无（理由：…）`）会被当成正文写进去。
+  const visibleBullets = bullets.filter((b) => !isImageBullet(b));
   const bulletNodes: NodeInfo[] = bulletTexts.slice(0, visibleBullets.length);
   const bulletSource = bulletTexts[0];
   // PR-2 (backend-batch-clone-nodes): replace serial while-loop with single
