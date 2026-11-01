@@ -144,13 +144,13 @@ cd ../.. && npm run install-skill -- --agent codemaker   # 或 claude/cursor/cli
 ```
 Phase 0  翻库咨询     查项目模式库（无库静默跳过）
      ↓
-Phase 1  需求挖掘     读策划文档 → 澄清阻塞问题 → 确认本次用哪份文风
+Phase 1  需求挖掘     先问有没设计稿（有图=以图提问，无图=读策划文档）→ 澄清阻塞问题 → 确认本次用哪份文风
      ↓
-Phase 2  v2 Markdown  生成结构化交互文档 → 用户审核 → 保存磁盘 + diff 快照
+Phase 2  v2 Markdown  生成结构化交互文档（每簇默认配图）→ 用户审核 → 保存磁盘 + diff 快照
      ↓
-Phase 3  索要设计稿   收集截图 / Figma 链接 / 或跳过用占位（母版走 figma_instance）
+Phase 3  资产确认     收集截图 / Figma 链接 / 或跳过用占位（母版走 figma_instance）；映射配图条目
      ↓
-Phase 4  写入 Figma   读模板配置 preflight → 引擎渲染（气泡 + 说明块 + 配图占位）
+Phase 4  写入 Figma   读模板配置 preflight → 引擎渲染（气泡 + 说明块 + 配图占位）→ 截图做配图审计、缺图提醒
      ↓
 Phase 5  文风沉淀     快照 diff / Figma 表述读回 → 列清单确认 → 写入本次生效的文风
      ↓
