@@ -40,6 +40,8 @@
 
 `resolve-sections-under-shell` 已归档（`openspec/changes/archive/2026-11-01-resolve-sections-under-shell`），delta spec 已并入主 spec `render-reconcile-parts`。
 
+`skill-design-first-and-figure-audit` 已实现（skill `2.3.0`，引擎无改动）：Phase 1 开场先要设计稿、Phase 2 每簇默认配图、Phase 4 渲染后截图审计 + 缺图提醒。待实际跑一轮需求验证话术与审计输出。
+
 **用户待验收（我这侧做不了）**：
 1. 手改一条正文 + 换一张配图 → 同步 → 文字/图不被覆盖，`preserved` 出现两条 `hand-edit`
 2. md 加一条规则、删一条 `配图：` → 同步 → 位置正确、下方内容跟着移动、不留空洞，`changes` 有 `insert`/`delete`
