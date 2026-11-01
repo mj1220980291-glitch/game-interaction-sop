@@ -40,7 +40,7 @@
 
 `resolve-sections-under-shell` 已归档（`openspec/changes/archive/2026-11-01-resolve-sections-under-shell`），delta spec 已并入主 spec `render-reconcile-parts`。
 
-`skill-design-first-and-figure-audit` 已实现（skill `2.3.0`；引擎仍 `0.2.0`，但有行为改动）：Phase 1 开场先要设计稿、Phase 2 每簇默认配图、Phase 4 渲染后截图审计 + 缺图提醒。
+`skill-design-first-and-figure-audit` 已归档（`openspec/changes/archive/2026-11-01-skill-design-first-and-figure-audit`），delta spec 已并入主 spec `skill-sop-workflow`（新增 Phase 1 设计稿优先 / Phase 2 每簇默认配图 / Phase 4 配图审计，并改写了 Phase 3 配图定位要求）。
 
 - 第一轮外部验收提的 4 条 CRITICAL（Phase 1 双模板对冲、Phase 2 例外清单反向冲销、opt-out 两阶段口径不一致、Phase 2 无 opt-out 出口）+ 6 条 WARNING 已修完
 - 第二轮外部验收提的 2 CRITICAL + 2 WARNING：①`配图：无（理由：…）` 引擎侧无落地路径 → 选了改引擎（A 方案），`reconcile/stamp.ts` 新增 `isDeclaredNoFigureBullet` / `isFigureSlotBullet`，legacy 与 parts 两条渲染路径都不再为该条建槽 / 画灰板 / 计 `figuresPlaceholder` / 抛 `V2_W_FIGURE_ASSET_MISSING`，也不占 `NN/C/K` 的 K 号；单测 `tests/v2/render-figure-assets.spec.ts`「声明式无配图」用例锁定 ②opt-out 只豁免审计、没豁免 warnings 逐条说明 → `phase4-figma.md:173` 加短路 ③CHANGELOG 三处与实现相反已按现状重写 ④W3 未收录「配图：本界面主图，<区域>」→ `markdown-v2-spec.md` 与 `phase3-asset.md` 补该形态与映射规则
