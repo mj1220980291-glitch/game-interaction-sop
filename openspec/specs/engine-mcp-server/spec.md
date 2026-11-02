@@ -13,13 +13,16 @@ MCP Server `figma-interaction-doc-engine` SHALL 只暴露 v2 Markdown 管道所�
 |---|---|---|
 | `validate_v2_markdown` | 否 | 校验 v2 Markdown，返回 `ok/errors/warnings/ir` |
 | `render_v2_markdown_to_figma` | 是 | 按 v2 Markdown 填充模板 1:14 |
+| `figma_probe_template` | 是（只读） | 渲染前体检项目模板结构，产出契约草案 |
+| `figma_compile_template` | 是（`write: true` 才写） | 把项目模板编译成库里的 4 个原子组件并回填 key |
+| `get_skill_requirements` | 否 | 返回 `{ requiredSkillVersion, engineVersion }`，供 skill Preflight 版本自检 |
 
 已废弃的一代 YAML DSL 工具（`validate_dsl`、`dry_run_layout`、`generate_interaction_doc`、`replay_from_checkpoint`）SHALL NOT 出现在工具列表中。
 
-#### Scenario: tools/list 只返回两个原生工具
+#### Scenario: tools/list 只返回原生工具
 
 - **WHEN** 客户端请求 `tools/list` 且未配置任何 proxyTools
-- **THEN** 返回的工具名集合 SHALL 恰好为 `{validate_v2_markdown, render_v2_markdown_to_figma}`
+- **THEN** 返回的工具名集合 SHALL 恰好为 `{validate_v2_markdown, render_v2_markdown_to_figma, figma_probe_template, figma_compile_template, get_skill_requirements}`
 
 #### Scenario: 调用已移除的一代工具返回未知工具错误
 
@@ -208,7 +211,7 @@ CodeMaker (and any other MCP host) MUST NOT be configured with both a standalone
 
 工具描述 SHALL 写明：重新渲染已有文档时应传 `rootId`；冲突不会被自动覆盖；`dryRun` 可用于预览。
 
-原生工具集 SHALL 仍恰好为 `{validate_v2_markdown, render_v2_markdown_to_figma}`。
+新增工具 SHALL NOT 改动 `validate_v2_markdown` / `render_v2_markdown_to_figma` 已有的名称与入参契约。
 
 #### Scenario: 无 rootId 时传 scope
 - **WHEN** 客户端传 `{ markdown, scope: "03" }`，没有 `target.rootId`

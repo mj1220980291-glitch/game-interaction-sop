@@ -48,6 +48,7 @@ describe('mcp server — tool registration', () => {
     expect(names).toEqual([
       'figma_compile_template',
       'figma_probe_template',
+      'get_skill_requirements',
       'render_v2_markdown_to_figma',
       'validate_v2_markdown'
     ]);

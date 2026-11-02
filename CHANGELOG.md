@@ -37,10 +37,10 @@
 - `manifest.engineVersion` 从 `^0.2.0` 升到 `^0.3.0`
 - 引擎 `0.2.0` → `0.3.0`（新增工具属 API surface 变化，走 minor bump）
 
-### 5. 已知技术债（本次不动）
+### 5. 已清理的技术债（同日补修）
 
-- `openspec/specs/engine-mcp-server/spec.md` 要求「原生工具集 SHALL 恰好为 {validate_v2_markdown, render_v2_markdown_to_figma}」，但代码里 `figma_probe_template` / `figma_compile_template` 早已加入（spec drift 存量），本次再加 `get_skill_requirements` 使实际工具数达 5 ≠ 2。建议下一轮专门 PR 同步 spec。
-- `packages/figma-mcp-server/tests/server.spec.ts` 若存在「工具数量 = N」断言需要同步更新。本次未动，等 CI 结果再决定是否补 fix。
+- `openspec/specs/engine-mcp-server/spec.md` 原写「原生工具集 SHALL 恰好为 {validate_v2_markdown, render_v2_markdown_to_figma}」，与实际 5 个工具不符（存量 spec drift）。已同步为 5 个工具的清单，并把「不得改动已有工具契约」单独写成约束。
+- `packages/figma-mcp-server/tests/server.spec.ts` 的「工具集合」断言已更新为 5 个（含 `get_skill_requirements`）。
 
 ## v2.3.1 — 2026-11-02
 
