@@ -1,6 +1,49 @@
-# 交接说明（2026-11-01）
+# 交接说明（2026-11-02）
 
-## 当前状态快照（2026-11-01 17:50，换对话先读这一节）
+## 当前状态快照（2026-11-02 18:56，换对话先读这一节）
+
+**一句话**：交互文档 SOP 的三件事全部交付并归档——①设计稿优先 + 每簇默认配图 + 渲染后配图审计（skill `2.3.0`）；②标号锚点 `badgeAnchors` 及其同步修复（`2.3.1`）；③开场上线 `Preflight` 版本自检 + 引擎工具 `get_skill_requirements`（`2.3.2`，引擎升到 `0.3.0`）。代码与 spec 已对齐，两仓同步。
+
+**代码状态**：`npm run build` 通过，`npm test` **66 files / 526 tests** 全绿，`openspec validate --all --strict` **21/21** 通过（活跃 change 4 个）。最近提交 **`cc4991f`**（test(server)：工具集断言 + engine spec drift 同步），本地 = GitHub = GitLab `main`。工作区干净。
+
+**版本**：skill `2.3.2` / 引擎 `0.3.0` / `manifest.engineVersion ^0.3.0`。
+
+**本会话（11-01 → 11-02）做完的事**：
+
+1. 归档 `resolve-sections-under-shell`，delta spec 并入 `render-reconcile-parts`
+2. 实现 `skill-design-first-and-figure-audit`（skill `2.3.0`）并归档：Phase 1 开场先要设计稿、Phase 2 每簇默认配图（例外写法 `配图：无（理由：…）`）、Phase 4 截图配图审计 + 缺图提醒。经**三轮外部验收**返工，共修 4+2+1 条 CRITICAL（细节见下方历史段落）
+3. 引擎配合改为「声明式无配图」：`isDeclaredNoFigureBullet` / `isFigureSlotBullet`，不建槽、不画灰板、不计 `figuresPlaceholder`、不占 `NN/C/K` 的 K 号
+4. 标号锚点 `badgeAnchors`（远程提交 `023751e` 起的特性）+ 本地补修：md 没改时同步也按锚点重摆、已有标号给锚点就移动（不给则保留设计师坐标），归档为 `add-badge-anchors`
+5. 拉入远程 `de62111`（`v2.3.2`：`style-default.md` frontmatter、`SKILL.md` Preflight、引擎 `get_skill_requirements`），并修掉它带着的红测试与 spec drift（工具集 2 → 5）
+
+**遗留待办（4 个活跃 change，全部需要人为制造条件或更细的 mock）**：
+
+| change | 剩什么 | 怎么验 |
+|---|---|---|
+| `make-pack-resolution-observable` | 1/22 | 把 `GISOP_TEMPLATE_PACK` 指到坏文件（要改 MCP 环境变量后重启），看 `V2_TEMPLATE_PACK_MISSING` 是否列全 4 路径 |
+| `figure-slot-lifecycle` | 4/27 | ①同步删槽后的几何重算断言 ②HEIGHT 自适应的章节总高断言 ③legacy 路径三态计数 |
+| `sanitize-inherited-style` | 2/19 | ①清描边失败降级为 `W_FILL_STROKE_RESIDUAL`（现在会直接抛错）②HEIGHT 高度断言 |
+| `render-call-surface` | 1/21 | 渲染途中重启 Desktop Bridge，看是否自动重试并回 `V2_W_RENDER_RETRIED` |
+
+**已知风险 / 债务（本轮明确不做）**：
+
+1. 例外判定散在 render / stamp / reconcile / parts 四处各自调 `isFigureSlotBullet`，应收敛到 `parser.ts` 生成 IR 时分流
+2. **锚点文件跨 md 版本复用会错位**：`.interaction-sop/anchors/<需求名>.json` 在 md 增删簇后键整体平移，老键仍能匹配到新簇 → 标号静默指错控件、无任何告警。当前只靠 Phase 4 截图审计兜。备选修法：锚点条目记簇标题比对 / 文件头存簇结构指纹（倾向前者）
+3. `parseBadgeAnchors` 对非法键与非法值静默丢弃（`badge-anchor.ts:52-72` 注释承诺的「空对象告警」未实现）；键由 agent 生成、非用户输入，故优先级低
+4. 旧文档迁移：用 `3f2aa21` 及更早渲染的文档含「例外灰板」，升级后首次同步干净则 delete、手改过则进 `conflicts`（`kind: figure`），属正常
+
+**用户待验收（我这侧做不了）**：
+1. 手改一条正文 + 换一张配图 → 同步 → 文字/图不被覆盖，`preserved` 出现两条 `hand-edit`
+2. md 加一条规则、删一条 `配图：` → 同步 → 位置正确、下方内容跟着移动、不留空洞，`changes` 有 `insert`/`delete`
+3. 真跑一轮需求，验证「开场先要设计稿」话术与「配图审计清单」在真机上可读
+
+**Figma 现场（11-01 起未变）**：`kiroro主串联` `32LjMNqRsQOFEwbx3k3iQ3` 页「SOP引擎验收 1031」`4231:55123` 只剩 M1 `4233:58395`（`(0,0)`，高 18773）。设计稿源节点：`4216:41127/41128/41130/41131/41132/41133/41134`。M1/M2 md 在 `F:\vibecoding\kiroro\主串联\`。
+
+**升级提醒**：引擎行为有改动（声明式无配图、锚点同步），已安装的需重跑 `npm run install-mcp` 或重启 MCP；skill 需重跑 `npm run install-skill`。
+
+---
+
+## 历史快照（2026-11-01 17:50）
 
 **一句话**：M1 真实文档（4 章 18 簇 18 图）真机全链路跑通并验收；10-30 那份「引擎问题反馈」11 条 + 2 条新发现的隐藏 bug 已修完并推送；遗留只剩 7 条「需要人为制造条件」的真机项。
 
