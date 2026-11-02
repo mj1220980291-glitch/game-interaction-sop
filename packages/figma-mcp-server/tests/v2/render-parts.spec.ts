@@ -9,6 +9,7 @@ import { parseV2 } from '../../src/v2/parser.js';
 import { parseTemplatePack } from '../../src/v2/template/schema.js';
 import { renderFromParts, PARTS_RENDER_CODES } from '../../src/v2/render/parts/index.js';
 import { BADGE_MASTER_NAME } from '../../src/v2/template-slots.js';
+import { loadRoleBlocks } from '../../src/v2/role-block.js';
 import { partsBackend, type PNodeSpec } from './helpers/parts-backend.js';
 
 const MD = `# 设置面板
@@ -394,5 +395,110 @@ describe('renderFromParts', () => {
       .byName(r.rootId, '配图')
       .filter((n) => n.visible === false);
     expect(hidden.length).toBeGreaterThan(0);
+  });
+
+  it('parts 路径的 @职能 条目生成组件实例（variantKeys）', async () => {
+    // 反馈 #2 P0-1 的根因：parts 路径把 roleBlocks 写死成 undefined。
+    const md = MD.replace('- 点击入口\n- 面板弹出', '- @程序：命中后播特效');
+    const { h, ir, pack } = setup(md);
+    h.registerComponent('role-prog', {
+      id: 'role-root',
+      name: '职能标记',
+      type: 'COMPONENT',
+      width: 400,
+      height: 44,
+      children: [
+        { id: 'role-label', name: '文本', type: 'TEXT', characters: '#程序', width: 80, height: 36 },
+        { id: 'role-body', name: '正文', type: 'TEXT', characters: '旧正文', width: 300, height: 36 }
+      ]
+    });
+    const roleLoad = await loadRoleBlocks(
+      h.backend,
+      {
+        variantKeys: { 程序: 'role-prog', GUI: 'role-gui' },
+        variantPrefix: '职能标记=',
+        labelTextName: '文本'
+      },
+      () => {}
+    );
+    if (!roleLoad?.ok) throw new Error('role runtime not loaded');
+
+    const r = await renderFromParts({
+      ir,
+      pack,
+      pageId: 'page-root',
+      backend: h.backend,
+      roleBlocks: roleLoad.runtime
+    });
+
+    const instances = h.byName(r.rootId, '职能标记=程序');
+    expect(instances).toHaveLength(1);
+    const body = h.childrenOf(instances[0]!.id).find((n) => n.type === 'TEXT' && n.name !== '文本');
+    expect(body?.characters).toBe('命中后播特效');
+  });
+
+  it('figma_instance 主图：计入 imagesPlaced，且不改变「气泡」之前的层序', async () => {
+    const { h, ir, pack } = setup();
+    h.nodes.set('src-inst', {
+      id: 'src-inst',
+      name: '设计稿',
+      type: 'INSTANCE',
+      children: [],
+      visible: true,
+      width: 1920,
+      height: 1080,
+      x: 0,
+      y: 0
+    });
+    const assetMap = {
+      '01': { type: 'figma_instance' as const, nodeId: 'src-inst' },
+      '02': { type: 'figma_instance' as const, nodeId: 'src-inst' }
+    };
+
+    const r = await renderFromParts({ ir, pack, assetMap, pageId: 'page-root', backend: h.backend });
+
+    expect(r.summary.imagesPlaced).toBe(2);
+    expect(r.summary.placeholdersUsed).toBe(0);
+    expect(r.warnings.some((w) => w.code === 'V2_W_MAIN_SLOT_MISSING')).toBe(false);
+
+    // 气泡是 rec组 的最后一个子级：主图实例必须插回占位原位，不能追加到末尾。
+    for (const chapter of h.byName(r.rootId, '界面说明1').concat(h.byName(r.rootId, '界面说明2'))) {
+      const rec = h.byName(chapter.id, 'rec组')[0]!;
+      const bubbleIdx = rec.children.findIndex((id) => h.nodes.get(id)!.name === '气泡');
+      const mainIdx = rec.children.findIndex((id) => h.nodes.get(id)!.name === '主图占位');
+      expect(mainIdx).toBeGreaterThanOrEqual(0);
+      expect(mainIdx).toBeLessThan(bubbleIdx);
+    }
+  });
+
+  it('章节缺主图槽 + 给了资产 → V2_W_MAIN_SLOT_MISSING', async () => {
+    const { h, ir, pack } = setup();
+    const spec = chapterSpec();
+    const rec = spec.children!.find((c) => c.name === 'rec组')!;
+    rec.children = rec.children!.filter((c) => c.name !== '主图占位');
+    h.registerComponent('k-chapter', spec);
+    h.nodes.set('src-inst', {
+      id: 'src-inst',
+      name: '设计稿',
+      type: 'INSTANCE',
+      children: [],
+      visible: true,
+      width: 1920,
+      height: 1080,
+      x: 0,
+      y: 0
+    });
+
+    const r = await renderFromParts({
+      ir,
+      pack,
+      assetMap: { '01': { type: 'figma_instance', nodeId: 'src-inst' } },
+      pageId: 'page-root',
+      backend: h.backend
+    });
+
+    const warn = r.warnings.find((w) => w.code === 'V2_W_MAIN_SLOT_MISSING');
+    expect(warn?.context).toBe('设置面板');
+    expect(r.summary.imagesPlaced).toBe(0);
   });
 });

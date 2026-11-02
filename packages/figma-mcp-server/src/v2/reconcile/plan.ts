@@ -594,8 +594,9 @@ class Planner {
       }
     }
 
-    // Items.
-    const want = expectedItems(cl);
+    // Items.多部件文档的 `@职能` 条目渲染成组件实例，stamp 不按条目记录，
+    // 这里也不要求它们作为文本行存在，否则幂等同步会每次重复插入一条。
+    const want = expectedItems(cl, { includeRoles: this.snap.profile.id !== 'parts' });
     const seq = this.align(
       oc.items,
       (it) => `${it.t}:${it.W}`,
@@ -829,6 +830,7 @@ function mergeKept<E extends { oldIndex?: number }>(entries: E[], kept: E[]): E[
 
 function describeAsset(a: AssetSpec): string {
   if (a.type === 'figma_node') return `figma_node ${a.nodeId}${a.crop ? ' (crop)' : ''}`;
+  if (a.type === 'figma_instance') return `figma_instance ${a.nodeId}`;
   if (a.type === 'image') return 'image';
   return 'skip';
 }

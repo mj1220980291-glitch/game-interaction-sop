@@ -40,6 +40,40 @@ function toFetchableImageSrc(src: string): string {
 
 // ---- low-level execute helper -------------------------------------------
 
+/**
+ * Replace a main-image placeholder with an instance of the asset source.
+ *
+ * Kept as a named builder so the "keep the placeholder's slot index and name"
+ * rule is testable without a live Figma session — appending instead is what
+ * made main images cover the badge layer (feedback #2, P1-3).
+ */
+export function buildPlaceInstanceScript(sourceId: string, placeholderId: string): string {
+  return `
+        ${SERIALIZE_NODE_FN}
+        const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
+        if (!src) throw new Error('placeInstance: source not found: ' + ${JSON.stringify(sourceId)});
+        const ph = await figma.getNodeByIdAsync(${JSON.stringify(placeholderId)});
+        if (!ph) throw new Error('placeInstance: placeholder not found');
+        const parent = ph.parent;
+        if (!parent) throw new Error('placeInstance: placeholder has no parent');
+        const inst = src.type === 'COMPONENT' ? src.createInstance() : src.clone();
+        // 保位：主图常与「气泡」同父且排在它前面。appendChild 会把实例扔到父级
+        // 末尾，直接盖住标号——反馈 #2 的 P1-3。插回占位原索引即可。
+        const idx = parent.children.indexOf(ph);
+        if (idx >= 0) parent.insertChild(idx, inst);
+        else parent.appendChild(inst);
+        const px = ph.x, py = ph.y, pw = ph.width, phh = ph.height;
+        const s = Math.min(pw / inst.width, phh / inst.height);
+        if (isFinite(s) && s > 0 && s !== 1) inst.resize(Math.round(inst.width * s), Math.round(inst.height * s));
+        inst.x = px + Math.round((pw - inst.width) / 2);
+        inst.y = py + Math.round((phh - inst.height) / 2);
+        // 继承槽位名：同步打标按名找「主图」，不继承就会报缺槽位、统计归零。
+        try { inst.name = ph.name; } catch (e) { /* 改名失败只丢诊断精度 */ }
+        ph.remove();
+        return serNode(inst);
+      `;
+}
+
 async function exec(
   client: Client,
   code: string,
@@ -339,24 +373,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     },
 
     async placeInstance({ sourceId, placeholderId }) {
-      const r = await run(`
-        ${SERIALIZE_NODE_FN}
-        const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceId)});
-        if (!src) throw new Error('placeInstance: source not found: ' + ${JSON.stringify(sourceId)});
-        const ph = await figma.getNodeByIdAsync(${JSON.stringify(placeholderId)});
-        if (!ph) throw new Error('placeInstance: placeholder not found');
-        const parent = ph.parent;
-        if (!parent) throw new Error('placeInstance: placeholder has no parent');
-        const inst = src.type === 'COMPONENT' ? src.createInstance() : src.clone();
-        parent.appendChild(inst);
-        const px = ph.x, py = ph.y, pw = ph.width, phh = ph.height;
-        const s = Math.min(pw / inst.width, phh / inst.height);
-        if (isFinite(s) && s > 0 && s !== 1) inst.resize(Math.round(inst.width * s), Math.round(inst.height * s));
-        inst.x = px + Math.round((pw - inst.width) / 2);
-        inst.y = py + Math.round((phh - inst.height) / 2);
-        ph.remove();
-        return serNode(inst);
-      `, 30000) as Record<string, unknown>;
+      const r = await run(buildPlaceInstanceScript(sourceId, placeholderId), 30000) as Record<string, unknown>;
       return mapNode(r);
     },
 

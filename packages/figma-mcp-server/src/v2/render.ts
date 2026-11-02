@@ -59,15 +59,20 @@ import {
   type PackResolution,
   type TemplateRef
 } from './template-config.js';
-import { renderFromParts } from './render/parts/index.js';
+import { renderFromParts, type PartsSummary } from './render/parts/index.js';
 import type { TemplatePack } from './template/schema.js';
 import { stampPartsDoc, type PartsDocLayout } from './render/parts/stamp-parts.js';
 import { isRoleFrame } from './template-slots.js';
 import { splitRuns, runMemberIds } from './template/runs.js';
 import {
+  describeRoleBlock,
   findRoleBlockBody,
   loadRoleBlocks,
+  missingRoles,
   parseRoleBullet,
+  rolesInIr,
+  type ResolvedRoleBlock,
+  type RoleBlockFailure,
   type RoleBlockRuntime
 } from './role-block.js';
 
@@ -264,6 +269,12 @@ export interface RenderResult {
   packMissing?: boolean;
   /** Only populated when `packMissing` — keeps the happy path small. */
   packCandidates?: PackCandidate[];
+  /** 本次解析出的角色块配置；未配置时字段不存在。 */
+  resolvedRoleBlock?: ResolvedRoleBlock;
+  /** 模板配置文件来源；`env:<path>` 表示来自 `$GISOP_TEMPLATE_CONFIG`。 */
+  configPath?: string;
+  /** 回答本次调用的进程 id —— 多实例排查用。 */
+  enginePid?: number;
   errors: Array<HardError | { code: string; message: string; details?: string }>;
   warnings: SoftWarning[];
   summary?: {
@@ -292,6 +303,12 @@ export async function renderV2MarkdownToFigma(
   const packResolution = resolvePackWithTrace();
   const packFields = packResultFields(packResolution);
   const packCaps = packResolution.hit?.pack.capabilities;
+  // 诊断字段：多实例 / 配置漂移时，一次调用就能看清「哪个进程、读的哪个文件」。
+  const templateConfig = resolveTemplateConfig(input.template);
+  const engineFields: Pick<RenderResult, 'configPath' | 'enginePid'> = {
+    enginePid: process.pid,
+    ...(templateConfig.configPath ? { configPath: templateConfig.configPath } : {})
+  };
 
   // Phase A — Parse + hard-validate.
   // 校验松紧要跟模板走：没有总览区 / 职能写句尾的模板，按官方形状要求会一律拒收。
@@ -303,6 +320,7 @@ export async function renderV2MarkdownToFigma(
     return {
       ok: false,
       ...packFields,
+      ...engineFields,
       errors: parsed.errors,
       warnings: parsed.warnings
     };
@@ -320,6 +338,7 @@ export async function renderV2MarkdownToFigma(
     return {
       ok: false,
       ...packFields,
+      ...engineFields,
       errors: [{ code: err.code ?? 'V2_TARGET_FILE_ERROR', ...splitDiagnostic(err.message) }],
       warnings: parsed.warnings
     };
@@ -345,6 +364,7 @@ export async function renderV2MarkdownToFigma(
       return {
         ok: false,
         ...packFields,
+        ...engineFields,
         errors: [
           {
             code: 'V2_BRIDGE_DOWN',
@@ -360,7 +380,7 @@ export async function renderV2MarkdownToFigma(
 
   if (input.target?.rootId) {
     const reconciled = await reconcileWithRetry(parsed.ir, parsed.warnings, input, targetBackend);
-    return { ...packFields, ...reconciled };
+    return { ...packFields, ...engineFields, ...reconciled };
   }
 
   // Phase B — Render. Wrap in undo checkpoint + try/catch for one-shot rollback.
@@ -377,6 +397,8 @@ export async function renderV2MarkdownToFigma(
     const roleWarnings: SoftWarning[] = [];
     let rootInstanceId: string | undefined;
     let partsLayout: PartsDocLayout | undefined;
+    let partsSummary: PartsSummary | undefined;
+    let resolvedRoleBlock: ResolvedRoleBlock | undefined;
     const partsPack = packResolution.hit?.pack;
     try {
       await targetBackend.commitUndoCheckpoint('v2-render-start');
@@ -387,12 +409,13 @@ export async function renderV2MarkdownToFigma(
         figures,
         (id) => { rootInstanceId = id; },   // set as soon as root is created
         (w) => roleWarnings.push(w),
-        (layout) => { partsLayout = layout; },
+        (layout, summary) => { partsLayout = layout; partsSummary = summary; },
         packResolution,
-        { x: placement.x, y: placement.y }
+        { x: placement.x, y: placement.y },
+        (info) => { resolvedRoleBlock = info; }
       );
     } catch (e) {
-      const err = e as Error & { code?: string };
+      const err = e as Error & { code?: string; details?: string };
       // Best-effort rollback: delete the entire root subtree if it was created.
       // More reliable than triggerUndo(1) which only undoes the last figma_execute
       // entry and leaves the rest of the partial render on canvas.
@@ -413,12 +436,14 @@ export async function renderV2MarkdownToFigma(
     return {
       ok: false,
       ...packFields,
+      ...engineFields,
       errors: [
         {
           code: missingPackClone ? 'V2_TEMPLATE_PACK_MISSING' : err.code ?? 'V2_RENDER_RUNTIME_ERROR',
           ...splitDiagnostic(
             missingPackClone ? describeMissingPack(packResolution, err.message) : err.message
-          )
+          ),
+          ...(err.details ? { details: err.details } : {})
         }
       ],
       warnings: parsed.warnings
@@ -458,6 +483,8 @@ export async function renderV2MarkdownToFigma(
       mode: 'create',
       rootInstanceId,
       ...packFields,
+      ...engineFields,
+      ...(resolvedRoleBlock ? { resolvedRoleBlock } : {}),
       errors: [],
       warnings: [
         ...parsed.warnings,
@@ -468,11 +495,21 @@ export async function renderV2MarkdownToFigma(
         ...placement.warnings,
         ...alignWarnings(figures.alignNormalized)
       ],
-      summary: {
-        ...summarize(ir, input.assetMap),
-        figuresPlaced: figures.placed,
-        figuresPlaceholder: figures.placeholders
-      }
+      summary: partsSummary
+        ? {
+            sectionCount: partsSummary.sectionCount,
+            clusterCount: partsSummary.clusterCount,
+            bubbleCount: partsSummary.bubbleCount,
+            imagesPlaced: partsSummary.imagesPlaced,
+            placeholdersUsed: partsSummary.placeholdersUsed,
+            figuresPlaced: figures.placed,
+            figuresPlaceholder: figures.placeholders
+          }
+        : {
+            ...summarize(ir, input.assetMap),
+            figuresPlaced: figures.placed,
+            figuresPlaceholder: figures.placeholders
+          }
     };
   };
 
@@ -814,7 +851,7 @@ export async function renderInner(
   figures: FigureState,
   onRootCreated?: (id: string) => void,
   report?: (w: SoftWarning) => void,
-  onPartsLayout?: (layout: PartsDocLayout) => void,
+  onPartsLayout?: (layout: PartsDocLayout, summary: PartsSummary) => void,
   /**
    * 入口解析好的模板包。`undefined` = 交给这里自己查（老调用方）；
    * 传进来的 `hit` 为空即「确认没有包」，此时**不再**回查——否则会把机器上
@@ -822,7 +859,9 @@ export async function renderInner(
    */
   resolvedPack?: PackResolution,
   /** 新文档落点（页面坐标）。 */
-  placement?: { x: number; y: number }
+  placement?: { x: number; y: number },
+  /** 角色块解析结果的回显（成功才带）。 */
+  onRoleBlocksResolved?: (info: ResolvedRoleBlock | undefined) => void
 ): Promise<string> {
   // 1. Clone master template into target page.
   const template = resolveTemplateConfig(input.template);
@@ -832,8 +871,33 @@ export async function renderInner(
     seenWarnings.add(message);
     report?.({ code: SOFT_WARNING_CODES.W_ROLE_BLOCK_MISSING, message });
   };
-  const roleBlocks = await loadRoleBlocks(backend, template.roleBlock, warnRoleBlock);
+  const roleLoad = await loadRoleBlocks(backend, template.roleBlock, warnRoleBlock);
+  const needsRole = rolesInIr(ir).length > 0;
+  let roleBlocks: RoleBlockRuntime | undefined;
+  if (roleLoad && !roleLoad.ok) {
+    // 没写 @职能 的文档不该被一份坏配置挡住——那条路本来就用不到角色块。
+    if (needsRole) throw roleBlockFailureError(roleLoad.failure);
+    warnRoleBlock(roleBlockFailureError(roleLoad.failure).message);
+  } else if (roleLoad?.ok) {
+    roleBlocks = roleLoad.runtime;
+    const missing = missingRoles(ir, roleBlocks);
+    if (missing.length > 0) {
+      throw Object.assign(
+        new Error(
+          `「职能标记」组件里没有 ${missing.map((r) => `@${r}`).join(' / ')} 对应的变体` +
+            `（变体命名应为 "${roleBlocks.config.variantPrefix}<角色>"，变体来源：` +
+            `${roleLoad.source === 'keys' ? 'roleBlock.variantKeys' : `组件集 ${roleBlocks.config.componentSetId}`}）`
+        ),
+        { code: 'V2_ROLE_BLOCK_UNAVAILABLE', details: `missingRoles: ${missing.join(', ')}` }
+      );
+    }
+  }
   assertRoleBlocksAvailable(ir, roleBlocks);
+  onRoleBlocksResolved?.(
+    roleBlocks && roleLoad?.ok
+      ? describeRoleBlock(roleLoad.runtime, roleLoad.source, template.configPath)
+      : undefined
+  );
 
   // 模板包带 4 部件 → 多部件渲染；否则完全走旧路径（一行不改）。
   // 入口已经查过一次，这里优先用传下来的结果，避免同一轮读到两份不同的包。
@@ -850,6 +914,7 @@ export async function renderInner(
       pack: packHit.pack,
       ...(input.assetMap ? { assetMap: input.assetMap } : {}),
       ...(input.badgeAnchors ? { badgeAnchors: input.badgeAnchors } : {}),
+      ...(roleBlocks ? { roleBlocks } : {}),
       ...(input.target?.pageId ? { pageId: input.target.pageId } : {}),
       ...(placement ? { origin: placement } : {}),
       backend,
@@ -858,7 +923,7 @@ export async function renderInner(
     for (const w of partsResult.warnings) report?.(w);
     figures.placed += partsResult.summary.figuresPlaced;
     figures.placeholders += partsResult.summary.figuresPlaceholder;
-    onPartsLayout?.(partsResult.layout);
+    onPartsLayout?.(partsResult.layout, partsResult.summary);
     return partsResult.rootId;
   }
 
@@ -1046,18 +1111,43 @@ function assertRoleBlocksAvailable(
   roleBlocks: RoleBlockRuntime | undefined
 ): void {
   if (roleBlocks) return;
-  const hasRoleBullet = ir.sections.some((s) =>
-    s.clusters.some((c) => c.bullets.some((b) => parseRoleBullet(b) !== undefined))
-  );
+  const hasRoleBullet = rolesInIr(ir).length > 0;
   if (!hasRoleBullet) return;
   throw Object.assign(
     new Error(
-      'Markdown 里有 `- @职能：…` 条目，但模板未配置「职能标记」组件集。' +
-        '在 ~/.game-interaction-sop/template.json（或 config.local.json）里填 roleBlock.componentSetId，' +
-        '并把组件集放进模板文件后重试。'
+      'Markdown 里有 `- @职能：…` 条目，但模板未配置「职能标记」组件。' +
+        '跨库请用 roleBlock.variantKeys（角色 → 已发布组件 key）；组件集在渲染目标文件内时可用 roleBlock.componentSetId。' +
+        '配置写在 ~/.game-interaction-sop/template.json（或 config.local.json）。'
     ),
     { code: 'V2_ROLE_BLOCK_UNAVAILABLE' }
   );
+}
+
+/** 角色块配置问题的错误码分流：四种原因以前共用一句话，正是误诊的来源。 */
+function roleBlockFailureError(failure: RoleBlockFailure): Error & { code: string; details?: string } {
+  switch (failure.kind) {
+    case 'not-in-target-file':
+      return Object.assign(
+        new Error(
+          `roleBlock.componentSetId=${failure.componentSetId} 在渲染目标文件内解析不到（${failure.cause}）。` +
+            'componentSetId 只在渲染目标文件内生效：组件集在别的库时，请改用 roleBlock.variantKeys（角色 → 已发布组件 key）。'
+        ),
+        { code: 'V2_ROLE_BLOCK_SET_NOT_IN_TARGET_FILE' }
+      );
+    case 'no-variants':
+      return Object.assign(
+        new Error(
+          `组件集 "${failure.setName}" (${failure.componentSetId}) 下没有 "${failure.variantPrefix}" 开头的变体。` +
+            '变体命名应为 `职能标记=<角色>`。'
+        ),
+        { code: 'V2_ROLE_BLOCK_UNAVAILABLE' }
+      );
+    case 'no-valid-roles':
+      return Object.assign(
+        new Error('roleBlock.variantKeys 里没有任何合法角色名（合法角色：策划 / 拼接 / GUI / 动效 / 音频 / 程序 / 美术）'),
+        { code: 'V2_ROLE_BLOCK_UNAVAILABLE' }
+      );
+  }
 }
 
 // --- Section rendering ---------------------------------------------------
@@ -2349,17 +2439,22 @@ async function fillOverviewBody(
   }
 }
 
+/**
+ * Apply one main-image asset to a placeholder.
+ *
+ * Returns whether an image was actually written — callers use it for
+ * `imagesPlaced` stats instead of guessing from the asset type.
+ */
 export async function applyAsset(
   backend: FigmaBackend,
   mainPlaceholder: NodeInfo,
   asset: AssetSpec
-): Promise<void> {
+): Promise<boolean> {
   switch (asset.type) {
     case 'image':
-      if (backend.setImageFill) {
-        await backend.setImageFill({ nodeId: mainPlaceholder.id, src: asset.src });
-      }
-      break;
+      if (!backend.setImageFill) return false;
+      await backend.setImageFill({ nodeId: mainPlaceholder.id, src: asset.src });
+      return true;
     case 'figma_node':
       // Bug 6 fix: COMPONENT/FRAME/GROUP source → rasterize to PNG → apply as
       // IMAGE fill. Do NOT reparent the source into rec组 (GROUP parent would
@@ -2379,19 +2474,19 @@ export async function applyAsset(
         console.warn(
           `[render.ts] backend lacks rasterizeNodeToImageFill; skipping figma_node asset for placeholder ${mainPlaceholder.id}`
         );
+        return false;
       }
-      break;
+      return true;
     case 'figma_instance':
-      if (backend.placeInstance) {
-        await backend.placeInstance({
-          sourceId: asset.nodeId,
-          placeholderId: mainPlaceholder.id
-        });
-      }
-      break;
+      if (!backend.placeInstance) return false;
+      await backend.placeInstance({
+        sourceId: asset.nodeId,
+        placeholderId: mainPlaceholder.id
+      });
+      return true;
     case 'skip':
       // Leave placeholder text untouched.
-      break;
+      return false;
   }
 }
 

@@ -210,7 +210,9 @@ export const SOFT_WARNING_CODES = {
   /** render — 该簇没有给 `badgeAnchors`，标号退回模板网格（位置是示意位）。 */
   W_BADGE_ANCHOR_MISSING: 'V2_W_BADGE_ANCHOR_MISSING',
   /** render — 锚点坐标不在 0–1，已夹到图内。 */
-  W_BADGE_ANCHOR_OUT_OF_RANGE: 'V2_W_BADGE_ANCHOR_OUT_OF_RANGE'
+  W_BADGE_ANCHOR_OUT_OF_RANGE: 'V2_W_BADGE_ANCHOR_OUT_OF_RANGE',
+  /** render — 章节部件里找不到主图槽，该章的主图资产未落图。 */
+  W_MAIN_SLOT_MISSING: 'V2_W_MAIN_SLOT_MISSING'
 } as const;
 
 export type SoftWarningCode =

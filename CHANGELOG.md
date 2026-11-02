@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## v2.3.3 — 2026-11-02
+
+**修用户反馈 #2 的三个阻断/体验缺陷：多部件渲染不认职能组件、主图实例压住标号、配置问题无法对账。** 引擎 `0.3.0` → `0.3.1`。
+
+### 1. 多部件渲染支持职能标记组件
+
+`render/parts` 此前调 `fillCluster` 时把 `roleBlocks` 写死成 `undefined`，导致 parts 路径下 `- @职能：…` 一律抛 `V2_ROLE_BLOCK_UNAVAILABLE`；报错里的 `variantPrefix` 还恒为兜底值 `职能标记=`，把用户引向「配置没读到」。
+
+- 角色运行时由渲染入口解析一次，显式传到章节 / 簇填充
+- `roleBlock.variantKeys`（跨库，`importComponentByKeyAsync`）优先于 `roleBlock.componentSetId`（仅渲染目标文件内）
+- 页面文案与实际行为一致：parts 与 legacy 产出相同的组件实例
+
+### 2. 主图实例保位，标号默认可见
+
+`placeInstance` 原来用 `appendChild` 放主图实例再删占位，节点被移到父级末尾，直接盖住同父的 `气泡` ——9 个标号全部不可见，需要手工提层。
+
+- 改为按占位原索引 `insertChild`，并继承占位节点名称（`主图占位` 槽位名保住）
+- 连带修掉打标报「缺槽位 main」与主图统计归零
+
+### 3. 角色 / 配置诊断可对账
+
+- `loadRoleBlocks` 返回结构化结果，错误码区分：`V2_ROLE_BLOCK_SET_NOT_IN_TARGET_FILE`（跨库组件集）/ `V2_ROLE_BLOCK_UNAVAILABLE`（缺角色、非法键）
+- 角色覆盖在克隆模板前预检，`details` 带 `missingRoles`，失败不落任何节点
+- 渲染返回新增 `resolvedRoleBlock{mode,source,componentSetId,variantPrefix,labelTextName,roles}`、`configPath`、`enginePid`
+- 主图槽缺失且有资产 → 新软告警 `V2_W_MAIN_SLOT_MISSING`；`imagesPlaced` 改按「实际落图」计
+- **同步配套**（真机验收时发现）：parts 文档的 `@职能` 条目不再参与文本对齐（否则幂等同步每轮重复 `insert`）；主图实例替换后 stamp 写到新节点（否则下一轮报 foreign + 缺 main 槽）；`describeAsset` 支持 `figma_instance`
+
+### 4. 文档
+
+- tool description 补 `variantKeys` 跨库写法与优先级、锚点取值建议、`badgeAnchors` 整表缺省语义（不传 = 不告警）
+- `template-contract.md` 新增「职能标记组件的调用规则」表
+- `phase3-asset.md` 补锚点取值建议；`phase4-figma.md` 补多实例排查（`enginePid` / `configPath`）与「同步不支持把正文改写成 `@职能`」
+
+### 5. 版本
+
+- 引擎 `0.3.0` → `0.3.1`；`ENGINE_VERSION` 与 `packages/figma-mcp-server/package.json` 同步
+- `manifest.engineVersion` 仍为 `^0.3.0`（semver 已覆盖 0.3.1）
+- 已安装方需重跑 `npm run install-mcp` 或重启 MCP
+
 ## v2.3.2 — 2026-11-02
 
 **默认文风（`style-default.md`）补齐 frontmatter；新增 Preflight 版本自检工具链。** 引擎 `0.2.0` → `0.3.0`。

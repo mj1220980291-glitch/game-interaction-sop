@@ -48,8 +48,19 @@ export interface ExpectedItem {
   role?: string;
 }
 
-/** A cluster's items in document order, as the renderer lays them out. */
-export function expectedItems(cluster: SemanticCluster): ExpectedItem[] {
+/**
+ * A cluster's items in document order, as the renderer lays them out.
+ *
+ * `includeRoles: false` drops `- @职能：…` bullets. Multi-part documents render
+ * them as component instances that the stamp does not track as items, so the
+ * planner must not treat them as text rows — otherwise an idempotent sync keeps
+ * "inserting" a duplicate plain-text row for every role bullet.
+ */
+export function expectedItems(
+  cluster: SemanticCluster,
+  opts: { includeRoles?: boolean } = {}
+): ExpectedItem[] {
+  const includeRoles = opts.includeRoles !== false;
   const flat =
     cluster.groups.length <= 1 && (cluster.groups[0]?.title ?? null) === null;
   const out: ExpectedItem[] = [];
@@ -59,7 +70,7 @@ export function expectedItems(cluster: SemanticCluster): ExpectedItem[] {
     for (const b of g.bullets) {
       const role = parseRoleBullet(b);
       if (role) {
-        out.push({ t: 'role', text: role.text, role: role.role });
+        if (includeRoles) out.push({ t: 'role', text: role.text, role: role.role });
       } else if (isImageBullet(b)) {
         if (isDeclaredNoFigureBullet(b)) continue;
         out.push({ t: 'figure', text: stripImageBulletPrefix(b), ordinal: ++ordinal });

@@ -98,6 +98,21 @@
 - 关键槽位缺失 → 编译拒绝：`chapter` 需 `#Name` / `主图占位` / `Text`，`cluster` 需 `Number` / `#Title_Main` / `正文/规则`
 - 旧命名兼容读法：`职能标记` 缺失时接受 `Frame 4273*`；`标号/母版` 缺失时取 `气泡` 下第一个 `标号/*`（官方 `1:14` 因此**不用重编**）
 
+### 职能标记组件的调用规则
+
+`roleBlock` 有两种配置，**同时配置时 `variantKeys` 优先**：
+
+| 方式 | 配置项 | 组件集位置要求 | 读取 API | 跨库 |
+|---|---|---|---|---|
+| 库引用 | `roleBlock.variantKeys = {角色: 已发布变体 key}` | 无要求 | `importComponentByKeyAsync` | 支持 |
+| 同文件 | `roleBlock.componentSetId = 组件集 nodeId` | 必须在**渲染目标文件**内 | 读组件集子级取 COMPONENT | 不支持 |
+
+- 变体命名必须是 `职能标记=<role>`，角色名允许带 `#` 前缀（`#程序`），引擎会 strip
+- 变体内必须有一个名为 `文本` 的标签 TEXT（`labelTextName` 可改），正文写入「除标签外的那个 TEXT」
+- `componentSetId` 在目标文件里读不到时报 `V2_ROLE_BLOCK_SET_NOT_IN_TARGET_FILE`（而不是笼统的「未配置」）
+- MD 写法：`- @程序：规则内容`，一个 bullet 一个角色，不与其他规则混写
+- 返回体 `resolvedRoleBlock` 回显本次实际使用的 `mode` / `source` / `roles`，配置对不对一次调用即可确认
+
 ---
 
 ## 四、项目模板包

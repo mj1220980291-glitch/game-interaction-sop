@@ -13,6 +13,8 @@ import { parseTemplatePack, DEFAULT_CAPABILITIES } from '../../src/v2/template/s
 import { LEGACY_PROFILE, PARTS_PROFILE, profileFor } from '../../src/v2/reconcile/structure.js';
 import { parseStamp, type DocStamp } from '../../src/v2/reconcile/stamp.js';
 import { clusterItems, visibleIds } from '../../src/v2/render/parts/stamp-parts.js';
+import { expectedItems } from '../../src/v2/reconcile/layout.js';
+import { parseV2 } from '../../src/v2/parser.js';
 import type { NodeInfo } from '../../src/v2/figma-client.js';
 
 const COMPONENTS = { top: 'k1', chapter: 'k2', cluster: 'k3', footer: 'k4' };
@@ -125,5 +127,50 @@ describe('clusterItems — 跳过隐藏备用池', () => {
     ];
     expect(visibleIds(nodes).has('inside')).toBe(false);
     expect(clusterItems(nodes, 'c')).toHaveLength(0);
+  });
+});
+
+describe('expectedItems — parts 不把 @职能 当文本条目', () => {
+  const MD = `# t
+
+跟进UI：a
+需求组：b
+易协作链接：#待补充
+最后更新时间：2026.11.02
+
+## 设计总览
+
+### 功能背景
+
+背景。
+
+### 核心交互
+
+点击。
+
+## 01. 战斗
+
+### 命中判定
+@程序
+
+- 普通规则
+- @程序：职责描述
+- 另一条规则
+`;
+
+  const cluster = () => {
+    const parsed = parseV2(MD);
+    return parsed.ir!.sections[0]!.clusters[0]!;
+  };
+
+  it('legacy 保留 role 条目', () => {
+    expect(expectedItems(cluster()).map((i) => i.t)).toEqual(['rule', 'role', 'rule']);
+  });
+
+  it('parts 过滤 role 条目（否则幂等同步会重复插入正文）', () => {
+    expect(expectedItems(cluster(), { includeRoles: false }).map((i) => i.t)).toEqual([
+      'rule',
+      'rule'
+    ]);
   });
 });

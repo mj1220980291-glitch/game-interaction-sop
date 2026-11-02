@@ -383,7 +383,7 @@ async function renderScratch(
 
   // Only the assets of nodes that will actually be moved out: every export
   // costs real time, and the rest of the scratch doc is thrown away.
-  const used = usedAssetKeys(ir, plan);
+  const used = usedAssetKeys(ir, plan, profile.id !== 'parts');
   const remapped: Record<string, AssetSpec> = {};
   for (const [key, value] of Object.entries(assetMap ?? {})) {
     if (!used.has(key)) continue;
@@ -514,7 +514,7 @@ function scratchId(
 }
 
 /** Asset keys (in markdown numbering) whose nodes the plan moves out of the scratch doc. */
-function usedAssetKeys(ir: DocIR, plan: Plan): Set<string> {
+function usedAssetKeys(ir: DocIR, plan: Plan, includeRoles: boolean): Set<string> {
   const keys = new Set<string>();
   for (const b of plan.batches) {
     for (const op of b.ops) {
@@ -527,7 +527,7 @@ function usedAssetKeys(ir: DocIR, plan: Plan): Set<string> {
       } else if (ref.part === 'block' && ref.c !== undefined) {
         figureKeys(sec.index, ref.c, sec.clusters[ref.c]!).forEach((k) => keys.add(k));
       } else if (ref.part === 'item' && ref.c !== undefined && ref.i !== undefined) {
-        const items = expectedItems(sec.clusters[ref.c]!);
+        const items = expectedItems(sec.clusters[ref.c]!, { includeRoles });
         const it = items[ref.i];
         if (it?.ordinal !== undefined) keys.add(`${sec.index}/${ref.c + 1}/${it.ordinal}`);
       }
@@ -550,11 +550,28 @@ async function runFills(backend: FigmaBackend, fills: FillTask[], warnings: Soft
   for (const f of fills) {
     try {
       if (f.kind === 'main') {
-        await applyAsset(backend, { id: f.nodeId, name: '', type: 'RECTANGLE' } as NodeInfo, f.asset);
-        if (f.hintId) await backend.deleteNodes([f.hintId]);
-        await backend.stampNodes!([
-          { nodeId: f.nodeId, stamp: { ...f.stamp, asset: f.asset } as unknown as Record<string, unknown>, captureHash: true }
-        ]);
+        if (f.asset.type === 'figma_instance' && backend.placeInstance) {
+          // 实例替换会换节点 id：stamp 必须写到新节点上，否则下一轮同步会把
+          // 主图当成设计师手贴的 foreign，并认为 main 槽缺失。
+          const placed = await backend.placeInstance({
+            sourceId: f.asset.nodeId,
+            placeholderId: f.nodeId
+          });
+          if (f.hintId) await backend.deleteNodes([f.hintId]);
+          await backend.stampNodes!([
+            {
+              nodeId: placed.id,
+              stamp: { ...f.stamp, asset: f.asset } as unknown as Record<string, unknown>,
+              captureHash: true
+            }
+          ]);
+        } else {
+          await applyAsset(backend, { id: f.nodeId, name: '', type: 'RECTANGLE' } as NodeInfo, f.asset);
+          if (f.hintId) await backend.deleteNodes([f.hintId]);
+          await backend.stampNodes!([
+            { nodeId: f.nodeId, stamp: { ...f.stamp, asset: f.asset } as unknown as Record<string, unknown>, captureHash: true }
+          ]);
+        }
       } else {
         if (!backend.fillFigurePlaceholder) throw new Error('backend lacks fillFigurePlaceholder');
         if (!f.rectId) throw new Error(`配图 GROUP ${f.groupId} has no 配图占位 RECTANGLE`);

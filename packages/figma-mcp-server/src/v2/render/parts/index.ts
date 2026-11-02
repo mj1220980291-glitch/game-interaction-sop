@@ -34,6 +34,7 @@ import {
   type FigureState
 } from '../../render.js';
 import { retryTransient } from '../../../server/retry.js';
+import type { RoleBlockRuntime } from '../../role-block.js';
 import { isFigureSlotBullet, stripImageBulletPrefix } from '../../reconcile/stamp.js';
 import {
   clusterItems,
@@ -60,6 +61,8 @@ export interface PartsRenderInput {
   assetMap?: Record<string, AssetSpec>;
   /** 标号锚点：`"NN/C"` → 主图归一化坐标。缺省按模板网格摆。 */
   badgeAnchors?: BadgeAnchorMap;
+  /** 入口解析好的角色运行时。缺省 = 本次不需要 `@职能` 组件。 */
+  roleBlocks?: RoleBlockRuntime;
   pageId?: string;
   /** 根帧落点（页面坐标）。缺省 `(0,0)`。 */
   origin?: { x: number; y: number };
@@ -85,6 +88,8 @@ export interface PartsRenderResult {
     figuresPlaceholder: number;
   };
 }
+
+export type PartsSummary = PartsRenderResult['summary'];
 
 function fail(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
@@ -309,6 +314,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
         clusterKey: pack.components.cluster!,
         figures,
         warnings,
+        ...(input.roleBlocks ? { roleBlocks: input.roleBlocks } : {}),
         ...(docBackground ? { docBackground } : {}),
         ...(pack.geometry ? { geometry: pack.geometry } : {}),
         ...(input.badgeAnchors ? { badgeAnchors: input.badgeAnchors } : {}),
@@ -511,6 +517,8 @@ interface FillChapterCtx {
   geometry?: TemplateGeometry;
   /** 标号锚点表（`"NN/C"` → 主图归一化坐标）。缺省按模板网格摆。 */
   badgeAnchors?: BadgeAnchorMap;
+  /** 入口解析好的角色运行时；`@职能` 条目靠它生成组件实例。 */
+  roleBlocks?: RoleBlockRuntime;
 }
 
 /**
@@ -634,12 +642,11 @@ async function fillChapter(
   let image = false;
   if (mainImage) {
     if (ctx.asset && ctx.asset.type !== 'skip') {
-      await applyAsset(backend, mainImage, ctx.asset);
+      image = await applyAsset(backend, mainImage, ctx.asset);
       // 模板的 `主图占位` 是虚线框：只换 fill 会留一圈虚线压在截图上。
       if (backend.clearStrokes) await backend.clearStrokes([mainImage.id]);
       const hint = named[CHAPTER_SLOTS.mainImageHint];
       if (hint) await backend.deleteNodes([hint.id]);
-      image = true;
     } else {
       if (backend.clearFills) await backend.clearFills([mainImage.id]);
       // 原稿截图清掉之后不能留个空洞：一层中性色 + 虚线，一眼看出这是占位。
@@ -659,6 +666,14 @@ async function fillChapter(
         if (hint && hintFill) await backend.setNodePaint({ nodeId: hint.id, fill: hintFill });
       }
     }
+  } else if (ctx.asset && ctx.asset.type !== 'skip') {
+    // 槽位名对不上时，资产根本落不到画布；只靠打标阶段的「缺槽位」告警
+    // 会让人以为图画上去了（真机反馈 #2 的 imagesPlaced:0 就是这么来的）。
+    ctx.warnings.push({
+      code: SOFT_WARNING_CODES.W_MAIN_SLOT_MISSING,
+      message: `第 ${section.index} 章「${section.name}」找不到主图槽「${CHAPTER_SLOTS.mainImage}」，主图资产未落图`,
+      context: section.name
+    });
   }
 
   const clusters: PartsClusterLayout[] = [];
@@ -696,7 +711,7 @@ async function fillChapter(
         section.index,
         i,
         ctx.figures,
-        undefined
+        ctx.roleBlocks
       );
       // 同一棵簇子树要扫两遍：一遍算版面清单，一遍补灰板和占位文案。
       // 合成一次——4000 节点的簇一次扫描就是 1.7s 级，翻倍直接顶到超时线。

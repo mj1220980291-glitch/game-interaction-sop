@@ -98,14 +98,14 @@ export type NativeToolHandler = (
  *        gains Preflight calling get_skill_requirements. Engines older than 0.3.0
  *        do not expose this tool, so the Preflight gracefully falls back.
  */
-export const REQUIRED_SKILL_VERSION = '2.3.2';
+export const REQUIRED_SKILL_VERSION = '2.3.3';
 
 /**
  * Engine's own version string surfaced to Preflight. Kept in sync with
  * packages/figma-mcp-server/package.json manually; bumping one without the other
  * is a review-time check.
  */
-export const ENGINE_VERSION = '0.3.0';
+export const ENGINE_VERSION = '0.3.1';
 
 // =========================================================================
 // Native tool input schemas (raw JSON Schema, served verbatim to clients)
@@ -296,7 +296,11 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
       description:
         '把 v2 Markdown 写入 Figma 模板。需要在 createServer 时传入 v2Backend。' +
         'template 可选：{fileKey,nodeId} 覆盖模板地址（优先级：入参 > FIGMA_TEMPLATE_FILE_KEY/NODE_ID > ~/.game-interaction-sop/template.json > 官方默认）。' +
-        'Markdown 里的 `- @策划：…` 条目会渲染成「职能标记」组件实例，组件集由配置 roleBlock.componentSetId 指定，缺失时报 V2_ROLE_BLOCK_UNAVAILABLE。' +
+        'Markdown 里的 `- @策划：…` 条目会渲染成「职能标记」组件实例。' +
+        '两种配置（优先用前者）：① roleBlock.variantKeys = {角色: 已发布变体 key} —— 跨库唯一可用方式，经 importComponentByKeyAsync 导入；' +
+        '② roleBlock.componentSetId = 组件集 nodeId —— 只在渲染目标文件内解析，跨库会报 V2_ROLE_BLOCK_SET_NOT_IN_TARGET_FILE。' +
+        '变体命名须为 `职能标记=<角色>`（允许 `#` 前缀）；变体内需有一个名为 `文本` 的标签 TEXT，正文写入另一个 TEXT。' +
+        '缺角色时报 V2_ROLE_BLOCK_UNAVAILABLE（details 含 missingRoles），且在克隆模板前返回。' +
         'assetMap 两类键：' +
         '① "NN" = 第 NN 章主图，值为 image / figma_node / skip，缺省按 skip；' +
         '② "NN/C/K" = 第 NN 章第 C 簇的第 K 张配图（C、K 从 1 起；K 按该簇全部「配图：」bullet 的文档顺序计，跨 #### 连续不重置），值为 figma_node / skip。' +
@@ -305,8 +309,11 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         '例：{ "01": { type:"figma_node", fileKey:"…", nodeId:"588:6399" }, "01/1/2": { type:"figma_node", fileKey:"…", nodeId:"588:6399", crop:{ x:700, y:0, width:520, height:160 } } }。' +
         '匹配不到的键与单张配图失败均为软告警，不中断渲染。' +
         'badgeAnchors 可选：图上标号的位置。键 "NN/C"（章/簇，1 起），值 { x, y } 为主图归一化坐标（0–1，左上原点），可带 note。' +
-        '命中按锚点摆，缺则退回模板网格并报 V2_W_BADGE_ANCHOR_MISSING，越界夹取并报 V2_W_BADGE_ANCHOR_OUT_OF_RANGE；整表不传 = 全按网格。' +
+        '取值建议贴控件左上再往上偏 10–20px（0.01≈主图高的 1%），别取控件正中。' +
+        '整表不传 = 全部按模板网格、不产生任何锚点告警；传了表但某簇缺键才退回网格并报 V2_W_BADGE_ANCHOR_MISSING；越界夹取并报 V2_W_BADGE_ANCHOR_OUT_OF_RANGE。' +
         '例：{ "01/2": { x:0.28, y:0.52, note:"命名输入框左侧" } }。' +
+        '【配置对账】返回体带 resolvedRoleBlock{mode,source,componentSetId,variantPrefix,labelTextName,roles}、configPath、enginePid；' +
+        'enginePid 每次不同 = 有多个引擎进程在接请求。' +
         '【同步模式】文档已渲染过、需要再次写入时，传 target.rootId（上次返回的 rootInstanceId）：' +
         '引擎不新建文档，而是逐条比对后只改有变化的地方；设计师手改的文字、手贴的图、拖过的气泡一律保留，' +
         '双方都改过的条目不覆盖，列在 conflicts 里；返回 changes / conflicts / preserved。' +

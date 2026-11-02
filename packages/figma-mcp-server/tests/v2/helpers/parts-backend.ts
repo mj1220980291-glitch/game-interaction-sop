@@ -307,6 +307,24 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
     async commitUndoCheckpoint() {},
     async triggerUndo() {},
     async setPluginData() {},
+    async placeInstance({ sourceId, placeholderId }: { sourceId: string; placeholderId: string }) {
+      calls.push(`placeInstance:${sourceId}->${placeholderId}`);
+      const ph = nodes.get(placeholderId);
+      const parent = ph?.parentId ? nodes.get(ph.parentId) : undefined;
+      if (!ph || !parent) throw new Error(`parts backend: placeholder ${placeholderId} not found`);
+      const idx = parent.children.indexOf(placeholderId);
+      const inst = deepClone(sourceId, parent.id, ph.name);
+      // 与真实后端一致：插回占位原索引，而不是追加到末尾。
+      parent.children = parent.children.filter((c) => c !== inst.id);
+      parent.children.splice(Math.max(idx, 0), 0, inst.id);
+      remove(placeholderId);
+      return info(inst.id);
+    },
+    async setImageFill({ nodeId, src }: { nodeId: string; src: string }) {
+      calls.push(`setImageFill:${nodeId}`);
+      const n = nodes.get(nodeId);
+      if (n) n.fills = [`IMAGE:${src}`];
+    },
     async renameNode(nodeId: string, name: string) {
       const n = nodes.get(nodeId);
       if (n) n.name = name;

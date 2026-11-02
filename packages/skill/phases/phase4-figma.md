@@ -62,13 +62,14 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
    关键点要一起说：**它可以在网页端启动，不需要安装 Figma 客户端**；启动后窗口保持打开，连接建立期间别关
 3. 该插件因版本/权限原因起不来，才回退到本地 Desktop Bridge（Figma 桌面端 → Plugins → Development → Figma Desktop Bridge）
 4. 报错里出现 `ws://localhost:923x` 且 x 每重启一次 +1，或用 `figma_get_status` 看到 `portFallbackUsed: true`：这是**端口漂移**（旧引擎进程没退、僵尸占满 9223–9232），不是插件问题。处理办法见 `packages/figma-mcp-server/docs/INSTALL.md` 的「重启引擎后 Bridge『坏了』」，不要反复重开插件
-5. 两条都不通 → 停下来等用户，不改 Markdown、不降级贴图、不换文件硬写
+5. 渲染返回的 `enginePid` 每次不一样、或 `configPath` 不是刚改的那份文件：**多个引擎进程在接请求**（多开窗口最常见）。先 `figma_get_status` 看 `otherInstances`，只留一个窗口并重启该窗口的 MCP
+6. 两条都不通 → 停下来等用户，不改 Markdown、不降级贴图、不换文件硬写
 
 对用户复述一句（不要长篇）：
 
 ```
 模板：<fileKey> / <nodeId>（项目配置 / 用户配置 / 官方默认）
-职能标记组件集：已配置 <id> / 未配置（Markdown 未使用 @职能）
+职能标记组件：variantKeys（跨库）/ 组件集 <id>（同文件）/ 未配置（Markdown 未使用 @职能）
 ```
 
 ### 第二步：声明开始
@@ -147,7 +148,7 @@ Phase 4 只用得到两个工具：
   - `"NN/C/K"` 配图（第 NN 章第 C 簇第 K 张，K 跨 `####` 连续），只支持 `figma_node`（可选 `crop`）/ `skip`；不写键的配图保留"配图占位：xxx"。键怎么编、区域怎么定见 `phase3-asset.md`「配图资产」
 - `badgeAnchors`（可选）— 图上标号的位置，Phase 3 第 5 步逐簇确认过：
   - 键 `"NN/C"`（章/簇，1 起），值 `{ x, y }` 为**主图归一化坐标**（0–1，左上原点），可带 `note`
-  - 命中就按锚点摆标号；某簇没给 → 退回模板网格并报 `V2_W_BADGE_ANCHOR_MISSING`；整表不传 = 全部按网格
+  - 命中就按锚点摆标号；整表不传 = 全部按网格且**不产生任何锚点告警**；传了表但某簇没给 → 该簇退回网格并报 `V2_W_BADGE_ANCHOR_MISSING`
   - 坐标越界的会被夹到图内并报 `V2_W_BADGE_ANCHOR_OUT_OF_RANGE`，把这条反馈给用户改锚点
   - 只改标号位置时走同步模式（带 `rootId`，`badgeAnchors` 只写要改的那几个簇），不会动文字与配图；md 没改也会执行——引擎按锚点重摆已存在的标号，没给锚点的簇保持原位
 - `target`（可选）— `fileKey` / `pageId`
@@ -282,6 +283,8 @@ Phase 4 只用得到两个工具：
 - `V2_SCOPE_NOT_FOUND` — scope 指向的界面/簇在文档里还不存在。新增界面/簇要去掉 scope 整篇同步
 - `V2_RECONCILE_BUSY` — 上一次同步还没结束（或刚中断不到 1 分钟）。等一分钟再试
 - `V2_RECONCILE_APPLY_FAILED` — 中途失败。直接用相同参数重跑即可，不会重复插入
+
+**同步模式的已知边界**：它只改文字 / 配图 / 标号位置，**不会把普通正文条目改写成 `@职能` 组件实例**。md 里把一条规则改成 `@程序：…` 时，同步不会插组件；这种情况要么整篇重渲（会丢手改，需先确认），要么让设计师手工换实例。把这一点提前告诉用户，别承诺同步能处理。
 
 ---
 

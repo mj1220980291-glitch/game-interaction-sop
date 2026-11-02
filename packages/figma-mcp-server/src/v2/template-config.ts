@@ -48,6 +48,8 @@ export interface RoleBlockConfig {
 
 export interface TemplateConfig extends TemplateRef {
   roleBlock?: RoleBlockConfig;
+  /** File the config was read from. `env:<path>` when `$GISOP_TEMPLATE_CONFIG`. */
+  configPath?: string;
   /**
    * Project template pack, when one was found. Its `components` are the four
    * published library keys; its `capabilities` say which strategy each
@@ -88,20 +90,26 @@ function readJson(path: string): unknown {
 }
 
 /** First existing config file, in priority order. */
-function loadConfigFile(env: NodeJS.ProcessEnv): RawConfig | undefined {
+function loadConfigFile(
+  env: NodeJS.ProcessEnv
+): { path: string; config: RawConfig } | undefined {
   const explicit = env.GISOP_TEMPLATE_CONFIG;
   // `off` pins resolution to env vars + defaults. Tests use it so a developer's
   // ~/.game-interaction-sop/template.json cannot change their outcome.
   if (explicit === 'off') return undefined;
   if (explicit) {
     const cfg = readJson(explicit) as RawConfig | undefined;
-    if (cfg) return cfg;
+    if (cfg) return { path: `env:${explicit}`, config: cfg };
   }
   const home = homedir();
-  return (
-    (readJson(join(home, '.game-interaction-sop', 'template.json')) as RawConfig | undefined) ??
-    (readJson(join(home, '.game-interaction-sop', 'config.local.json')) as RawConfig | undefined)
-  );
+  for (const path of [
+    join(home, '.game-interaction-sop', 'template.json'),
+    join(home, '.game-interaction-sop', 'config.local.json')
+  ]) {
+    const cfg = readJson(path) as RawConfig | undefined;
+    if (cfg) return { path, config: cfg };
+  }
+  return undefined;
 }
 
 function pick(...values: Array<string | undefined>): string | undefined {
@@ -253,34 +261,36 @@ export function resolveTemplateConfig(
 ): TemplateConfig {
   const file = loadConfigFile(env);
   const fileKey =
-    pick(explicit?.fileKey, env.FIGMA_TEMPLATE_FILE_KEY, file?.template?.fileKey, file?.figma?.template_file_key) ??
+    pick(explicit?.fileKey, env.FIGMA_TEMPLATE_FILE_KEY, file?.config.template?.fileKey, file?.config.figma?.template_file_key) ??
     DEFAULT_TEMPLATE.fileKey;
   const nodeId =
-    pick(explicit?.nodeId, env.FIGMA_TEMPLATE_NODE_ID, file?.template?.nodeId, file?.figma?.template_node_id) ??
+    pick(explicit?.nodeId, env.FIGMA_TEMPLATE_NODE_ID, file?.config.template?.nodeId, file?.config.figma?.template_node_id) ??
     DEFAULT_TEMPLATE.nodeId;
 
   const componentKey = pick(
     explicit?.componentKey,
     env.FIGMA_TEMPLATE_COMPONENT_KEY,
-    file?.template?.componentKey,
-    file?.figma?.template_component_key
+    file?.config.template?.componentKey,
+    file?.config.figma?.template_component_key
   );
 
   const componentSetId = pick(
-    file?.roleBlock?.componentSetId,
-    file?.figma?.role_block_component_set_id
+    file?.config.roleBlock?.componentSetId,
+    file?.config.figma?.role_block_component_set_id
   );
-  const variantKeys = file?.roleBlock?.variantKeys ?? file?.figma?.role_block_variant_keys;
+  const variantKeys =
+    file?.config.roleBlock?.variantKeys ?? file?.config.figma?.role_block_variant_keys;
 
   return {
     ...(componentKey ? { componentKey } : { fileKey, nodeId }),
+    ...(file?.path ? { configPath: file.path } : {}),
     ...(componentSetId || (variantKeys && Object.keys(variantKeys).length > 0)
       ? {
           roleBlock: {
             ...(componentSetId ? { componentSetId } : {}),
             ...(variantKeys && Object.keys(variantKeys).length > 0 ? { variantKeys } : {}),
-            variantPrefix: pick(file?.roleBlock?.variantPrefix) ?? DEFAULT_VARIANT_PREFIX,
-            labelTextName: pick(file?.roleBlock?.labelTextName) ?? DEFAULT_LABEL_TEXT_NAME
+            variantPrefix: pick(file?.config.roleBlock?.variantPrefix) ?? DEFAULT_VARIANT_PREFIX,
+            labelTextName: pick(file?.config.roleBlock?.labelTextName) ?? DEFAULT_LABEL_TEXT_NAME
           }
         }
       : {}),
