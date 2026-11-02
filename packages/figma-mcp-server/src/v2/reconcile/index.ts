@@ -110,7 +110,10 @@ export async function reconcileV2(
     ...report
   });
 
-  if (input.dryRun || !plan.hasWrites) return ok();
+  // 只改标号锚点（md 没动）也要写画布：否则「只改标号位置」这条路径永远不生效。
+  const anchorsOnly =
+    !!input.badgeAnchors && Object.keys(input.badgeAnchors).length > 0 && !plan.hasWrites;
+  if (input.dryRun || (!plan.hasWrites && !anchorsOnly)) return ok();
 
   const lock = snap.stamp.lock;
   if (lock && Date.now() - lock.at < LOCK_TTL_MS) {
@@ -166,7 +169,8 @@ export async function reconcileV2(
     // 多部件文档：簇集合一变，章节高度、左列贴合、标号数量与位置都得重算。
     const partsPack = profile.id === 'parts' ? loadPartsPack()?.pack : undefined;
     if (partsPack) {
-      for (const hit of await changedSections(plan.changes, ir, snap)) {
+      const changed = await changedSections(plan.changes, ir, snap);
+      for (const hit of changed) {
         await refreshChapterGeometry(backend, hit.nodeId);
         if (hit.clusterChanged) {
           await relayoutBadges(
@@ -181,6 +185,29 @@ export async function reconcileV2(
             input.badgeAnchors
               ? pickAnchors(input.badgeAnchors, hit.index, hit.clusterCount)
               : undefined
+          );
+        }
+      }
+      // 只给了新锚点、md 没改的章节：也要按锚点重摆（上一次循环覆盖不到）。
+      if (input.badgeAnchors) {
+        const touched = new Set(changed.map((h) => h.index));
+        for (const section of ir.sections) {
+          if (touched.has(section.index)) continue;
+          const anchors = pickAnchors(input.badgeAnchors, section.index, section.clusters.length);
+          if (!anchors.some((a) => a !== undefined)) continue;
+          const hit = snap.sections.find((s) => s.W === section.name && s.node);
+          if (!hit?.node) continue;
+          await relayoutBadges(
+            backend,
+            hit.node.id,
+            section.index,
+            section.clusters.length,
+            section.clusters.length,
+            partsPack.capabilities.badgeSlot,
+            warnings,
+            partsPack.geometry,
+            anchors,
+            false
           );
         }
       }

@@ -22,10 +22,11 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
 
 ### 第一步：读项目配置 + preflight
 
-写 Figma 前先读两处项目配置，缺省即回退官方模板，不要阻塞：
+写 Figma 前先读三处项目配置，缺省即回退官方模板，不要阻塞：
 
 1. `<项目根>/.interaction-sop/template.json`（项目模板包，含 4 个部件 key 与 8 项能力；格式见 `references/template-contract.md`）
 2. `<项目根>/.interaction-sop/` 下本次生效的文风文件（按 `references/style-mod-schema.md` 的「文件选择顺序」确定，Phase 1 已选定）— 只为判断 `role_annotation.mode`
+3. `<项目根>/.interaction-sop/anchors/<需求名>.json`（Phase 3 落盘的标号锚点，格式同 `badge_anchors`）— 存在就并入入参 `badgeAnchors`：本次 Phase 3 重新确认过的键覆盖它，没确认过的沿用，**不要每轮重新问**
 
 **preflight（只用现有 Figma 只读工具，不写画布）**：
 
@@ -148,7 +149,7 @@ Phase 4 只用得到两个工具：
   - 键 `"NN/C"`（章/簇，1 起），值 `{ x, y }` 为**主图归一化坐标**（0–1，左上原点），可带 `note`
   - 命中就按锚点摆标号；某簇没给 → 退回模板网格并报 `V2_W_BADGE_ANCHOR_MISSING`；整表不传 = 全部按网格
   - 坐标越界的会被夹到图内并报 `V2_W_BADGE_ANCHOR_OUT_OF_RANGE`，把这条反馈给用户改锚点
-  - 只改标号位置时走同步模式（带 `rootId`，`badgeAnchors` 只写要改的那几个簇），不会动文字与配图
+  - 只改标号位置时走同步模式（带 `rootId`，`badgeAnchors` 只写要改的那几个簇），不会动文字与配图；md 没改也会执行——引擎按锚点重摆已存在的标号，没给锚点的簇保持原位
 - `target`（可选）— `fileKey` / `pageId`
   - `fileKey` 决定写进哪个文件。**不传就写进 Figma Desktop 当前活动的那个文件**，所以只要用户可能同时开着别的文件，就该显式传 preflight 解析出的模板文件 key
   - 目标文件必须也开着连接插件（优先社区插件 `https://www.figma.com/community/plugin/1695400514520991057`，其次本地 Desktop Bridge）；否则引擎返回 `V2_TARGET_FILE_UNREACHABLE`

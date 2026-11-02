@@ -11,6 +11,7 @@ import { parseV2 } from '../../src/v2/parser.js';
 import { parseTemplatePack } from '../../src/v2/template/schema.js';
 import { renderFromParts } from '../../src/v2/render/parts/index.js';
 import { BADGE_MASTER_NAME } from '../../src/v2/template-slots.js';
+import { relayoutBadges } from '../../src/v2/render/parts/geometry.js';
 import { partsBackend, type PNodeSpec, type PartsBackend } from './helpers/parts-backend.js';
 
 const MD = `# 标号锚点
@@ -204,5 +205,30 @@ describe('标号锚点 badgeAnchors', () => {
     const r = await renderFromParts({ ir, pack, pageId: 'page-root', backend: h.backend });
 
     expect(r.warnings.filter((w) => w.code.startsWith('V2_W_BADGE_ANCHOR'))).toEqual([]);
+  });
+
+  it('同步重排：已存在的标号也给锚点时按锚点移动，不新增、不刷缺锚告警', async () => {
+    const { h, ir, pack } = setup();
+    const r = await renderFromParts({ ir, pack, pageId: 'page-root', backend: h.backend });
+    const chapter = h.byName(r.rootId, '界面说明1')[0]!;
+
+    const warnings: Array<{ code: string; message: string }> = [];
+    await relayoutBadges(
+      h.backend,
+      chapter.id,
+      '01',
+      2,
+      2,
+      'container',
+      warnings as never,
+      pack.geometry,
+      [{ x: 0.25, y: 0.4 }],
+      false
+    );
+
+    const badges = h.byName(chapter.id, '标号/1');
+    expect(badges).toHaveLength(1);
+    expect([badges[0]!.x, badges[0]!.y]).toEqual([300, 298]);
+    expect(warnings.filter((w) => w.code === 'V2_W_BADGE_ANCHOR_MISSING')).toEqual([]);
   });
 });

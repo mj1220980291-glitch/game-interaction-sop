@@ -92,7 +92,8 @@ async function findNamed(
  * 按簇数重摆标号：只留母版，其余按网格克隆。
  *
  * `known` 是已经存在的标号（同步时来自画布），数量不够才克隆新的；
- * 多出来的删掉。设计师手工挪过的坐标不重写——只改数量与编号。
+ * 多出来的删掉。没有锚点时不动已有坐标（设计师手工挪过的保留）；
+ * 给了锚点就以锚点为准重摆，包括本来就存在的标号。
  */
 export async function placeBadges(
   backend: FigmaBackend,
@@ -107,7 +108,9 @@ export async function placeBadges(
    * 每簇的标号锚点（主图归一化坐标）。给了就按锚点摆，缺的退回网格并告警；
    * 整表 `undefined` = 调用方没启用锚点，行为与改动前完全一致。
    */
-  anchors?: Array<BadgeAnchor | undefined>
+  anchors?: Array<BadgeAnchor | undefined>,
+  /** 缺锚点是否逐簇告警。同步只改几个锚点时可传 false，避免刷屏。 */
+  warnMissing = true
 ): Promise<NodeInfo[]> {
   if (clusterCount === 0) return [];
   if (badges !== 'container') {
@@ -163,11 +166,13 @@ export async function placeBadges(
     const anchor = anchors?.[i];
     if (anchors) {
       if (!anchor) {
-        warnings.push({
-          code: SOFT_WARNING_CODES.W_BADGE_ANCHOR_MISSING,
-          message: `第 ${chapterIndex} 章第 ${i + 1} 个簇没有标号锚点（badgeAnchors["${chapterIndex}/${i + 1}"]），标号按模板网格放置`,
-          context: `${chapterIndex}/${i + 1}`
-        });
+        if (warnMissing) {
+          warnings.push({
+            code: SOFT_WARNING_CODES.W_BADGE_ANCHOR_MISSING,
+            message: `第 ${chapterIndex} 章第 ${i + 1} 个簇没有标号锚点（badgeAnchors["${chapterIndex}/${i + 1}"]），标号按模板网格放置`,
+            context: `${chapterIndex}/${i + 1}`
+          });
+        }
       } else if (isOutOfRange(anchor)) {
         warnings.push({
           code: SOFT_WARNING_CODES.W_BADGE_ANCHOR_OUT_OF_RANGE,
@@ -176,16 +181,22 @@ export async function placeBadges(
         });
       }
     }
-    const bubble =
-      already ??
-      (await (async () => {
-        const created = await backend.cloneNode({ sourceId: master.id, parentId: containerId });
-        if (backend.renameNode) await backend.renameNode(created.id, `标号/${i + 1}`);
+    let bubble = already;
+    if (bubble) {
+      // 有锚点就以锚点为准重摆（同步时已存在的标号也算）；没锚点保持原地，
+      // 免得覆盖设计师手工拖过的坐标。
+      if (anchor) {
         const at = badgePosition(i, rect, master, geom, anchor);
-        await backend.moveNode(created.id, at.x, at.y);
-        if (backend.setNodeVisible) await backend.setNodeVisible(created.id, true);
-        return created;
-      })());
+        await backend.moveNode(bubble.id, at.x, at.y);
+      }
+    } else {
+      const created = await backend.cloneNode({ sourceId: master.id, parentId: containerId });
+      if (backend.renameNode) await backend.renameNode(created.id, `标号/${i + 1}`);
+      const at = badgePosition(i, rect, master, geom, anchor);
+      await backend.moveNode(created.id, at.x, at.y);
+      if (backend.setNodeVisible) await backend.setNodeVisible(created.id, true);
+      bubble = created;
+    }
     await setBadgeNumber(backend, bubble.id, i + 1);
     out.push(bubble);
   }
@@ -210,7 +221,8 @@ export async function relayoutBadges(
   badges: 'container' | 'manual' | 'none',
   warnings: SoftWarning[],
   geom?: TemplateGeometry,
-  anchors?: Array<BadgeAnchor | undefined>
+  anchors?: Array<BadgeAnchor | undefined>,
+  warnMissing = true
 ): Promise<void> {
   if (badges !== 'container') return;
   const containerId = await findNamed(backend, chapterId, CHAPTER_SLOTS.badgeContainer);
@@ -221,7 +233,18 @@ export async function relayoutBadges(
     .filter((c) => isBadgeFrame(c.name) && !isBadgeMaster(c.name))
     .sort((a, b) => badgeOrdinal(a.name) - badgeOrdinal(b.name));
   const kept = ordered.filter((b) => badgeOrdinal(b.name) <= keepCount).slice(0, clusterCount);
-  await placeBadges(backend, chapterId, clusterCount, chapterIndex, warnings, badges, kept, geom, anchors);
+  await placeBadges(
+    backend,
+    chapterId,
+    clusterCount,
+    chapterIndex,
+    warnings,
+    badges,
+    kept,
+    geom,
+    anchors,
+    warnMissing
+  );
 }
 
 function badgeOrdinal(name: string): number {

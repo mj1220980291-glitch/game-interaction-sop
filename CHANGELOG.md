@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## v2.3.1 — 2026-11-02
+
+**标号按控件真实位置摆放（`badgeAnchors`）。** 引擎 `0.2.0`，本次改渲染入参与同步行为。
+
+### 1. 新增可选入参 `badgeAnchors`
+
+键 `"NN/C"`（章/簇，1 起），值为主图归一化坐标 `{x, y}`（0–1，左上原点），可带 `note`。命中就按锚点摆标号；某簇没给 → 退回模板网格并报 `V2_W_BADGE_ANCHOR_MISSING`；越界 → 夹到图内并报 `V2_W_BADGE_ANCHOR_OUT_OF_RANGE`；整表不传 → 行为与旧版完全一致。此前标号只由簇序号决定，每章永远排成一条斜线。
+
+- skill 侧：`phase3-asset.md` 第 5 步逐簇确认锚点并落盘 `.interaction-sop/anchors/<需求名>.json`；`phase4-figma.md` 渲染前读该文件并入入参，不再重复问
+
+### 2. 修正：只改标号位置时同步不生效
+
+`reconcileV2` 在 markdown 没有改动时直接返回 `changes:[]`，锚点根本没写进画布。现在：传了 `badgeAnchors` 且 md 未改，同步仍会按锚点重摆标号（`changes` 仍为空，报告语义不变）。
+
+### 3. 修正：已有标号不跟锚点走
+
+`placeBadges` 此前对已存在的标号只复用不移动。现在给了锚点的簇会移动已有标号；没给锚点的簇保持画布原坐标（不覆盖设计师手拖）。同步只改部分锚点时不再逐簇刷「缺锚点」告警。
+
+### 4. 其他
+
+- 版本 `2.3.1`（根包 / package-lock.json / skill 包 / manifest）
+- 主 spec 增补：`engine-mcp-server`（`badgeAnchors` 契约）、`render-reconcile-parts`（同步按锚点重摆）
+
 ## v2.3.0 — 2026-11-01
 
 **开场先要设计稿；每簇默认配图；交付前必做配图审计。** 引擎同步改动（仍 `0.2.0`）：识别声明式「配图：无」，不再为该条建槽/画灰板/报缺图。

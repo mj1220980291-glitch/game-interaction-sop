@@ -50,6 +50,8 @@
 - **旧文档迁移**：用 `3f2aa21` 及更早渲染的文档里存在例外灰板。升级后首次同步会把该条目按 `itemClean` 判定——干净则 delete（灰板消失），手改过则进 `conflicts`（`kind: figure`）。**首次同步报一条 figure 冲突属正常**，按冲突处理走即可
 - 仍待实际跑一轮需求验证话术与审计输出
 
+**标号锚点（2026-11-02，`add-badge-anchors` 已归档）**：`render_v2_markdown_to_figma` 新增可选入参 `badgeAnchors`（`"NN/C"` → 主图归一化 `{x,y}`），标号不再固定按网格斜排。同时修了两个漏：①md 没改时同步直接返回 `changes:[]`、锚点不生效（现在有锚点就放行并重摆）②`placeBadges` 对已存在标号只复用不移动（现在给锚点就移动，没给锚点保持设计师手拖坐标）。skill 侧 `phase3-asset.md` 第 5 步逐簇确认、落盘 `.interaction-sop/anchors/<需求名>.json`，`phase4-figma.md` 渲染前读入并并入入参。主 spec 已同步 `engine-mcp-server` 与 `render-reconcile-parts`。
+
 **用户待验收（我这侧做不了）**：
 1. 手改一条正文 + 换一张配图 → 同步 → 文字/图不被覆盖，`preserved` 出现两条 `hand-edit`
 2. md 加一条规则、删一条 `配图：` → 同步 → 位置正确、下方内容跟着移动、不留空洞，`changes` 有 `insert`/`delete`
