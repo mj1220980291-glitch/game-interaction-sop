@@ -1,6 +1,57 @@
 # 交接说明（2026-11-02）
 
-## 当前状态快照（2026-11-02 18:56，换对话先读这一节）
+## 当前状态快照（2026-11-02 20:30，换对话先读这一节）
+
+**一句话**：处理用户反馈 #2（`引擎问题反馈-角色组件与标号.md`）——修完「parts 路径不认职能组件」「主图实例压住标号」「配置问题无法对账」三个缺陷，真机用真实配图验收通过并推送。配套修了同步的两个连带问题（`@职能` 重复插入、主图换 id 后 stamp 丢失）。
+
+**代码状态**：`npm run build` 通过，`npm test` **68 files / 542 tests** 全绿，`openspec validate --all --strict` **22/22** 通过（活跃 change 5 个）。最近提交 **`8696f7e`**（fix(render)，30 files +1186/-116），本地 = GitHub = GitLab `main`。工作区干净。
+
+**版本**：skill `2.3.3` / 引擎 `0.3.1` / `manifest.engineVersion ^0.3.0`（semver 已覆盖 0.3.1）。
+
+**本会话（11-02 下午）做完的事**：
+
+1. 建 `fix-role-block-and-badge-layering`（proposal / design / specs 3 份 / tasks 30 项），全部实现并验收
+2. **P0-1 真因**：`render/parts/index.ts` 调 `fillCluster` 时把 `roleBlocks` 写死 `undefined`，parts 模式从不认 `variantKeys` / `componentSetId`；报错前缀走兜底值 `职能标记=`，把用户引向「配置没生效」
+3. 角色运行时结构化：`loadRoleBlocks` 返回 `ok/failure`（`not-in-target-file` / `no-variants` / `no-valid-roles`），错误码分流 `V2_ROLE_BLOCK_SET_NOT_IN_TARGET_FILE` vs `V2_ROLE_BLOCK_UNAVAILABLE`；克隆前按 IR 角色预检，`details.missingRoles`，失败不落节点
+4. 返回体新增 `resolvedRoleBlock{mode,source,componentSetId,variantPrefix,labelTextName,roles}` + `configPath`（env 来源 `env:<path>`）+ `enginePid`
+5. **P1-3 真因**：`placeInstance` 用 `appendChild` 放主图实例 → 跑到父级末尾压住 `气泡`。改为 `insertChild(原索引)` + `inst.name = ph.name`（槽名保留），脚本抽成 `buildPlaceInstanceScript` 便于测试
+6. `applyAsset` 返回是否真的落图；parts 的 `imagesPlaced` 改用它；`summary` 优先用 parts 结果（此前被 legacy `summarize` 覆盖成 0）；新软告警 `V2_W_MAIN_SLOT_MISSING`
+7. **同步连带修复**：①parts 的 `@职能` 不再参与文本对齐（`expectedItems({includeRoles:false})`），否则幂等同步每轮重复 `insert` ②主图实例替换后 stamp 写到新节点，否则下轮报 foreign + 缺 main 槽 ③`describeAsset` 支持 `figma_instance`
+8. 文档：tool description、`template-contract.md` 新增「职能标记组件调用规则」、`phase3` 锚点取值建议、`phase4` 多实例排查 + 同步不支持改写成 `@职能`、CHANGELOG
+
+**真机验收（`kiroro主串联` / 页「11月版本草稿」`4294:13387`）**：
+
+| 项 | 结果 |
+|---|---|
+| 验收文档 | `4341:17968`（**仍留在文件里**，用户可打开复查；不需要时让下一轮删掉） |
+| 结构 | 3 章 / 9 簇 / 9 标号，标号全部默认可见 |
+| 主图 | 3 章全部真实组件实例，实例名保留 `主图占位`，层级在 `气泡` 之前 |
+| 配图 | `figuresPlaced 19 / figuresPlaceholder 0`（用用户选中的 3 个 1920×1080 设计组件 + 按锚点裁切） |
+| 职能 | `职能标记=程序`、`职能标记=策划` 各 1 个，正文正确 |
+| 返回体 | `resolvedRoleBlock.mode="set"`、7 角色、`configPath` 指向 `~/.game-interaction-sop/template.json` |
+| 幂等同步 | `@职能` 不再产生 insert；`preserved` 为空 |
+| 锚点 | 9 个标号坐标与 `badgeAnchors` 换算值逐项一致（误差 0） |
+
+**已知遗留 / 风险**：
+
+1. **parts 主图槽 stamp 没记 `asset`** → 带 `assetMap` 的同步每轮多一条 `01/#main asset` 计划，画面不变。修法：`stampPartsDoc` 接收 `assetMap` 并在 main slot stamp 记 `asset` + `captureHash`
+2. `01/1` 锚点 `(0.5,0.5)` 压在菜单第二行 `Global Settings` 上，建议 `y≈0.42` 或 `x≈0.44`（内容问题，非引擎）
+3. **多实例仍在**：`figma_get_status` 实测 3 个引擎（9223/9226/9227，端口漂移），截图曾连续失败；`enginePid` / `configPath` 已可用于排查
+4. 锚点跨 md 版本复用错位（上一轮遗留，未处理）
+5. 例外判定散在四处的债务（上一轮遗留，未处理）
+
+**讨论过但未启动**：把「组件库更新 → 引擎规范同步」固化成流程。结论：能，但只能半自动（Figma 无发布 API）。三档：①只做库变更体检（约 1 天）②契约进模板包 + 指纹扩到槽位/变体/几何 + 3 份样板门禁（约 3–5 天，推荐）③设计系统同源（更久，不划算）。用户当时选择**先不做**。
+
+**升级提醒**：引擎行为有改动，已安装方需重跑 `npm run install-mcp` 或重启 MCP；skill 文档也改了，需重跑 `npm run install-skill`。
+
+**下一步建议**：
+1. 用户复查 `4341:17968`，确认无问题后执行 `/opsx:archive fix-role-block-and-badge-layering`
+2. 处理遗留 1（主图 asset stamp），否则每次带图同步都会多算一次
+3. 若决定做库同步规范，直接从「方案 2」开 change，方案 1 作为第一步
+
+---
+
+## 历史快照（2026-11-02 18:56）
 
 **一句话**：交互文档 SOP 的三件事全部交付并归档——①设计稿优先 + 每簇默认配图 + 渲染后配图审计（skill `2.3.0`）；②标号锚点 `badgeAnchors` 及其同步修复（`2.3.1`）；③开场上线 `Preflight` 版本自检 + 引擎工具 `get_skill_requirements`（`2.3.2`，引擎升到 `0.3.0`）。代码与 spec 已对齐，两仓同步。
 
