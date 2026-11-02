@@ -19,6 +19,7 @@ import {
 } from '../../template-slots.js';
 import { bubbleOffset } from '../../render.js';
 import type { TemplateGeometry } from '../../template/schema.js';
+import { clampAnchor, isOutOfRange, type BadgeAnchor } from '../../badge-anchor.js';
 
 export const PARTS_GEOMETRY_CODES = {
   BADGE_MASTER_MISSING: 'V2_RENDER_BADGE_MASTER_MISSING'
@@ -101,7 +102,12 @@ export async function placeBadges(
   warnings: SoftWarning[],
   badges: 'container' | 'manual' | 'none',
   known: NodeInfo[] = [],
-  geom?: TemplateGeometry
+  geom?: TemplateGeometry,
+  /**
+   * 每簇的标号锚点（主图归一化坐标）。给了就按锚点摆，缺的退回网格并告警；
+   * 整表 `undefined` = 调用方没启用锚点，行为与改动前完全一致。
+   */
+  anchors?: Array<BadgeAnchor | undefined>
 ): Promise<NodeInfo[]> {
   if (clusterCount === 0) return [];
   if (badges !== 'container') {
@@ -154,12 +160,28 @@ export async function placeBadges(
   const out: NodeInfo[] = [];
   for (let i = 0; i < clusterCount; i += 1) {
     const already = existing[i];
+    const anchor = anchors?.[i];
+    if (anchors) {
+      if (!anchor) {
+        warnings.push({
+          code: SOFT_WARNING_CODES.W_BADGE_ANCHOR_MISSING,
+          message: `第 ${chapterIndex} 章第 ${i + 1} 个簇没有标号锚点（badgeAnchors["${chapterIndex}/${i + 1}"]），标号按模板网格放置`,
+          context: `${chapterIndex}/${i + 1}`
+        });
+      } else if (isOutOfRange(anchor)) {
+        warnings.push({
+          code: SOFT_WARNING_CODES.W_BADGE_ANCHOR_OUT_OF_RANGE,
+          message: `第 ${chapterIndex} 章第 ${i + 1} 个簇的锚点 (${anchor.x}, ${anchor.y}) 超出 0–1，已夹到图内`,
+          context: `${chapterIndex}/${i + 1}`
+        });
+      }
+    }
     const bubble =
       already ??
       (await (async () => {
         const created = await backend.cloneNode({ sourceId: master.id, parentId: containerId });
         if (backend.renameNode) await backend.renameNode(created.id, `标号/${i + 1}`);
-        const at = badgePosition(i, rect, master, geom);
+        const at = badgePosition(i, rect, master, geom, anchor);
         await backend.moveNode(created.id, at.x, at.y);
         if (backend.setNodeVisible) await backend.setNodeVisible(created.id, true);
         return created;
@@ -187,7 +209,8 @@ export async function relayoutBadges(
   keepCount: number,
   badges: 'container' | 'manual' | 'none',
   warnings: SoftWarning[],
-  geom?: TemplateGeometry
+  geom?: TemplateGeometry,
+  anchors?: Array<BadgeAnchor | undefined>
 ): Promise<void> {
   if (badges !== 'container') return;
   const containerId = await findNamed(backend, chapterId, CHAPTER_SLOTS.badgeContainer);
@@ -198,7 +221,7 @@ export async function relayoutBadges(
     .filter((c) => isBadgeFrame(c.name) && !isBadgeMaster(c.name))
     .sort((a, b) => badgeOrdinal(a.name) - badgeOrdinal(b.name));
   const kept = ordered.filter((b) => badgeOrdinal(b.name) <= keepCount).slice(0, clusterCount);
-  await placeBadges(backend, chapterId, clusterCount, chapterIndex, warnings, badges, kept, geom);
+  await placeBadges(backend, chapterId, clusterCount, chapterIndex, warnings, badges, kept, geom, anchors);
 }
 
 function badgeOrdinal(name: string): number {
@@ -232,9 +255,10 @@ function badgePosition(
   index: number,
   rect: { x: number; y: number; width: number; height: number },
   master: NodeInfo,
-  geom?: TemplateGeometry
+  geom?: TemplateGeometry,
+  anchor?: BadgeAnchor
 ): { x: number; y: number } {
-  const [nx, ny] = gridRatio(index, geom);
+  const [nx, ny] = anchor ? [clampAnchor(anchor).x, clampAnchor(anchor).y] : gridRatio(index, geom);
   const w = master.absoluteBoundingBox?.width ?? geom?.badgeSize?.width ?? 48;
   const h = master.absoluteBoundingBox?.height ?? geom?.badgeSize?.height ?? 48;
   const x = rect.x + nx * rect.width;

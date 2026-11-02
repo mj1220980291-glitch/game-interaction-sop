@@ -12,6 +12,13 @@ export {
   type RenderInput,
   type RenderResult
 } from './render.js';
+export {
+  parseBadgeAnchors,
+  pickAnchors,
+  anchorKey,
+  type BadgeAnchor,
+  type BadgeAnchorMap
+} from './badge-anchor.js';
 export type {
   DocIR,
   DocHeader,

@@ -117,6 +117,10 @@ Phase 4 只用得到两个工具：
     "01/1/2": { "type": "figma_node", "fileKey": "<file key>", "nodeId": "<node id>",
                 "crop": { "x": 700, "y": 0, "width": 520, "height": 160 } }
   },
+  "badgeAnchors": {
+    "01/1": { "x": 0.54, "y": 0.83, "note": "底部 Tap the screen 文案上方" },
+    "01/2": { "x": 0.28, "y": 0.52, "note": "输入框左侧" }
+  },
   "target": {
     "fileKey": "<模板所在文件 fileKey — preflight 解析结果>",
     "pageId": "<询问用户 / 缺省新建>"
@@ -140,6 +144,11 @@ Phase 4 只用得到两个工具：
     - **源节点是母版（COMPONENT / INSTANCE）时必须用 `figma_instance`**，不得用 `image` / `figma_node` 把母版降级成图；`COMPONENT_SET` 需先选定具体变体 nodeId
     - **缺省的章节按 `skip` 处理**，Phase 3 跳过的章节不写进去即可
   - `"NN/C/K"` 配图（第 NN 章第 C 簇第 K 张，K 跨 `####` 连续），只支持 `figma_node`（可选 `crop`）/ `skip`；不写键的配图保留"配图占位：xxx"。键怎么编、区域怎么定见 `phase3-asset.md`「配图资产」
+- `badgeAnchors`（可选）— 图上标号的位置，Phase 3 第 5 步逐簇确认过：
+  - 键 `"NN/C"`（章/簇，1 起），值 `{ x, y }` 为**主图归一化坐标**（0–1，左上原点），可带 `note`
+  - 命中就按锚点摆标号；某簇没给 → 退回模板网格并报 `V2_W_BADGE_ANCHOR_MISSING`；整表不传 = 全部按网格
+  - 坐标越界的会被夹到图内并报 `V2_W_BADGE_ANCHOR_OUT_OF_RANGE`，把这条反馈给用户改锚点
+  - 只改标号位置时走同步模式（带 `rootId`，`badgeAnchors` 只写要改的那几个簇），不会动文字与配图
 - `target`（可选）— `fileKey` / `pageId`
   - `fileKey` 决定写进哪个文件。**不传就写进 Figma Desktop 当前活动的那个文件**，所以只要用户可能同时开着别的文件，就该显式传 preflight 解析出的模板文件 key
   - 目标文件必须也开着连接插件（优先社区插件 `https://www.figma.com/community/plugin/1695400514520991057`，其次本地 Desktop Bridge）；否则引擎返回 `V2_TARGET_FILE_UNREACHABLE`
@@ -294,6 +303,8 @@ Phase 4 只用得到两个工具：
 - 老结构（1:14）：截章节节点
 
 用 `figma_capture_screenshot`（或 `figma_take_screenshot`；只能截当前视口时先定位到该章节）。看正文旁是否还有灰板或虚线占位。
+
+**同一张截图顺带核对标号**：每个标号是否指到它描述的控件、有没有压在文字上、簇多了有没有堆到一起。发现偏差就改 `badgeAnchors` 里的坐标，用同步模式只重排标号（不动文字与配图），然后重新截图确认。
 
 章节数 > 8 时先截前 8 章；未截的章节按引擎统计进清单，状态标 `待核对`、"你要做的"写"我逐章看过再回你"，**不要**直接写"已配"。不要为了截图反复重排画布。
 

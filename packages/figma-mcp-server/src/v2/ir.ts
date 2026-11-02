@@ -206,7 +206,11 @@ export const SOFT_WARNING_CODES = {
   /** render — `autoPlace` 算不出空位（拿不到页面子节点），回落 `(0,0)`。 */
   W_AUTOPLACE_FALLBACK: 'V2_W_AUTOPLACE_FALLBACK',
   /** render — 第一轮渲染遇到瞬时连接错误，整轮重试了一次。 */
-  W_RENDER_RETRIED: 'V2_W_RENDER_RETRIED'
+  W_RENDER_RETRIED: 'V2_W_RENDER_RETRIED',
+  /** render — 该簇没有给 `badgeAnchors`，标号退回模板网格（位置是示意位）。 */
+  W_BADGE_ANCHOR_MISSING: 'V2_W_BADGE_ANCHOR_MISSING',
+  /** render — 锚点坐标不在 0–1，已夹到图内。 */
+  W_BADGE_ANCHOR_OUT_OF_RANGE: 'V2_W_BADGE_ANCHOR_OUT_OF_RANGE'
 } as const;
 
 export type SoftWarningCode =

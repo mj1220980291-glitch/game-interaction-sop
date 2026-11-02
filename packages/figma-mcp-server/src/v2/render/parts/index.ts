@@ -44,6 +44,7 @@ import {
 } from './stamp-parts.js';
 import { placeBadges, refreshChapterGeometry } from './geometry.js';
 import type { TemplateGeometry } from '../../template/schema.js';
+import { pickAnchors, type BadgeAnchorMap } from '../../badge-anchor.js';
 
 export const PARTS_RENDER_CODES = {
   LAYOUT_UNSUPPORTED: 'V2_RENDER_LAYOUT_UNSUPPORTED',
@@ -57,6 +58,8 @@ export interface PartsRenderInput {
   ir: DocIR;
   pack: TemplatePack;
   assetMap?: Record<string, AssetSpec>;
+  /** 标号锚点：`"NN/C"` → 主图归一化坐标。缺省按模板网格摆。 */
+  badgeAnchors?: BadgeAnchorMap;
   pageId?: string;
   /** 根帧落点（页面坐标）。缺省 `(0,0)`。 */
   origin?: { x: number; y: number };
@@ -308,6 +311,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
         warnings,
         ...(docBackground ? { docBackground } : {}),
         ...(pack.geometry ? { geometry: pack.geometry } : {}),
+        ...(input.badgeAnchors ? { badgeAnchors: input.badgeAnchors } : {}),
         ...(input.pageId ? { pageId: input.pageId } : {})
       })
     );
@@ -505,6 +509,8 @@ interface FillChapterCtx {
   docBackground?: string;
   /** 模板实测几何（章节宽度兜底、标号网格、占位色）。 */
   geometry?: TemplateGeometry;
+  /** 标号锚点表（`"NN/C"` → 主图归一化坐标）。缺省按模板网格摆。 */
+  badgeAnchors?: BadgeAnchorMap;
 }
 
 /**
@@ -765,7 +771,8 @@ async function fillChapter(
       ctx.warnings,
       ctx.caps.badgeSlot,
       [],
-      ctx.geometry
+      ctx.geometry,
+      ctx.badgeAnchors ? pickAnchors(ctx.badgeAnchors, section.index, section.clusters.length) : undefined
     )
   );
   bubbles.forEach((bubble, i) => {

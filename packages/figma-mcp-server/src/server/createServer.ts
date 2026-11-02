@@ -35,6 +35,7 @@ import {
   type AssetSpec,
   type FigmaBackend as V2FigmaBackend
 } from '../v2/index.js';
+import { parseBadgeAnchors } from '../v2/badge-anchor.js';
 
 // =========================================================================
 // Public types
@@ -160,6 +161,23 @@ const V2_RENDER_INPUT_SCHEMA = {
       type: 'object',
       additionalProperties: V2_ASSET_SPEC_JSON
     },
+    badgeAnchors: {
+      type: 'object',
+      description:
+        '标号锚点：键 "NN/C"（第 NN 章第 C 个簇，均从 1 起），值 { x, y } 为主图内的归一化坐标' +
+        '（0–1，左上原点），可带 note 说明。命中就按锚点摆图上标号；某簇没给则退回模板网格并报 ' +
+        'V2_W_BADGE_ANCHOR_MISSING；整表不传 = 全部按网格（行为与旧版一致）。',
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          x: { type: 'number' },
+          y: { type: 'number' },
+          note: { type: 'string' }
+        },
+        required: ['x', 'y'],
+        additionalProperties: false
+      }
+    },
     target: {
       type: 'object',
       properties: {
@@ -256,6 +274,9 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         '源节点必须在渲染目标文件内。' +
         '例：{ "01": { type:"figma_node", fileKey:"…", nodeId:"588:6399" }, "01/1/2": { type:"figma_node", fileKey:"…", nodeId:"588:6399", crop:{ x:700, y:0, width:520, height:160 } } }。' +
         '匹配不到的键与单张配图失败均为软告警，不中断渲染。' +
+        'badgeAnchors 可选：图上标号的位置。键 "NN/C"（章/簇，1 起），值 { x, y } 为主图归一化坐标（0–1，左上原点），可带 note。' +
+        '命中按锚点摆，缺则退回模板网格并报 V2_W_BADGE_ANCHOR_MISSING，越界夹取并报 V2_W_BADGE_ANCHOR_OUT_OF_RANGE；整表不传 = 全按网格。' +
+        '例：{ "01/2": { x:0.28, y:0.52, note:"命名输入框左侧" } }。' +
         '【同步模式】文档已渲染过、需要再次写入时，传 target.rootId（上次返回的 rootInstanceId）：' +
         '引擎不新建文档，而是逐条比对后只改有变化的地方；设计师手改的文字、手贴的图、拖过的气泡一律保留，' +
         '双方都改过的条目不覆盖，列在 conflicts 里；返回 changes / conflicts / preserved。' +
@@ -290,6 +311,9 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
           {
             markdown,
             assetMap,
+            ...(parseBadgeAnchors(args?.badgeAnchors)
+              ? { badgeAnchors: parseBadgeAnchors(args?.badgeAnchors) }
+              : {}),
             target,
             scope: args?.scope as string | undefined,
             dryRun: args?.dryRun as boolean | undefined,

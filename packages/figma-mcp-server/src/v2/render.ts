@@ -95,6 +95,12 @@ import {
   type ReconcilePreserved
 } from './reconcile/index.js';
 import { isTransientBridgeError, retryTransient } from '../server/retry.js';
+import {
+  anchorKey,
+  clampAnchor,
+  isOutOfRange,
+  type BadgeAnchorMap
+} from './badge-anchor.js';
 
 // --- Traced clone helper -------------------------------------------------
 
@@ -177,6 +183,17 @@ export interface RenderInput {
    *                   Only `figma_node` / `skip` are honoured.
    */
   assetMap?: Record<string, AssetSpec>;
+  /**
+   * 标号锚点。键 `"NN/C"`（章/簇，1 起），值为主图内的**归一化坐标**
+   * （0–1，左上为原点）：
+   *
+   *   `{ "01/2": { x: 0.28, y: 0.52, note: "命名输入框左侧" } }`
+   *
+   * 命中就按锚点摆标号；某簇没给则退回模板网格并报
+   * `V2_W_BADGE_ANCHOR_MISSING`；整表不传 = 行为与改动前一致（全部按网格）。
+   * 越界坐标会被夹到图内并报 `V2_W_BADGE_ANCHOR_OUT_OF_RANGE`。
+   */
+  badgeAnchors?: BadgeAnchorMap;
   target?: {
     /**
      * File to render into. Omitted, the render lands in whatever file is
@@ -832,6 +849,7 @@ export async function renderInner(
       ir,
       pack: packHit.pack,
       ...(input.assetMap ? { assetMap: input.assetMap } : {}),
+      ...(input.badgeAnchors ? { badgeAnchors: input.badgeAnchors } : {}),
       ...(input.target?.pageId ? { pageId: input.target.pageId } : {}),
       ...(placement ? { origin: placement } : {}),
       backend,
@@ -982,7 +1000,9 @@ export async function renderInner(
       section,
       input.assetMap?.[section.index],
       figures,
-      roleBlocks
+      roleBlocks,
+      input.badgeAnchors,
+      (w) => report?.(w)
     );
 
     if (input.assetMap?.[section.index]?.type === 'image') imagesPlaced++;
@@ -1095,7 +1115,9 @@ async function renderSection(
   section: DocIR['sections'][number],
   asset: AssetSpec | undefined,
   figures: FigureState,
-  roleBlocks: RoleBlockRuntime | undefined
+  roleBlocks: RoleBlockRuntime | undefined,
+  badgeAnchors?: BadgeAnchorMap,
+  report?: (w: SoftWarning) => void
 ): Promise<void> {
   // Re-index this section's named children.
   const named = await indexCloneByName(backend, sectionNode.id, [
@@ -1241,14 +1263,40 @@ async function renderSection(
   //    inside the 气泡 FRAME with FRAME-local coords.
   if (!section.isGlobalSpec && bubbleFrame && bubbleNodes.length > 0) {
     const bubbleFrameInfo = await backend.getNodeInfo(bubbleFrame.id);
+    // 锚点是主图归一化坐标；气泡容器就是主图那一层，按它的实际尺寸换算回 px。
+    const frameBox = bubbleFrameInfo.absoluteBoundingBox;
+    const frameW = frameBox?.width ?? 1920;
+    const frameH = frameBox?.height ?? 1080;
+    const offsetFor = (i: number): { x: number; y: number } => {
+      const anchor = badgeAnchors?.[anchorKey(section.index, i + 1)];
+      if (!anchor) {
+        if (badgeAnchors) {
+          report?.({
+            code: SOFT_WARNING_CODES.W_BADGE_ANCHOR_MISSING,
+            message: `第 ${section.index} 章第 ${i + 1} 个簇没有标号锚点（badgeAnchors["${section.index}/${i + 1}"]），标号按模板网格放置`,
+            context: `${section.index}/${i + 1}`
+          });
+        }
+        return bubbleOffset(i);
+      }
+      if (isOutOfRange(anchor)) {
+        report?.({
+          code: SOFT_WARNING_CODES.W_BADGE_ANCHOR_OUT_OF_RANGE,
+          message: `第 ${section.index} 章第 ${i + 1} 个簇的锚点 (${anchor.x}, ${anchor.y}) 超出 0–1，已夹到图内`,
+          context: `${section.index}/${i + 1}`
+        });
+      }
+      const at = clampAnchor(anchor);
+      return { x: Math.round(at.x * frameW), y: Math.round(at.y * frameH) };
+    };
     const first = bubbleNodes[0];
     if (first) {
-      await probeMoveOrThrow(backend, first, bubbleFrameInfo, bubbleOffset(0));
+      await probeMoveOrThrow(backend, first, bubbleFrameInfo, offsetFor(0));
     }
     for (let i = 1; i < bubbleNodes.length; i++) {
       const b = bubbleNodes[i];
       if (!b) continue;
-      await placeBubbleInFrame(backend, b, bubbleFrameInfo, bubbleOffset(i));
+      await placeBubbleInFrame(backend, b, bubbleFrameInfo, offsetFor(i));
     }
   }
 }

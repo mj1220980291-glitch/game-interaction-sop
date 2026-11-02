@@ -32,6 +32,7 @@ import { packHash } from '../template/pack-hash.js';
 import { loadPartsPack } from '../template-config.js';
 import { stampPartsDoc, type PartsDocLayout } from '../render/parts/stamp-parts.js';
 import { refreshChapterGeometry, relayoutBadges } from '../render/parts/geometry.js';
+import { pickAnchors } from '../badge-anchor.js';
 import { SCRATCH_ROOT_NAME, type DocStamp } from './stamp.js';
 import type { TemplateRef } from '../template-config.js';
 import { Tree } from './tree.js';
@@ -175,7 +176,11 @@ export async function reconcileV2(
             hit.clusterCount,
             hit.previousClusterCount,
             partsPack.capabilities.badgeSlot,
-            warnings
+            warnings,
+            partsPack.geometry,
+            input.badgeAnchors
+              ? pickAnchors(input.badgeAnchors, hit.index, hit.clusterCount)
+              : undefined
           );
         }
       }
