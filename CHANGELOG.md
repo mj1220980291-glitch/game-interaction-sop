@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## v2.3.2 — 2026-11-02
+
+**默认文风（`style-default.md`）补齐 frontmatter；新增 Preflight 版本自检工具链。** 引擎 `0.2.0` → `0.3.0`。
+
+### 1. `style-default.md` 带配置的 frontmatter
+
+出厂默认文风此前只有 `## 簇结构约定` + `## 职能标注` 两段正文，frontmatter 只有 `schema_version` 与 `name`，agent 读到后把职能标注当「软建议」处理，职能拆分不触发。
+
+本次 frontmatter 补齐三组机器契约字段：
+
+- `verbosity.level: normal` / `bullets_per_cluster: 3-6`
+- `role_annotation.mode: selective` + `when` 清单（8 条，覆盖配表 / 阈值 / 触发规则 / 新资源 / 动效）+ `never` 清单（通用交互 / 图上可见外观）
+- `wording.tone: 直述` / `person: 无人称` / `sentence: 短句` + `banned` 禁用词（尽量 / 建议 / 大概 / 基本 / 差不多 / 待确认 / 待定 / 视情况 / 酌情）
+
+落地效果：Phase 2 自检清单第「`role_annotation` 与 `- @职能：` 条目一致」项有可执行约束，职能标注会自动按清单拆成 `- @程序：…` / `- @策划：…` 条目；不再因为「default 没写明」而退化为模型直觉。
+
+### 2. 新增引擎工具 `get_skill_requirements`（engine 0.3.0）
+
+只读、无入参，返回 `{ requiredSkillVersion: "2.3.2", engineVersion: "0.3.0" }`。SKILL.md Preflight 会在会话开场调用它、比对本地安装的 skill `manifest.json` 版本号，低于 `requiredSkillVersion` 时提示升级。
+
+契约细节：
+
+- 常量 `REQUIRED_SKILL_VERSION` / `ENGINE_VERSION` 定义在 `src/server/createServer.ts` 顶部，与 `packages/figma-mcp-server/package.json` 的 `version` 手工对齐（review 时核对）
+- 引擎 < 0.3.0 不提供此工具，Preflight 收到 `TOOL_NOT_FOUND` 后退化为「引擎版本较旧」的提示，不阻断
+
+### 3. SKILL.md 新增 Preflight 段
+
+在 `## 何时启用本 skill` 之前新开 `## Preflight — 开场版本自检（每次会话首轮必做）`：三步校验（读本地 manifest / 调引擎 / 比对），版本落后时输出软警告（含完整升级命令），用户确认后继续 Phase 0；不阻断、不替用户执行。
+
+冷启动说明：本次 2.3.2 发布时，老用户（2.3.1 及更早）本地 SKILL.md 没有 Preflight 代码，因此本次升级靠团队公告而非 Preflight 自动触发。从 2.3.2 开始，后续所有版本切换都能被 Preflight 自动提醒。
+
+### 4. 其他
+
+- 版本 `2.3.2`（根包 / skill 包 / manifest / package-lock.json 需要本地 `npm install` 刷新）
+- `manifest.engineVersion` 从 `^0.2.0` 升到 `^0.3.0`
+- 引擎 `0.2.0` → `0.3.0`（新增工具属 API surface 变化，走 minor bump）
+
+### 5. 已知技术债（本次不动）
+
+- `openspec/specs/engine-mcp-server/spec.md` 要求「原生工具集 SHALL 恰好为 {validate_v2_markdown, render_v2_markdown_to_figma}」，但代码里 `figma_probe_template` / `figma_compile_template` 早已加入（spec drift 存量），本次再加 `get_skill_requirements` 使实际工具数达 5 ≠ 2。建议下一轮专门 PR 同步 spec。
+- `packages/figma-mcp-server/tests/server.spec.ts` 若存在「工具数量 = N」断言需要同步更新。本次未动，等 CI 结果再决定是否补 fix。
+
 ## v2.3.1 — 2026-11-02
 
 **标号按控件真实位置摆放（`badgeAnchors`）。** 引擎 `0.2.0`，本次改渲染入参与同步行为。

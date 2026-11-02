@@ -4,9 +4,12 @@
  * Spec: openspec/changes/proxy-figma-console-tools-from-engine/specs/engine-mcp-server/spec.md
  *
  * Exposes a single MCP server that combines:
- *   - 2 native tools owned by figma-interaction-doc-engine itself:
+ *   - 5 native tools owned by figma-interaction-doc-engine itself:
  *       1. validate_v2_markdown         (no backend needed)
  *       2. render_v2_markdown_to_figma  (needs V2FigmaBackend)
+ *       3. figma_probe_template         (needs V2FigmaBackend, read-only)
+ *       4. figma_compile_template       (needs V2FigmaBackend, write-capable)
+ *       5. get_skill_requirements       (no backend needed, read-only; drives SKILL.md Preflight)
  *   - All tools dynamically forwarded from a child figma-console-mcp process
  *     (see `index.ts` for spawn wiring). The list is captured once at startup
  *     via `client.listTools()` and passed in as `proxyTools`.
@@ -82,6 +85,27 @@ export interface NativeToolDef {
 export type NativeToolHandler = (
   args: Record<string, unknown>
 ) => Promise<CallToolResult>;
+
+// =========================================================================
+// Version contract (served by get_skill_requirements)
+// =========================================================================
+
+/**
+ * Minimum skill version this engine expects. Bump when a change in the engine
+ * REQUIRES a matching change in the skill (new tool contract, new MCP field, etc.).
+ *
+ * 2.3.2: default style ships with role_annotation / wording frontmatter, SKILL.md
+ *        gains Preflight calling get_skill_requirements. Engines older than 0.3.0
+ *        do not expose this tool, so the Preflight gracefully falls back.
+ */
+export const REQUIRED_SKILL_VERSION = '2.3.2';
+
+/**
+ * Engine's own version string surfaced to Preflight. Kept in sync with
+ * packages/figma-mcp-server/package.json manually; bumping one without the other
+ * is a review-time check.
+ */
+export const ENGINE_VERSION = '0.3.0';
 
 // =========================================================================
 // Native tool input schemas (raw JSON Schema, served verbatim to clients)
@@ -230,6 +254,12 @@ const V2_PROBE_INPUT_SCHEMA = {
     maxNodes: { type: 'number', exclusiveMinimum: 0 }
   },
   required: ['nodeId'],
+  additionalProperties: false
+} as const;
+
+const SKILL_REQUIREMENTS_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {},
   additionalProperties: false
 } as const;
 
@@ -552,7 +582,36 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
     }
   };
 
-  return [validateV2Markdown, renderV2MarkdownTool, probeTemplateTool, compileTemplateTool];
+  const getSkillRequirementsTool: NativeToolDef = {
+    tool: {
+      name: 'get_skill_requirements',
+      description:
+        '【只读，不调 Figma】返回本引擎要求的最低 skill 版本和自身引擎版本。' +
+        'SKILL.md Preflight 在会话开场调用此工具，比对本地安装的 skill manifest.json 版本号，' +
+        '低于 requiredSkillVersion 时提示用户升级（软警告，不阻断）。' +
+        '返回：{ requiredSkillVersion: string, engineVersion: string }。' +
+        '引擎 < 0.3.0 不提供此工具，Preflight 会收到 TOOL_NOT_FOUND 并退化为"引擎版本较旧"的提示。',
+      inputSchema: SKILL_REQUIREMENTS_INPUT_SCHEMA as unknown as Tool['inputSchema']
+    },
+    handler: async () => {
+      try {
+        return jsonResult({
+          requiredSkillVersion: REQUIRED_SKILL_VERSION,
+          engineVersion: ENGINE_VERSION
+        });
+      } catch (e) {
+        return errorResult(ServerErrorCodes.INTERNAL_ERROR, (e as Error).message);
+      }
+    }
+  };
+
+  return [
+    validateV2Markdown,
+    renderV2MarkdownTool,
+    probeTemplateTool,
+    compileTemplateTool,
+    getSkillRequirementsTool
+  ];
 }
 
 // =========================================================================

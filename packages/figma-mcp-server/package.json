@@ -1,7 +1,7 @@
 {
   "name": "figma-interaction-doc-engine",
-  "version": "0.2.0",
-  "description": "Deterministic engine that turns v2 interaction-doc Markdown into Figma documents via figma-console-mcp.",
+  "version": "0.3.0",
+  "description": "Deterministic engine that turns v2 interaction-doc Markdown into Figma documents via figma-console-mcp. 0.3.0: adds get_skill_requirements MCP tool for skill-side Preflight.",
   "type": "module",
   "private": true,
   "bin": {

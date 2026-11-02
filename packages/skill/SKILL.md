@@ -7,6 +7,51 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 
 游戏交互需求挖掘 → 交付级 Figma 交互文档的端到端 SOP。
 
+## Preflight — 开场版本自检（每次会话首轮必做）
+
+进入 Phase 0 之前，先确认 skill 与引擎的版本契约是否对齐。
+
+### 步骤
+
+1. **读本地 skill manifest**
+   读 `<skill 安装目录>/manifest.json`（通常是 `~/.codemaker/skills/game-interaction-sop/manifest.json` 或 `~/.claude/skills/...` 等，按 agent 类型定位），取 `version` 作为 `skillVersion`。
+2. **问引擎要最低要求**
+   调用 MCP 工具 `figma-interaction-doc-engine.get_skill_requirements`（无入参），返回 `{ requiredSkillVersion, engineVersion }`。
+3. **比对**
+   以 semver 比较 `skillVersion` vs `requiredSkillVersion`：
+   - `skillVersion >= requiredSkillVersion` → 静默通过，继续 Phase 0
+   - `skillVersion < requiredSkillVersion` → 输出下面的升级提示（**软警告，不阻断**），用户确认后继续 Phase 0
+
+### 升级提示文案
+
+当版本落后时，向用户输出：
+
+> ⚠️ 你的 skill 版本非最新（当前 `{skillVersion}`，要求 ≥ `{requiredSkillVersion}`），**无法应用最新的 style 文风功能**（默认文风缺 `role_annotation` / `wording` 等 frontmatter 字段，职能标注拆分不会自动触发）。
+>
+> 升级命令（在 game-interaction-sop 仓库根目录运行）：
+> ```
+> git pull
+> cd packages/figma-mcp-server && npm install && npm run build
+> cd ../.. && npm run install-skill -- --agent <codemaker|claude|cursor|cline> --force
+> ```
+>
+> CodeMaker 用户还需在 MCP 面板里把 `figma-interaction-doc-engine` 禁用再启用。
+>
+> 本会话会继续运行，但产出可能缺少文风强约束。建议升级后重开会话。
+
+### 失败退化
+
+- `get_skill_requirements` 调用失败（如引擎版本 < 0.3.0 还没这个工具） → 判定为**引擎老于 skill**，输出一句提示：「引擎版本较旧（缺 `get_skill_requirements`），建议同步升级引擎到 ≥ 0.3.0」。然后静默继续 Phase 0。
+- 本地 `manifest.json` 读不到 → 提示用户 skill 安装路径可能异常，让用户手动跑一次 `npm run install-skill ... --force`。然后继续 Phase 0。
+
+### 不做什么
+
+- Preflight **只软警告，不阻断**，不替用户执行升级命令
+- Preflight 的提示文案只出现一次，用户已主动跳过时后续回合不再重复
+- 本步骤完成后立即进入 Phase 0；不要在 Preflight 阶段读策划文档、问需求
+
+---
+
 ## 何时启用本 skill
 
 用户给出以下任一信号时启用：
@@ -92,7 +137,7 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 |---|---|---|
 | `.interaction-sop/template.json` | 指定本项目的 Figma 模板地址 `{template:{fileKey,nodeId}}`，可加 `roleBlock.componentSetId` | Phase 4 preflight |
 | `.interaction-sop/style.md` | 项目默认文风基线，**只读**；既无 `style_own.md` 也无 `style_<name>.md` 时用它 | Phase 1 读，Phase 2 用 |
-| `references/style-default.md`（skill 内置） | 出厂默认文风；项目里一个 `style*.md` 都没有时**直接加载它**，零配置即生效 | Phase 1 读，Phase 2 用 |
+| `references/style-default.md`（skill 内置） | 出厂默认文风；项目里一个 `style*.md` 都没有时**直接加载它**，零配置即生效。**2.3.2 起 frontmatter 带 `role_annotation.mode: selective` / `wording.banned`，职能标注会自动按清单拆分** | Phase 1 读，Phase 2 用 |
 | `.interaction-sop/style_own.md` | 个人文风，Phase 5 的自动沉淀目标；存在即默认生效 | 同上 |
 | `.interaction-sop/style_<name>.md` | 他人 / 分享 / 导入的文风；存在任意一份时，**每次写文档前询问用哪份** | 同上 |
 | `.interaction-sop/snapshots/<需求名>.md` | Phase 2 保存时的 Markdown 原稿，只作 Phase 5 diff 基线，同名覆盖 | Phase 5 |
@@ -180,7 +225,6 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 - `references/template-1-14.md` — Figma 模板节点 ID 映射表（含可配地址、「职能标记」组件集）
 - `references/role-tags.md` — 7 角色定义、颜色、模板节点对应
 - `references/style-mod-schema.md` — 项目文风 mod 契约（精简度 / @职能 策略 / 用词）
-- `references/style-default.md` — 默认文风文件（簇结构约定 + 职能标注），新建项目 `style.md` 时直接复制
+- `references/style-default.md` — 默认文风文件（簇结构约定 + 职能标注 + **2.3.2 起带 role_annotation / wording / verbosity frontmatter**），新建项目 `style.md` 时直接复制
 
 阅读顺序建议：先读本 SKILL.md → 进入对应 Phase 时读对应 phase 文件 → 需要细节时查 references。
-
