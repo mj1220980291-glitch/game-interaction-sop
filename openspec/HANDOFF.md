@@ -1,6 +1,19 @@
 # 交接说明（2026-11-03）
 
-## 当前状态快照（2026-11-03 14:30，换对话先读这一节）
+## 当前状态快照（2026-11-03 14:45，换对话先读这一节）
+
+**一句话**：`inline-suffix` 职能实现完成（引擎 `0.4.0`）：职能拼在**第一条普通正文句尾**并上色，同步侧同口径。新 change `implement-inline-role-suffix` 待真机验收。
+
+**实现要点**（用户澄清后修正的认知）：蛋仔这类模板**没有职能组件位**，职能以 `@GUI @程序` 跟在条目后面、且带色；机制早就有一半（`paintRoleTokens` 上色），缺的是「拼上去」这一步。
+
+- `v2/role-suffix.ts`：`withInlineRoleSuffix` 跳过配图与 `@职能` 条目，只拼第一条普通正文
+- `expectedItems({inlineRoles})` + `PlanOptions.inlineRoles`：同步按同一文本比对，否则幂等会来回重写
+- `V2_W_ROLE_ANNOTATION_UNSUPPORTED` 停止发射（能力已实现）
+
+**待验**：蛋仔包渲染 → 首条正文以 ` @GUI @程序` 结尾且带色；同 md 两次同步 `changes: []`；改一条正文只更新那一条且后缀仍在。
+
+**其余遗留不变**：删图恢复不丢图（stamp schema）、`####` 自动降级、worker↔bridge 解耦、parts 同步 harness。
+
 
 **一句话**：主串联联调收口。`fix-figure-slot-geometry-and-item-index`（0.3.6 签收）与 `fix-reconcile-fill-and-role-fallback`（0.3.9 复验）**两个 change 都已归档**；同步补图链路打通，M1 配图 20/39。引擎 `0.3.9`，已推送 `fbc22e9`。
 

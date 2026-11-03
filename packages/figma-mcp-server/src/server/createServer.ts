@@ -106,7 +106,7 @@ export const REQUIRED_SKILL_VERSION = '2.3.3';
  * packages/figma-mcp-server/package.json manually; bumping one without the other
  * is a review-time check.
  */
-export const ENGINE_VERSION = '0.3.9';
+export const ENGINE_VERSION = '0.4.0';
 
 // =========================================================================
 // Native tool input schemas (raw JSON Schema, served verbatim to clients)

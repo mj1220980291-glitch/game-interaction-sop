@@ -122,6 +122,8 @@ export type PlanResult =
 export interface PlanOptions {
   scope?: string;
   assetMap?: Record<string, AssetSpec>;
+  /** 模板把职能拼在正文句尾（`roleAnnotation: inline-suffix`）。 */
+  inlineRoles?: boolean;
 }
 
 const SCOPE_RE = /^(\d{2})(?:\/(\d+))?$/;
@@ -144,7 +146,7 @@ export function planReconcile(snap: DocSnapshot, ir: DocIR, opts: PlanOptions = 
     scope = { s, c };
   }
 
-  const p = new Planner(snap, ir, opts.assetMap);
+  const p = new Planner(snap, ir, opts.assetMap, opts.inlineRoles === true);
   const err = p.run(scope);
   if (err) return { ok: false, code: 'V2_SCOPE_NOT_FOUND', message: err };
   return { ok: true, plan: p.result() };
@@ -172,7 +174,8 @@ class Planner {
   constructor(
     private snap: DocSnapshot,
     private ir: DocIR,
-    private assetMap: Record<string, AssetSpec> | undefined
+    private assetMap: Record<string, AssetSpec> | undefined,
+    private inlineRoles = false
   ) {}
 
   result(): Plan {
@@ -606,7 +609,8 @@ class Planner {
     const isParts = this.snap.profile.id === 'parts';
     const want = expectedItems(cl, {
       includeRoles: !isParts,
-      includeSubtitles: !isParts
+      includeSubtitles: !isParts,
+      inlineRoles: this.inlineRoles
     });
     const seq = this.align(
       oc.items,

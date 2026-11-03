@@ -35,6 +35,7 @@ import { refreshChapterGeometry, relayoutBadges } from '../render/parts/geometry
 import { pickAnchors } from '../badge-anchor.js';
 import { SCRATCH_ROOT_NAME, type DocStamp } from './stamp.js';
 import type { TemplateRef } from '../template-config.js';
+import type { TemplatePack } from '../template/schema.js';
 import { Tree } from './tree.js';
 
 export type { ReconcileChange, ReconcileConflict, ReconcilePreserved } from './plan.js';
@@ -76,6 +77,7 @@ export async function reconcileV2(
 
   const docStamp = tree.root.parsed as DocStamp;
   const profile = profileFor(docStamp);
+  let partsPack: TemplatePack | undefined;
   if (profile.id === 'parts') {
     // 部件重编会改槽位名与能力；在旧结构上按新能力同步会删错节点。
     const current = loadPartsPack()?.pack;
@@ -94,10 +96,18 @@ export async function reconcileV2(
         parseWarnings
       );
     }
+    partsPack = current;
   }
 
   const snap = buildSnapshot(tree, profile);
-  const planned = planReconcile(snap, ir, { scope: input.scope, assetMap: input.assetMap });  if (!planned.ok) return fail(planned.code, planned.message, parseWarnings);
+  const planned = planReconcile(snap, ir, {
+    scope: input.scope,
+    assetMap: input.assetMap,
+    // `inline-suffix` 模板把职能拼在正文句尾：计划侧必须按同一份文本比对，
+    // 否则每次同步都以为条目被改过，来回重写。
+    inlineRoles: partsPack?.capabilities.roleAnnotation === 'inline-suffix'
+  });
+  if (!planned.ok) return fail(planned.code, planned.message, parseWarnings);
   const plan = planned.plan;
   const warnings = [...parseWarnings, ...snap.warnings, ...plan.warnings];
   const report = { changes: plan.changes, conflicts: plan.conflicts, preserved: plan.preserved };
@@ -167,7 +177,6 @@ export async function reconcileV2(
     done.add('fills');
 
     // 多部件文档：簇集合一变，章节高度、左列贴合、标号数量与位置都得重算。
-    const partsPack = profile.id === 'parts' ? loadPartsPack()?.pack : undefined;
     if (partsPack) {
       const changed = await changedSections(plan.changes, ir, snap);
       for (const hit of changed) {

@@ -10,6 +10,7 @@
  */
 
 import type { DocIR, SemanticCluster } from '../ir.js';
+import { inlineRoleSuffix } from '../role-suffix.js';
 import type { AssetSpec } from '../render.js';
 import type { FigmaBackend, StampEntry } from '../figma-client.js';
 import { SECTION_CHILD_NAMES } from '../template-map.js';
@@ -63,13 +64,16 @@ export interface ExpectedItem {
  */
 export function expectedItems(
   cluster: SemanticCluster,
-  opts: { includeRoles?: boolean; includeSubtitles?: boolean } = {}
+  opts: { includeRoles?: boolean; includeSubtitles?: boolean; inlineRoles?: boolean } = {}
 ): ExpectedItem[] {
   const includeRoles = opts.includeRoles !== false;
   const includeSubtitles = opts.includeSubtitles !== false;
   const flat =
     cluster.groups.length <= 1 && (cluster.groups[0]?.title ?? null) === null;
   const out: ExpectedItem[] = [];
+  // `inline-suffix`：职能拼在第一条普通正文的句尾（与渲染同一套拼装逻辑）。
+  const suffix = opts.inlineRoles === true ? inlineRoleSuffix(cluster.roles) : '';
+  let suffixed = suffix === '';
   let ordinal = 0;
   for (const g of cluster.groups) {
     if (!flat && includeSubtitles && g.title !== null) out.push({ t: 'subtitle', text: g.title });
@@ -81,7 +85,13 @@ export function expectedItems(
         if (isDeclaredNoFigureBullet(b)) continue;
         out.push({ t: 'figure', text: stripImageBulletPrefix(b), ordinal: ++ordinal });
       } else {
-        out.push({ t: 'rule', text: normalizeBulletText(b) });
+        const text = normalizeBulletText(b);
+        if (!suffixed) {
+          suffixed = true;
+          out.push({ t: 'rule', text: `${text} ${suffix}` });
+        } else {
+          out.push({ t: 'rule', text });
+        }
       }
     }
   }

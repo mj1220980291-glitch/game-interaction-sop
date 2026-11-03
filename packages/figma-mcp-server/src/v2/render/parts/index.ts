@@ -37,6 +37,7 @@ import {
 import { retryTransient } from '../../../server/retry.js';
 import type { RoleBlockRuntime } from '../../role-block.js';
 import { isFigureSlotBullet, stripImageBulletPrefix } from '../../reconcile/stamp.js';
+import { withInlineRoleSuffix } from '../../role-suffix.js';
 import {
   clusterItems,
   type PartsClusterLayout,
@@ -767,24 +768,20 @@ async function fillChapter(
       await resetHiddenPool(backend, node, ctx.caps.hiddenPool, ctx.warnings);
       // 职能/编号的写法差异：不是组件变体 / 不显示编号时，簇里的载体没有意义，
       // 留着只会把原稿角色一起带进产物。
-      if (ctx.caps.roleAnnotation !== 'component-variant') {
+      if (ctx.caps.roleAnnotation === 'component-variant') {
+        // 组件变体：职能由「职能标记」实例承载，簇里的编辑器残留帧要清掉再插实例。
+      } else {
         await deleteMatching(b, node.id, (n) => isRoleFrameNode(n));
-      }
-      // `inline-suffix`（把职能拼进标题）还没实现。以前是静默：md 里的 @职能 条目
-      // 直接消失，文档里搜不到任何角色，也没有一条告警（真机：蛋仔包的「进入提示」）。
-      if (ctx.caps.roleAnnotation === 'inline-suffix' && cluster.roles.length > 0) {
-        ctx.warnings.push({
-          code: SOFT_WARNING_CODES.W_ROLE_ANNOTATION_UNSUPPORTED,
-          message:
-            `第 ${section.index} 章「${cluster.title}」的职能 ${cluster.roles.join(' ')} 未写入：` +
-            '模板声明 roleAnnotation=inline-suffix，引擎尚未实现（当前只支持 component-variant）',
-          context: `${section.index}/${i + 1}`
-        });
       }
       if (ctx.caps.numberBadge === 'none') {
         await deleteMatching(b, node.id, (n) => n.name === CLUSTER_SLOTS.number);
       }
-      const effective = inlineSubtitles(cluster, ctx.caps.clusterGroups);
+      // `inline-suffix`：职能拼在正文句尾（蛋仔这类模板没有职能位），拼装与同步
+      // 共用 `withInlineRoleSuffix`，否则每次同步都会以为条目被改过。
+      const effective = inlineSubtitles(
+        ctx.caps.roleAnnotation === 'inline-suffix' ? withInlineRoleSuffix(cluster) : cluster,
+        ctx.caps.clusterGroups
+      );
       const seedId = await findNamed(backend, node.id, CLUSTER_SLOTS.figure);
       const imageSeed = makeImageSeed(seedId);
       await fillCluster(

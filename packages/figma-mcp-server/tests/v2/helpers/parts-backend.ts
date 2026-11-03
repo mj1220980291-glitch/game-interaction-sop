@@ -30,6 +30,8 @@ export interface PartsBackend {
   backend: FigmaBackend;
   nodes: Map<string, PNode>;
   calls: string[];
+  /** `setTextRangeFills` 的调用记录：nodeId → 区间（用于校验 @职能 上色）。 */
+  rangeFills: Map<string, Array<{ start: number; end: number; color: string }>>;
   /** Register a part component that `importComponentByKey` can clone. */
   registerComponent(key: string, tree: PNode): void;
   childrenOf(id: string): PNode[];
@@ -80,6 +82,7 @@ export function buildNodes(rootId: string, spec: PNodeSpec): Map<string, PNode> 
 export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
   const nodes = buildNodes(rootSpec.id, rootSpec);
   const calls: string[] = [];
+  const rangeFills = new Map<string, Array<{ start: number; end: number; color: string }>>();
   const components = new Map<string, PNodeSpec>();
   let seq = 0;
   /** 配图槽克隆计数：用来复现「第 N 张 y 越累越深」的真机症状。 */
@@ -432,6 +435,12 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
         return out ?? { groupId: g.groupId, missing: true };
       });
     },
+    async setTextRangeFills(
+      updates: Array<{ nodeId: string; ranges: Array<{ start: number; end: number; color: string }> }>
+    ) {
+      calls.push(`rangeFills:${updates.length}`);
+      for (const u of updates) rangeFills.set(u.nodeId, u.ranges);
+    },
     async normalizeChapterLayout({ chapterId }: { chapterId: string }) {
       calls.push(`normalizeChapter:${chapterId}`);
       const root = nodes.get(chapterId);
@@ -523,6 +532,7 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
     backend,
     nodes,
     calls,
+    rangeFills,
     registerComponent(key: string, tree: PNodeSpec) {
       components.set(key, tree);
     },

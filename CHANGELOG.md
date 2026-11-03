@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## v2.5.0 — 2026-11-03
+
+**实现 `roleAnnotation: 'inline-suffix'`：职能拼在正文句尾并上色（蛋仔包投产解锁）。** 引擎 `0.3.9` → `0.4.0`。
+
+### 1. 拼装规则
+
+蛋仔这类模板没有「职能标记」组件位，职能是跟在条目后面的 `@GUI @程序`，且在 Figma 里带色。
+
+- 新增 `v2/role-suffix.ts`：把簇的职能拼到**第一条普通正文**句尾；跳过配图条目（`配图：…`）与 `@职能` 条目；一簇没有正文时不动任何条目
+- 渲染（parts）填充前拼装，写完由既有 `paintRoleTokens` 按 `ROLE_COLORS` 补色（写 `characters` 会冲掉原稿字符样式）
+- 移除 0.3.7 起发的 `V2_W_ROLE_ANNOTATION_UNSUPPORTED`（能力已实现）
+
+### 2. 同步同口径
+
+渲染写入的是带后缀的文本，计划侧必须按同一份比对，否则每次同步都以为条目被改过：
+
+- `expectedItems` 新增 `inlineRoles`，首条普通正文带后缀
+- `planReconcile` 从模板包 `capabilities.roleAnnotation` 取开关
+
+### 3. 测试与版本
+
+- `tests/v2/role-inline-suffix.spec.ts` 重写（6 条）：拼装跳过规则 / 渲染后首条带后缀且 `@GUI` 区间有颜色 / component-variant 不拼 / 同步口径开与关
+- 72 files / 577 tests 全绿
+- 引擎 `0.3.9` → `0.4.0`
+
 ## v2.4.1 — 2026-11-03
 
 **0.3.8 回执：同步填图两条路同错 → 真因是槽形态判定，不是布局属性。** 引擎 `0.3.8` → `0.3.9`。
