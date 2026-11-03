@@ -46,3 +46,19 @@ export function profileFor(stamp: DocStamp): StructureProfile {
   if (stamp.parts?.structure === 'parts' || stamp.structure === 'parts') return PARTS_PROFILE;
   return LEGACY_PROFILE;
 }
+
+/**
+ * 配图槽的实际形态：**先看节点类型**，类型判断不了才用结构档案兜底。
+ *
+ * 真机（2026-11-03）：parts 档案一律是 `rect`，于是 named-group 模板的 `配图`
+ * GROUP 被当成矩形写 `fills` → `TypeError: object is not extensible`，
+ * 同步与退化两条路都死在同一处（create 正常，因为它按运行时结构判）。
+ */
+export function figureSlotShape(
+  nodeType: string | undefined,
+  profile: StructureProfile
+): 'group' | 'rect' {
+  if (nodeType === 'RECTANGLE') return 'rect';
+  if (nodeType === 'GROUP' || nodeType === 'FRAME') return 'group';
+  return profile.figureSlot;
+}

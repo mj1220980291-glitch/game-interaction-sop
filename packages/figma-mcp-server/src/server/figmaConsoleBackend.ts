@@ -1690,9 +1690,20 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       await run(`
         ${EXPORT_REGION_FN}
         const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceNodeId)});
-        const tgt = await figma.getNodeByIdAsync(${JSON.stringify(targetNodeId)});
+        let tgt = await figma.getNodeByIdAsync(${JSON.stringify(targetNodeId)});
         if (!src) throw new Error('rasterizeNodeToImageFill: source node not found: ' + ${JSON.stringify(sourceNodeId)});
         if (!tgt) throw new Error('rasterizeNodeToImageFill: target node not found: ' + ${JSON.stringify(targetNodeId)});
+        // 组不接受 fills：往 GROUP 上写会抛 object is not extensible，这里先下沉到矩形。
+        if (!('fills' in tgt) && 'findAll' in tgt) {
+          const rects = tgt.findAll((n) => 'fills' in n && n.type === 'RECTANGLE');
+          if (rects.length > 0) tgt = rects[0];
+        }
+        if (!('fills' in tgt)) {
+          throw new Error(
+            'rasterizeNodeToImageFill[setFills] target does not accept fills: ' +
+            tgt.type + ' ' + tgt.id
+          );
+        }
         const { bytes } = await exportRegion(src, ${JSON.stringify(crop ?? null)}, ${scale});
         const image = figma.createImage(bytes);
         tgt.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
@@ -1703,23 +1714,46 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     async fillFigurePlaceholder({ sourceNodeId, groupId, rectId, hintId, crop, scale = 1, maxWidth }) {
       const r = await run(`
         ${EXPORT_REGION_FN}
+        const step = (name, e) => new Error('fillFigurePlaceholder[' + name + '] ' + ((e && e.message) || e));
         const src = await figma.getNodeByIdAsync(${JSON.stringify(sourceNodeId)});
         if (!src) throw new Error('fillFigurePlaceholder: source node not found: ' + ${JSON.stringify(sourceNodeId)});
         const group = await figma.getNodeByIdAsync(${JSON.stringify(groupId)});
-        const rect = await figma.getNodeByIdAsync(${JSON.stringify(rectId)});
-        if (!group || !rect) throw new Error('fillFigurePlaceholder: placeholder not found: group=' + ${JSON.stringify(groupId)} + ' rect=' + ${JSON.stringify(rectId)});
+        if (!group) throw new Error('fillFigurePlaceholder[getGroup] group not found: ' + ${JSON.stringify(groupId)});
+
+        // 要写 fills 的节点必须真的接受 fills。GROUP 没有 fills —— 往组上赋
+        // \`fills\` 时 Figma 抛的就是 \`TypeError: object is not extensible\`，
+        // 而且同步/退化两条路都会死在同一处（真机 2026-11-03，create 正常）。
+        // 所以这里不信任传入的 rectId：按名字找、再按类型兜底。
+        const acceptsFills = (n) => !!n && 'fills' in n;
+        let rect = null;
+        try {
+          const hinted = await figma.getNodeByIdAsync(${JSON.stringify(rectId)});
+          if (acceptsFills(hinted)) rect = hinted;
+        } catch (e) { /* 传进来的 id 不存在也继续按名字找 */ }
+        if (!rect && 'findAll' in group) {
+          const named = group.findAll((n) => n.name === ${JSON.stringify('配图占位')} && 'fills' in n);
+          if (named.length > 0) rect = named[0];
+        }
+        if (!rect && 'findAll' in group) {
+          const rects = group.findAll((n) => n.type === 'RECTANGLE' && 'fills' in n);
+          if (rects.length > 0) rect = rects[0];
+        }
+        if (!rect) {
+          throw new Error(
+            'fillFigurePlaceholder[getRect] 组 ' + ${JSON.stringify(groupId)} +
+            ' 里找不到可写 fills 的矩形（传入 rectId=' + ${JSON.stringify(rectId)} + '）'
+          );
+        }
 
         const softFails = [];
         const CROP = ${JSON.stringify(crop ?? null)};
 
-        // 导出是唯一不可退让的一步，但「带裁剪导出失败」可以退成整图导出——
-        // 真机上裁剪走临时 frame + clone，源节点若在实例里会抛
-        // \`TypeError: object is not extensible\`（create 能填、reconcile 挂）。
+        // 导出是唯一不可退让的一步，但「带裁剪导出失败」可以退成整图导出。
         let exported;
         try {
           exported = await exportRegion(src, CROP, ${scale});
         } catch (e) {
-          if (!CROP) throw new Error('fillFigurePlaceholder[export] ' + ((e && e.message) || e));
+          if (!CROP) throw step('export', e);
           softFails.push('export.crop: ' + ((e && e.message) || e));
           exported = await exportRegion(src, null, ${scale});
         }
@@ -1728,8 +1762,15 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         const w = Math.max(1, Math.min(srcW, ${maxWidth}));
         const h = Math.max(1, Math.round(srcH * w / srcW));
 
-        // **图必须落上**：这一步失败才算填图失败。
-        rect.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
+        // **图必须落上**：这一步失败才算填图失败，且错误要带 step。
+        try {
+          rect.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
+        } catch (e) {
+          throw new Error(
+            'fillFigurePlaceholder[setFills] ' + ((e && e.message) || e) +
+            ' | targetType=' + rect.type + ' id=' + rect.id + ' hasFills=' + ('fills' in rect)
+          );
+        }
 
         // 以下都是锦上添花：清虚线、改尺寸、居中、删占位文案。
         // 目标文档里的槽可能不在 auto-layout 父级下，\`layoutSizingHorizontal\`

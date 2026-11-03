@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## v2.4.1 — 2026-11-03
+
+**0.3.8 回执：同步填图两条路同错 → 真因是槽形态判定，不是布局属性。** 引擎 `0.3.8` → `0.3.9`。
+
+### 1. 真因：parts 结构档案把 GROUP 槽当成了裸矩形
+
+`PARTS_PROFILE.figureSlot` 写死为 `'rect'`，于是 `named-group` 模板的配图条目（`GROUP`）在同步里被当成「条目节点自己就是要填图的矩形」，`rectId = group.id`。Figma 的 GROUP 没有 `fills` 属性，赋值抛 `TypeError: object is not extensible`；退化路径 `rasterizeNodeToImageFill` 拿同一个 id 去写 `fills`，同错。create 正常是因为渲染器按运行时结构找矩形。
+
+- 新增 `figureSlotShape(nodeType, profile)`：`RECTANGLE` → 裸槽；`GROUP` / `FRAME` → 容器槽；类型未知才用档案兜底
+- `plan.figure()` 改用它，`配图占位` 矩形与占位文案按容器槽正常解析
+- 填图/刷图脚本兜底：目标不接受 `fills` 时自动下沉到组内矩形（防御性，不再信任传入 id）
+
+### 2. 错误信息带步骤标签
+
+`fillFigurePlaceholder[export|setFills]`、`rasterizeNodeToImageFill[setFills]`，`setFills` 失败时附 `targetType / id / hasFills`；`getGroup` / `getRect` 也各自带标签。以后同类问题一条 message 就能定位。
+
+### 3. 测试与版本
+
+- `figureSlotShape` 单测（GROUP/FRAME/RECTANGLE/未知类型 4 条）
+- 72 files / 573 tests 全绿；`openspec validate --all --strict` 22/22
+- 引擎 `0.3.8` → `0.3.9`
+
 ## v2.4.0 — 2026-11-03
 
 **0.3.7 回执：同步填图仍挂（`object is not extensible`）、删图恢复仍静默。** 引擎 `0.3.7` → `0.3.8`。

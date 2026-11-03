@@ -6,7 +6,10 @@
 - [x] 1.4 `fillFigurePlaceholder` 返回 `softFails`；有值发 `V2_W_FIGURE_FILL_FALLBACK`
 - [x] 1.5 退化路径也失败时 message 带两层错误
 - [x] 1.6 真机：对 `4382:29391` 同步补图，图必须落上（不再 FILL_FAILED）
-- [ ] 1.7 真机：若仍失败，贴 `softFails` 与两层 message（脚本已逐步标记：export / strokes / resize / sizing / center / hint）
+- [x] 1.7 **真因改为槽形态**：`PARTS_PROFILE.figureSlot='rect'` 把 GROUP 槽当裸矩形，`rectId = group.id` → 写 `fills` 抛 `object is not extensible`（同步与退化同错）。新增 `figureSlotShape` 按节点类型判，档案只兜底
+- [x] 1.8 错误信息带 step（`export` / `setFills` / `getRect` …），`setFills` 附 `targetType / id / hasFills`
+- [x] 1.9 填图/刷图脚本兜底：目标不接受 `fills` 时下沉到组内矩形
+- [ ] 1.10 真机（0.3.9）：同步补图，图落上且无 FILL_FAILED / FALLBACK
 
 ## 2. 重插配图槽丢图
 

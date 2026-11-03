@@ -12,6 +12,7 @@ import type { DocIR, InterfaceSection, SemanticCluster, SoftWarning } from '../i
 import { SOFT_WARNING_CODES } from '../ir.js';
 import type { AssetSpec } from '../render.js';
 import { alignSequences, type Step } from './align.js';
+import { figureSlotShape } from './structure.js';
 import { expectedItems, type ExpectedItem } from './layout.js';
 import { roleTexts, type DocSnapshot, type SnapCluster, type SnapItem, type SnapSection } from './snapshot.js';
 import type { TNode } from './tree.js';
@@ -758,8 +759,10 @@ class Planner {
     ops: PlanOp[]
   ): string {
     const tree = this.snap.tree;
-    const bareSlot = this.snap.profile.figureSlot === 'rect';
     const group = it.node!;
+    // 槽形态按**节点类型**判（GROUP 不接受 fills，写进去就是
+    // `object is not extensible`），结构档案只作类型未知时的兜底。
+    const bareSlot = figureSlotShape(group.type, this.snap.profile) === 'rect';
     const hint = bareSlot
       ? undefined
       : tree.find(

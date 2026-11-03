@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { packHash, packComponents } from '../../src/v2/template/pack-hash.js';
 import { parseTemplatePack, DEFAULT_CAPABILITIES } from '../../src/v2/template/schema.js';
-import { LEGACY_PROFILE, PARTS_PROFILE, profileFor } from '../../src/v2/reconcile/structure.js';
+import { LEGACY_PROFILE, PARTS_PROFILE, figureSlotShape, profileFor } from '../../src/v2/reconcile/structure.js';
 import { parseStamp, type DocStamp } from '../../src/v2/reconcile/stamp.js';
 import { clusterItems, visibleIds } from '../../src/v2/render/parts/stamp-parts.js';
 import { expectedItems } from '../../src/v2/reconcile/layout.js';
@@ -52,6 +52,26 @@ describe('packHash — 部件指纹', () => {
 
   it('components 摘要丢掉空 key', () => {
     expect(Object.keys(packComponents(pack()))).toHaveLength(4);
+  });
+});
+
+describe('figureSlotShape — 槽形态按节点类型判', () => {
+  it('GROUP 槽即使 structure 档案是 parts 也当 group', () => {
+    expect(figureSlotShape('GROUP', PARTS_PROFILE)).toBe('group');
+  });
+
+  it('FRAME 槽同理（FRAME 可以有点阵 fills，但内部仍有占位矩形）', () => {
+    expect(figureSlotShape('FRAME', PARTS_PROFILE)).toBe('group');
+  });
+
+  it('裸矩形槽是 rect（蛋仔这类单层槽）', () => {
+    expect(figureSlotShape('RECTANGLE', PARTS_PROFILE)).toBe('rect');
+    expect(figureSlotShape('RECTANGLE', LEGACY_PROFILE)).toBe('rect');
+  });
+
+  it('类型未知时用档案兜底', () => {
+    expect(figureSlotShape(undefined, PARTS_PROFILE)).toBe('rect');
+    expect(figureSlotShape(undefined, LEGACY_PROFILE)).toBe('group');
   });
 });
 
