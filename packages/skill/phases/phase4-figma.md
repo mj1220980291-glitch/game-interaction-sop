@@ -6,7 +6,7 @@ Phase 2 完成（Markdown 已保存）+ Phase 3 完成（设计稿决策已收�
 
 ## 完成条件
 
-引擎返回成功，用户在 Figma 看到结果，**配图审计已跑完并报给用户**，验收通过。
+引擎返回成功，**收尾断言全部通过**（见下文「收尾断言」），**配图审计已跑完并报给用户**，用户在 Figma 看到结果，验收通过。
 
 ---
 
@@ -338,6 +338,63 @@ Phase 4 只用得到两个工具：
 - Phase 2 写过 `- 配图：无（理由：…）` 的簇 → 状态 `无配图（例外）`，把理由抄进"配图描述"列，不计入缺图数，也不提醒
 - `figure_opt_out = true` → 整节跳过，不列清单、不提醒（见本节开头的触发条件）
 - 用户说"先这样，后面再补" → 记下这句，直接进 Phase 5，不再追问
+
+---
+
+## 收尾断言（不通过不算完成）
+
+渲染（结果 A）或同步（结果 D）返回 `ok: true` 之后、发报告之前，**必须**跑一遍。任一条不通过：先定位原因（是本次改动引入的，还是既有文档遗留的），再决定「修完重跑」还是「报给用户并说明取舍」，**不要**直接说「已写入」。
+
+只在用户显式 opt-out 配图时跳过图槽相关断言（1–4）。
+
+| # | 断言 | 判据 |
+|---|---|---|
+| 1 | 槽数一致 | 文档里 `配图` GROUP 数 === md 里 `配图：` 条数 |
+| 2 | 槽位无偏移 | 每个槽 `rect.absoluteBoundingBox - group.absoluteBoundingBox === (0,0)` |
+| 3 | 占位可读 | 缺资产槽：组高 === `rect.h + gap + hint.h`（官方 1.14 = 323）；`hint.height >= 20` |
+| 4 | 图槽健康 | `summary.figureSlotsUnhealthy === 0`，且 `warnings` 无 `V2_W_FIGURE_SLOT_GEOMETRY` / `V2_W_FIGURE_FILL_FAILED` |
+| 5 | 左列自适应 | 章节内「左列」`layoutSizingVertical === 'HUG'` 且 `height === 标题高 + 主图高` |
+| 6 | 行顶对齐 | 左列所在横向行 `counterAxisAlignItems === 'MIN'` |
+| 7 | 幂等 | 同 md、同 assetMap 再跑一次：`changes: []`（同步模式下必查） |
+| 8 | 测的是新 build | `engineVersion` 与预期一致、`bridge.fallback === false`、`enginePid` 多次调用不变 |
+
+**脚本（可直接改 nodeId 复用）**
+
+```js
+const root = await figma.getNodeByIdAsync('<rootId>');
+const figs = [];
+const walk = (n) => { if (n.type === 'GROUP' && n.name === '配图') figs.push(n);
+  if ('children' in n) n.children.forEach(walk); };
+walk(root);
+
+let filled = 0, empty = 0, bad = [];
+for (const g of figs) {
+  const rect = g.children.find(c => c.name === '配图占位');
+  const hint = g.children.find(c => c.name === '配图占位文案');
+  const ga = g.absoluteBoundingBox, ra = rect.absoluteBoundingBox;
+  const has = Array.isArray(rect.fills) && rect.fills.some(f => f.type === 'IMAGE');
+  if (Math.round(ra.x - ga.x) !== 0 || Math.round(ra.y - ga.y) !== 0) bad.push([g.id, 'offset']);
+  if (has) filled++;
+  else {
+    empty++;
+    const exp = rect.height + (hint ? 16 + hint.height : 0);
+    if (Math.abs(ga.height - exp) > 2) bad.push([g.id, 'groupH ' + Math.round(ga.height)]);
+    if (hint && hint.height < 20) bad.push([g.id, 'hint squash ' + Math.round(hint.height)]);
+  }
+}
+
+const lefts = [];
+const w2 = (n) => { if (n.name === '左列') lefts.push(n); if ('children' in n) n.children.forEach(w2); };
+w2(root);
+return { slots: figs.length, filled, empty, bad, left: lefts.map(l => [l.id,
+  l.layoutSizingVertical, Math.round(l.height), l.parent.counterAxisAlignItems]) };
+```
+
+**断言口径说明**
+
+- 第 2 条只看绝对坐标：`配图` 是 GROUP 时，子节点坐标写在父级坐标系里，用局部 `rect.x/rect.y` 判断会得到假阳性
+- 第 3 条 `gap` 取模板实际值（官方 1.14 = 16）；不同模板包组高不同，先量一个健康槽再套公式
+- 第 5 条「左列」是模板约定的节点名；换模板包时先确认该名字存在，不存在就按「主图栏 FRAME」的语义找
 
 ---
 

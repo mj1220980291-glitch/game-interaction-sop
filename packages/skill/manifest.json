@@ -1,7 +1,7 @@
 {
   "name": "game-interaction-sop",
-  "version": "2.3.3",
-  "description": "Game UI interaction-doc SOP — Phase 0 pattern recall → Phase 1 requirement confirmation (design-first) → Phase 2 v2 Markdown (figure per cluster) → Phase 3 asset collection → Phase 4 Figma rendering + figure audit → Phase 5 style learning → Phase 6 pattern-library maintenance. Configurable template address, 职能标记 role blocks, project style mod. 2.3.2: default style now ships with role_annotation/wording frontmatter + Preflight version check.",
+  "version": "2.3.4",
+  "description": "Game UI interaction-doc SOP — Phase 0 pattern recall → Phase 1 requirement confirmation (design-first) → Phase 2 v2 Markdown (figure per cluster) → Phase 3 asset collection → Phase 4 Figma rendering + figure audit → Phase 5 style learning → Phase 6 pattern-library maintenance. Configurable template address, 职能标记 role blocks, project style mod. 2.3.2: default style now ships with role_annotation/wording frontmatter + Preflight version check. 2.3.4: references/anti-patterns.md (8 实战反模式) + 交付纪律三原则 + Phase 4 收尾断言（8 条，不通过不算完成）.",
   "entry": "SKILL.md",
   "phases": [
     "phases/phase0-recall.md",
@@ -13,6 +13,7 @@
     "phases/phase6-extract.md"
   ],
   "references": [
+    "references/anti-patterns.md",
     "references/markdown-v2-spec.md",
     "references/pattern-schema.md",
     "references/index-schema.md",
