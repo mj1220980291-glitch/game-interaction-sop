@@ -84,6 +84,7 @@ import {
   probeMoveOrThrow,
   type CropRect,
   type FigmaBackend,
+  type FigureSlotGeometry,
   type NodeInfo,
   type TextUpdate,
   type TextWriteResult
@@ -503,7 +504,17 @@ export async function renderV2MarkdownToFigma(
             imagesPlaced: partsSummary.imagesPlaced,
             placeholdersUsed: partsSummary.placeholdersUsed,
             figuresPlaced: figures.placed,
-            figuresPlaceholder: figures.placeholders
+            figuresPlaceholder: figures.placeholders,
+            // 验收凭据：缺了这两个数，调用方无法区分「几何已修」与「跑的是旧进程」。
+            ...(partsSummary.figureSlotsNormalized !== undefined
+              ? { figureSlotsNormalized: partsSummary.figureSlotsNormalized }
+              : {}),
+            ...(partsSummary.figureSlotsUnhealthy !== undefined
+              ? { figureSlotsUnhealthy: partsSummary.figureSlotsUnhealthy }
+              : {}),
+            ...(partsSummary.chaptersNormalized !== undefined
+              ? { chaptersNormalized: partsSummary.chaptersNormalized }
+              : {})
           }
         : {
             ...summarize(ir, input.assetMap),
@@ -1894,7 +1905,8 @@ async function fillBlockContentInline(
     protoImageId: directImageGroups[0]?.id ?? imageSeed.id,
     ordinal: { next: 1 },
     trace: { callSite: 'fillCluster.inlineImage', sectionIndex, clusterIndex },
-    roleBlocks: p.roleBlocks
+    roleBlocks: p.roleBlocks,
+    figures
   });
 
   const originals = imageSeed.filterDeletes([
@@ -1945,6 +1957,8 @@ async function appendBulletsInOrder(
     ordinal: { next: number };
     trace: RenderTrace;
     roleBlocks: RoleBlockRuntime | undefined;
+    /** 配图槽几何告警往这里写；缺省时不校验（只归一）。 */
+    figures?: FigureState;
   }
 ): Promise<AppendedBullets> {
   const out: AppendedBullets = { textUpdates: [], images: [] };
@@ -2027,9 +2041,104 @@ async function appendBulletsInOrder(
       p.trace
     );
     out.images.push({ groupId: imageNode.id, desc: stripImageBulletPrefix(bullet), ordinal });
+    await normalizeClonedFigureSlot(backend, imageNode.id, p.protoImageId, p.figures, p.trace, ordinal);
   }
   await flushRules();
 
+  return out;
+}
+
+/**
+ * 克隆出来的配图槽必须重新归一：克隆只带走子节点的相对坐标，不带走模板槽
+ * 当年的布局结算结果。真机（2026-11-02）第 2 张起 `配图占位` 的 y 一路累加到
+ * 1987、矩形高剩 27、占位文案压成 1~6px，整组溢出簇框，且零告警。
+ *
+ * 归一失败或归一后仍不满足不变式都只告警：缺图的槽难看，但不该让整篇渲染失败。
+ */
+async function normalizeClonedFigureSlot(
+  backend: FigmaBackend,
+  groupId: string,
+  sourceGroupId: string | undefined,
+  figures: FigureState | undefined,
+  trace: RenderTrace,
+  ordinal: number
+): Promise<void> {
+  if (!backend.normalizeFigureSlot) return;
+  const key = `${trace.sectionIndex ?? '--'}/${(trace.clusterIndex ?? 0) + 1}/${ordinal}`;
+  const warn = (detail: string): void => {
+    if (!figures) return;
+    figures.warnings.push({
+      code: SOFT_WARNING_CODES.W_FIGURE_SLOT_GEOMETRY,
+      message: `配图槽 ${key} ${detail}`,
+      context: key
+    });
+  };
+  try {
+    const geometry = await backend.normalizeFigureSlot({
+      groupId,
+      ...(sourceGroupId ? { sourceGroupId } : {})
+    });
+    const problems = figureSlotGeometryProblems(geometry);
+    if (problems.length > 0) warn(`几何异常：${problems.join('；')}`);
+  } catch (e) {
+    warn(`几何归一失败：${(e as Error).message}`);
+  }
+}
+
+/**
+ * 配图槽的几何不变式：矩形回到组内原点、文案没被压扁、组高随内容。
+ *
+ * auto-layout 的组由 Figma 自己算高度，只校验子节点是否还在框内。
+ * 阈值留 2px：画布坐标是整数化过的，四舍五入会抖 1px。
+ */
+/**
+ * 配图槽的几何不变式：矩形贴在组的左上角、文案在矩形下方、组高随内容。
+ *
+ * 判据一律用**绝对坐标**：GROUP 的子节点坐标写在父级坐标系里，`rect.y = 0` 只
+ * 代表「贴在父级顶」，拿它跟组的局部坐标比会把视觉上正常的槽判成异常
+ * （真机 2026-11-03：60 条误报）。阈值留 2px —— 画布坐标是整数化过的。
+ */
+export function figureSlotGeometryProblems(g: FigureSlotGeometry): string[] {
+  const out: string[] = [];
+  const near = (a: number, b: number): boolean => Math.abs(a - b) <= 2;
+
+  const group = g.groupAbs;
+  const rect = g.rectAbs;
+  const hint = g.hintAbs;
+
+  if (group && rect) {
+    if (!near(rect.x, group.x) || !near(rect.y, group.y)) {
+      out.push(
+        `矩形没贴在组左上角（相对组偏移 ${Math.round(rect.x - group.x)}, ${Math.round(rect.y - group.y)}）`
+      );
+    }
+    if (!(rect.height > 0) || !(rect.width > 0)) {
+      out.push(`矩形尺寸异常 ${Math.round(rect.width)}×${Math.round(rect.height)}`);
+    }
+    if (hint) {
+      if (hint.height < 16) out.push(`占位文案被压到 ${Math.round(hint.height)}px`);
+      if (hint.y < rect.y + rect.height - 2) {
+        out.push(
+          `文案压在矩形上（文案 y=${Math.round(hint.y)}，矩形底 ${Math.round(rect.y + rect.height)}）`
+        );
+      }
+    }
+    if (!g.autoLayout) {
+      const top = Math.min(rect.y, hint ? hint.y : rect.y);
+      const bottom = Math.max(rect.y + rect.height, hint ? hint.y + hint.height : 0);
+      const content = Math.round(bottom - top);
+      if (!near(group.height, content)) {
+        out.push(`组高 ${Math.round(group.height)} 与内容高 ${content} 不符`);
+      }
+    }
+    return out;
+  }
+
+  // 没有绝对坐标（老后端）：退回局部坐标口径，只做保守判断。
+  if (!(g.rectHeight > 0)) out.push(`矩形高 ${Math.round(g.rectHeight)}`);
+  if (g.hintHeight !== undefined && g.hintHeight < 16) {
+    out.push(`占位文案被压到 ${Math.round(g.hintHeight)}px`);
+  }
   return out;
 }
 
@@ -2250,7 +2359,8 @@ async function fillGroupSlots(
       protoImageId: protoImage?.id,
       ordinal,
       trace: { callSite: 'fillGroupSlots.image', sectionIndex: ctx.sectionIndex, clusterIndex: ctx.clusterIndex },
-      roleBlocks: ctx.roleBlocks
+      roleBlocks: ctx.roleBlocks,
+      figures: ctx.figures
     });
     textUpdates.push(...appended.textUpdates);
     images.push(...appended.images);
@@ -2294,7 +2404,6 @@ async function growHintTexts(
       const hint = await backend.getNodeInfo(hintId);
       const group = hint.parentId ? await backend.getNodeInfo(hint.parentId) : undefined;
       const groupWidth = group?.absoluteBoundingBox?.width ?? 0;
-      const groupHeight = group?.absoluteBoundingBox?.height ?? 0;
       const width = Math.max(groupWidth > 0 ? groupWidth - 40 : 0, 480);
       const height = Math.max(hint.absoluteBoundingBox?.height ?? 0, 96);
       await backend.resizeNode(hintId, width, height * 2);
@@ -2303,14 +2412,10 @@ async function growHintTexts(
       if (backend.setTextAlign) {
         await backend.setTextAlign({ nodeId: hintId, horizontal: 'CENTER', vertical: 'CENTER' });
       }
-      if (backend.moveNode && groupWidth > 0 && groupHeight > 0) {
-        const fresh = await backend.getNodeInfo(hintId);
-        const freshHeight = fresh.absoluteBoundingBox?.height ?? height;
-        await backend.moveNode(
-          hintId,
-          Math.round((groupWidth - width) / 2),
-          Math.round((groupHeight - freshHeight) / 2)
-        );
+      // 位置交给归一：以前这里按「组中心」挪文案，正落在灰板上；模板的真实
+      // 形态是「文案在灰板下方」，居中会让灰板压住文案（真机第 2 张起更明显）。
+      if (backend.normalizeFigureSlot && hint.parentId) {
+        await backend.normalizeFigureSlot({ groupId: hint.parentId });
       }
     } catch {
       /* 文案框拉不开不影响成图 */

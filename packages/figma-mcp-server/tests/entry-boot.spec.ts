@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,7 +24,15 @@ describe.skipIf(!hasDist)('dist 入口冒烟', () => {
     const child = spawn(process.execPath, [ENTRY], {
       cwd: ROOT,
       // 不配 FIGMA_BACKEND：跳过 figma-console 子进程，只验 ESM 加载与 stdio 绑定。
-      env: { ...process.env, FIGMA_BACKEND: '' },
+      // 锁文件指到临时目录：开发机上真跑着一份引擎时，单例锁会让冒烟进程让位退出。
+      env: {
+        ...process.env,
+        FIGMA_BACKEND: '',
+        GISOP_SUPERVISOR_LOCK: path.join(
+          fs.mkdtempSync(path.join(os.tmpdir(), 'gisop-boot-')),
+          'supervisor.lock'
+        )
+      },
       stdio: ['ignore', 'pipe', 'pipe']
     });
 

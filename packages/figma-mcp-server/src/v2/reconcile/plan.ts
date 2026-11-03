@@ -8,7 +8,8 @@
  * `dryRun` never has to render anything.
  */
 
-import type { DocIR, InterfaceSection, SemanticCluster } from '../ir.js';
+import type { DocIR, InterfaceSection, SemanticCluster, SoftWarning } from '../ir.js';
+import { SOFT_WARNING_CODES } from '../ir.js';
 import type { AssetSpec } from '../render.js';
 import { alignSequences, type Step } from './align.js';
 import { expectedItems, type ExpectedItem } from './layout.js';
@@ -98,6 +99,8 @@ export interface Plan {
   changes: ReconcileChange[];
   conflicts: ReconcileConflict[];
   preserved: ReconcilePreserved[];
+  /** 计划阶段的软告警（例如「重新插入的配图槽原本有图」）。 */
+  warnings: SoftWarning[];
   /** 0-based markdown section indices the scratch render must contain. */
   scratchSections: number[];
   /** Containers' batches, innermost first; the doc stamp is NOT included. */
@@ -156,6 +159,7 @@ class Planner {
   private changes: ReconcileChange[] = [];
   private conflicts: ReconcileConflict[] = [];
   private preserved: ReconcilePreserved[] = [];
+  private planWarnings: SoftWarning[] = [];
   private scratch = new Set<number>();
   private batches: PlanBatch[] = [];
   private fills: FillTask[] = [];
@@ -177,6 +181,7 @@ class Planner {
       changes: this.changes,
       conflicts: this.conflicts,
       preserved: this.preserved,
+      warnings: this.planWarnings,
       scratchSections: [...this.scratch].sort((a, b) => a - b),
       batches: this.batches.filter((b) => b.ops.length > 0),
       fills: this.fills,
@@ -596,7 +601,12 @@ class Planner {
 
     // Items.多部件文档的 `@职能` 条目渲染成组件实例，stamp 不按条目记录，
     // 这里也不要求它们作为文本行存在，否则幂等同步会每次重复插入一条。
-    const want = expectedItems(cl, { includeRoles: this.snap.profile.id !== 'parts' });
+    // `####` 子标题同理：parts 的打标清单里没有它，序号必须与之同源。
+    const isParts = this.snap.profile.id === 'parts';
+    const want = expectedItems(cl, {
+      includeRoles: !isParts,
+      includeSubtitles: !isParts
+    });
     const seq = this.align(
       oc.items,
       (it) => `${it.t}:${it.W}`,
@@ -629,6 +639,23 @@ class Planner {
         entries.push({ id: ref, t: w.t, text: w.text });
         anchor = ref;
         dirty = true;
+        // 配图槽是新建的空槽：原来那一条带图（stamp 里有 imageHash）而这次没给资产时，
+        // 旧图不会自己回来——以前是无声丢图（真机：删两条 `配图：` 再加回来 = 图没了）。
+        if (w.t === 'figure') {
+          const assetKey = `${sec.index}/${k + 1}/${ordinal}`;
+          const hadImage = seq.old.some(
+            (o) => o.t === 'figure' && (o.stamp?.imageHash ?? null) !== null && o.stamp?.imageHash !== ''
+          );
+          if (hadImage && this.assetMap?.[assetKey] === undefined) {
+            this.planWarnings.push({
+              code: SOFT_WARNING_CODES.W_FIGURE_IMAGE_LOST,
+              message:
+                `${path}: 重新插入的配图槽原本有图（标记里记过 imageHash），本次未给 assetMap["${assetKey}"]，` +
+                '新槽是空的——补一条资产会重新填图，或手工贴图',
+              context: path
+            });
+          }
+        }
         return;
       }
       const it = seq.old[step.o]!;

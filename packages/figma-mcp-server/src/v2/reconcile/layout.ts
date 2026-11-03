@@ -55,18 +55,24 @@ export interface ExpectedItem {
  * them as component instances that the stamp does not track as items, so the
  * planner must not treat them as text rows — otherwise an idempotent sync keeps
  * "inserting" a duplicate plain-text row for every role bullet.
+ *
+ * `includeSubtitles: false` drops the `####` sub-headings for the same reason:
+ * parts documents stamp only `正文/规则` + `配图` as items (`clusterItems`), so
+ * counting the headings would shift every `ref.i` and run off the end of the
+ * scratch layout.
  */
 export function expectedItems(
   cluster: SemanticCluster,
-  opts: { includeRoles?: boolean } = {}
+  opts: { includeRoles?: boolean; includeSubtitles?: boolean } = {}
 ): ExpectedItem[] {
   const includeRoles = opts.includeRoles !== false;
+  const includeSubtitles = opts.includeSubtitles !== false;
   const flat =
     cluster.groups.length <= 1 && (cluster.groups[0]?.title ?? null) === null;
   const out: ExpectedItem[] = [];
   let ordinal = 0;
   for (const g of cluster.groups) {
-    if (!flat && g.title !== null) out.push({ t: 'subtitle', text: g.title });
+    if (!flat && includeSubtitles && g.title !== null) out.push({ t: 'subtitle', text: g.title });
     for (const b of g.bullets) {
       const role = parseRoleBullet(b);
       if (role) {

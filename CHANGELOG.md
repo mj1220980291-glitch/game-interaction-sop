@@ -1,5 +1,192 @@
 # CHANGELOG
 
+## v2.3.9 — 2026-11-03
+
+**0.3.6 签收通过后的三条遗留：同步填图必挂、重插配图槽丢图、`inline-suffix` 静默丢职能。** 引擎 `0.3.6` → `0.3.7`。
+
+### 1. reconcile 填图失败不再丢图
+
+真机：同参数 create 能填，reconcile 报 `figma_execute failed: TypeError: object is not extensible`，整张图丢掉，只能新建重渲。
+
+- 槽级填图（`fillFigurePlaceholder`：resize 组 + 删文案 + 清描边）失败时，**退化为 `rasterizeNodeToImageFill`** 只把图刷进矩形：图还在，尺寸不再按源图比例调
+- 退化成功发 `V2_W_FIGURE_FILL_FALLBACK`（含原错误原文），失败才回到 `V2_W_FIGURE_FILL_FAILED`
+- 这条同时覆盖「已存在文档补图」的主路径：不必再为新配图重渲整篇
+
+### 2. 重插配图槽丢图改为显式告警
+
+md 里删掉 `配图：` 再补回来，新槽是空槽，旧图不会自己回来（以前无声）。
+
+- 计划阶段发现「同一条目的旧标记里记过 `imageHash`、本次又没给 `assetMap` 键」→ `V2_W_FIGURE_IMAGE_LOST`，message 带 assetKey
+- `Plan` 新增 `warnings`，同步结果里与解析/快照告警合并返回
+
+### 3. `roleAnnotation: 'inline-suffix'` 不再静默
+
+模板声明把职能拼进标题，引擎只实现了 `component-variant`；以前 md 里的 `@GUI @程序` 直接消失且零告警（真机：蛋仔包「进入提示」）。
+
+- 该能力下若有职能条目 → `V2_W_ROLE_ANNOTATION_UNSUPPORTED`，message 列出被丢掉的职能
+- 实现留待单独排期（要定拼进标题还是新增一行，属设计决策）
+
+### 4. 测试与版本
+
+- 新增 `tests/v2/role-inline-suffix.spec.ts`（2 条：有职能 → 告警；`component-variant` → 不告警）
+- 72 files / 569 tests 全绿；`openspec validate --all --strict` 22/22
+- 引擎 `0.3.6` → `0.3.7`
+
+## v2.3.8 — 2026-11-03
+
+**同步路径把左列又拉回固定高；补 `figureSlotsUnhealthy` 计数。** 引擎 `0.3.5` → `0.3.6`。
+
+### 1. reconcile 收尾复位章节 HUG
+
+0.3.5 只在 create 收尾做了复位。同步里 `refreshChapterGeometry` 仍会跑「两列底边对齐」的 `stretchLeftColumn`，把左列 HUG 改成固定高：真机 create 后 1200 HUG，4 次 reconcile 后变 6716 / 10917 FIXED，手动改回 HUG 立刻恢复 1200。
+
+- `stretchLeftColumn`：自动布局章节**直接跳过**（非自动布局的老模板保留对齐）
+- reconcile 收尾：**每个**章节都 `normalizeChapterLayout`（不只检测到超限的），位置在全部写入之后、写文档标记之前
+
+### 2. `summary.figureSlotsUnhealthy`
+
+验收方不用写脚本判「是否真归一」：`figureSlotsNormalized` = 通过数、`figureSlotsUnhealthy` = 仍不合格数（应为 0）、`chaptersNormalized` = 复位章节数，三者从 parts 结果透传到 create 返回体。
+
+### 3. 测试
+
+- 新增 `tests/v2/chapter-left-column.spec.ts`：自动布局章节不再被拉伸 / 老路径保留对齐 / 收尾复位把 8000 拉回 1200
+- 71 files / 567 tests 全绿
+
+### 4. 版本
+
+- 引擎 `0.3.5` → `0.3.6`；`ENGINE_VERSION` 与 `package.json` 同步
+- 已安装方需重跑 `npm run install-mcp` 或重启 MCP
+
+## v2.3.7 — 2026-11-03
+
+**配图槽归一改用 GROUP 的坐标系；修 0.3.4 的 `gap` 未定义崩溃；summary 透传两个凭据字段。** 引擎 `0.3.4` → `0.3.5`。
+
+### 1. GROUP 子节点坐标写在父级坐标系里（真机实测）
+
+`rect.y = 814` 而 `rect.absoluteBoundingBox === group.absoluteBoundingBox` —— 视觉上贴在组原点，坐标却是父级偏移。0.3.4 把子节点「归零」，实际是把它挪到**父级顶端**，于是 60 条 `V2_W_FIGURE_SLOT_GEOMETRY` 全在误报坐标，占位槽的组高也差 16+70。
+
+- 归一以组原点为基准平移：`GROUP` → `rect.x = group.x, rect.y = group.y`；`FRAME` 才用 0 基局部坐标
+- 顺序固定：先摆矩形、再按矩形当前位置算文案 `y`（反序会让组 bbox 顶部漂移，间距算错）
+- 校验改用**绝对坐标**：`rectAbs - groupAbs ≈ (0,0)`、`hintAbs.y ≥ rectAbs.bottom`、`groupAbs.h ≈ max(rectAbs.bottom, hintAbs.bottom) - groupAbs.y`
+
+### 2. 修 0.3.4 的启动即崩
+
+批量归一脚本里 `hint.y = rect.height + gap` 用了未定义的 `gap`（该作用域叫 `slotGap`），FRAME 槽走到这一行直接 `ReferenceError`。用户侧已本地热补——本版把两段脚本合并成一份 `figureNormalizeScript`，从根上消掉两份实现的漂移。
+
+### 3. summary 透传
+
+`v2/render.ts` 的 create 路径重新组了一个白名单 summary，把 `figureSlotsNormalized` / `chaptersNormalized` 丢了 —— 按「缺字段 = 旧进程」的判据会误判。已透传。
+
+### 4. 测试
+
+- 新增「槽的父级坐标不是原点」：模板槽落在 `y=814`，断言矩形/文案/组高都跟着组走，且零告警
+- `figureSlotGeometryProblems` 单测改为绝对坐标口径（局部 y≠0 也算合格）
+- 假后端补 GROUP 的父级坐标语义（子节点坐标即父级坐标、组 bbox 由子节点回算）
+- 70 files / 564 tests 全绿
+
+### 5. 版本
+
+- 引擎 `0.3.4` → `0.3.5`；`ENGINE_VERSION` 与 `package.json` 同步
+- 已安装方需重跑 `npm run install-mcp` 或重启 MCP
+
+## v2.3.6 — 2026-11-03
+
+**Bridge 端口所有权：渲染间歇性 `Cannot connect`、插件被迫手连、双活 supervisor 制造「升级无效」。** 引擎 `0.3.3` → `0.3.4`。
+
+### 1. 端口回退改成主动自愈
+
+子进程抢不到 9223 会**静默退到 9224/9225**，而 Figma 插件只认 9223 —— 我们连着自己的子进程，子进程连不上插件，于是只有走 `figma_execute` 的 render 失败，代理工具全部正常。旧实现只写一行 stderr 就放过。
+
+- worker 启动时探测 `figma_get_status`：`portFallbackUsed=true` → 结束占用者（只认 figma-console 同类进程，别的程序占端口绝不强杀）→ **重拉子进程** → 最多轮询 3×2s 确认端口回正
+- 恢复结果写进 `bridge.recovery`，stderr 留 `bridge recovery` 一行
+- 回正不了也不让 worker 退出：渲染失败 ≠ 进程该退（旧的自我放大循环正是这么来的）
+
+### 2. 可读错误码 + 可对账的桥状态
+
+- `figma_execute` 报 `Cannot connect` 且存在端口回退时抛 **`E_BRIDGE_PORT_CONFLICT`**（`details.bridge` 带 `port / preferredPort / holderPid / enginePid / supervisorPid / recovery`），message 附两平台清理命令
+- `get_skill_requirements` 新增 `bridge: { port, preferredPort, fallback, holderPid?, enginePid, supervisorPid?, recovery? }`：`fallback=true` 时 render 必失败、几何修复无关；`enginePid` 常变 = 多引擎在接请求
+
+### 3. supervisor 单例
+
+`~/.game-interaction-sop/supervisor.lock`（`{ pid, startedAt }`）：活着的所有者不是自己就让位 exit 0，pid 已死 / 文件损坏则覆盖。双活正是「`engineVersion` 报新版本、行为是旧代码」的根源。
+
+### 4. 测试与文档
+
+- 新增 `tests/server/bridge-state.spec.ts`（11 条）：诊断文案、端口回退归因、清理指引、锁让位 / 覆盖 / 释放
+- `phase4-figma.md` 补：`bridge.fallback=true` 时不要判成几何或模板缺陷，先修端口
+- 未做：桥进程与 proxy 共用的 lock 复用（`GISOP_BRIDGE_HOST=1` 的常驻宿主仍是实验开关）、插件侧退避重连（在 Figma 插件仓库，不在本仓）
+
+### 5. 版本
+
+- 引擎 `0.3.3` → `0.3.4`；`ENGINE_VERSION` 与 `package.json` 同步
+- 已安装方需重跑 `npm run install-mcp` 或重启 MCP
+
+## v2.3.5 — 2026-11-03
+
+**二次反馈：0.3.2 的克隆期归一不够——填图后被压成 5px、缺资产槽被拉成 2500px，且零告警；同时左列被章节拉成整章高。** 引擎 `0.3.2` → `0.3.3`。
+
+### 1. 收尾再归一 + 可观测凭据
+
+克隆期归一只管「克隆那一刻」，之后填图（`fillFigurePlaceholder`）、文案拉宽（`growHintTexts`）、外层 auto-layout 拉伸都会再把槽弄坏。真机 0.3.2 验收：已贴图的槽被压成 5~7px，缺资产槽整组撑到 1035~2504px，`warnings` 里一条 `V2_W_FIGURE_SLOT_GEOMETRY` 都没有。
+
+- 新增后端 `normalizeFigureSlots`（**一次 exec 批量**，39 槽逐个往返会顶穿 10s 连接上限）
+- 渲染收尾（`layout` 之后）对文档内**每个**配图槽再归一：矩形回原点、文案贴下方、组高随内容；被压到个位数高度的已填图槽恢复到 ≥100px
+- 逐槽校验，不合格 → `V2_W_FIGURE_SLOT_GEOMETRY`（带簇 +#序号）
+- `summary.figureSlotsNormalized`：通过校验的槽数。**这是「代码真的跑了」的凭据**——文档有配图而它为 0，说明连的是旧进程 / 旧 build（本次验收就踩到：旧 server 进程 PID 49544 仍在服务）
+
+### 2. 章节高度不再被相邻栏目拉长
+
+横向章节里高的一栏会把另一栏拉成整章高：真机左列 `1920×10873`（`primaryAxisSizingMode: FIXED` / `layoutSizingVertical: FIXED`），内容只有一张 1920×1080 主图，主图下面几千 px 空白，整篇 53757（旧稿 19336），且同步会把这个固定高当既成事实越滚越大。
+
+- 新增后端 `normalizeChapterLayout`：章节根 `counterAxisAlignItems = MIN` + 纵向 HUG；章节内自动布局栏目 `primaryAxisSizingMode = AUTO` / `layoutSizingVertical = HUG` / `layoutGrow = 0`
+- 渲染收尾对每章执行一次，`summary.chaptersNormalized` 计数
+
+### 3. 测试
+
+- `render-figure-slot-geometry.spec.ts` 扩到 8 条：假后端复现「克隆槽 y 漂移 + 填图后压成 5px」两种真机症状，断言收尾归一救回（≥100px）并计入 `figureSlotsNormalized` / `chaptersNormalized`
+- 未单独复现（缺进程内 parts 同步 harness，且端口竞争属进程层）：留在真机验收项
+
+### 4. 诊断口径
+
+- 验收先看 `enginePid` 是否每次渲染都变、`figureSlotsNormalized` 是否等于文档配图数；两者任一不对，先清进程再判定缺陷
+- 端口竞争（9223）未在本轮修：归入待办，症状是「代理工具正常、render 报 Cannot connect」
+
+### 5. 版本
+
+- 引擎 `0.3.2` → `0.3.3`；`ENGINE_VERSION` 与 `package.json` 同步
+- 已安装方需重跑 `npm run install-mcp` 或重启 MCP
+
+## v2.3.4 — 2026-11-03
+
+**修真机反馈：一簇多张配图时第 2 张起整组塌陷，以及带 `####` 的簇同步必崩。** 引擎 `0.3.1` → `0.3.2`。
+
+### 1. 配图槽克隆后几何归一（`V2_W_FIGURE_SLOT_GEOMETRY`）
+
+克隆模板的 `配图` GROUP 只带走子节点相对坐标，不带走模板槽当年的布局结算；而引擎只在**有资产**时调尺寸（`fillFigurePlaceholder`），缺资产分支只刷灰板和居中文案。于是第 2 张起 `配图占位` 的 y 沿文档流累加到 1987、矩形高剩 27、`配图占位文案` 压成 1~6px 或丢失，整组溢出簇框，`warnings` 还是空的。
+
+- 新增后端方法 `normalizeFigureSlot`（单次 exec）：按克隆源的相对几何取间距真值，矩形回组内原点、文案贴矩形下方、组高 = 槽高 + 间距 + 文案高；auto-layout 组只固定尺寸，位置交给布局引擎
+- 克隆分支、占位灰板分支、占位文案拉宽三处统一走归一（`centerHint` 独立居中逻辑删除）
+- parts 路径补 `imageSeed.flush`：以前从不清理克隆源，每簇多留一个模板原生空 `配图` 框
+- 归一后仍不满足不变式 → 软告警 `V2_W_FIGURE_SLOT_GEOMETRY`（含簇路径与实测尺寸），不再静默
+
+### 2. parts 同步的条目序号与打标清单同源
+
+打标条目清单只收 `正文/规则` + `配图`，计划侧却把 `####` 子标题算成一条 `subtitle`；`ref.i` 按「含标题」生成、解析时按「不含标题」取值，布局 7 条 vs md 9 条 → `scratch node not found`，dryRun 通过、真跑崩。
+
+- `expectedItems` 新增 `includeSubtitles`，parts 侧传 `false`
+- 越界改报 `V2_RECONCILE_ITEM_OUT_OF_RANGE`，message 带 `s/c/i`、簇标题与实测条目数（不再被包成 `V2_RECONCILE_RUNTIME_ERROR`）
+
+### 3. 测试
+
+- 新增 `tests/v2/render-figure-slot-geometry.spec.ts`：3 张配图全缺资产 / 缺图与填图混合 / 无占位文案 / 不变式函数单测
+- `parts-backend` 复现真机症状（克隆槽 y 漂移）并提供归一实现；`expectedItems` 增补子标题用例
+- `render-adaptive` 的「文案压在灰板正中」改为「文案贴在灰板下方」
+
+### 4. 版本
+
+- 引擎 `0.3.1` → `0.3.2`；`ENGINE_VERSION` 与 `package.json` 同步；`manifest.engineVersion` 仍为 `^0.3.0`
+- 已安装方需重跑 `npm run install-mcp` 或重启 MCP
+
 ## v2.3.3 — 2026-11-02
 
 **修用户反馈 #2 的三个阻断/体验缺陷：多部件渲染不认职能组件、主图实例压住标号、配置问题无法对账。** 引擎 `0.3.0` → `0.3.1`。

@@ -245,6 +245,11 @@ export interface PreferredPortResult {
   action: 'free' | 'reclaimed' | 'skipped' | 'degraded';
   pid?: number;
   reason?: string;
+}
+
+/** 当前监听首选端口的 pid 列表（诊断用：告诉用户「9223 被谁占着」）。 */
+export function preferredPortHolders(port = PREFERRED_BRIDGE_PORT): number[] {
+  return findListenerOnPort(port);
 }/**
  * 让首选端口空出来。
  *

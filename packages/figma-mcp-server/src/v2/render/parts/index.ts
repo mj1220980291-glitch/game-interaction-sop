@@ -26,6 +26,7 @@ import {
 } from '../../template-slots.js';
 import {
   applyAsset,
+  figureSlotGeometryProblems,
   fillCluster,
   indexCloneByName,
   makeFigureState,
@@ -86,6 +87,16 @@ export interface PartsRenderResult {
     figuresPlaced: number;
     /** md 声明了配图但没有资产 / 资产不可用的槽数（占位灰板）。 */
     figuresPlaceholder: number;
+    /**
+     * 收尾几何归一实际处理并通过校验的配图槽数。
+     * 这个数是「归一代码真的跑了」的凭据：真机验收时若为 0 而文档里明明有配图，
+     * 说明跑的仍是旧进程 / 旧 build。
+     */
+    figureSlotsNormalized?: number;
+    /** 归一后仍不合格（或找不到矩形）的配图槽数：验收时应为 0。 */
+    figureSlotsUnhealthy?: number;
+    /** 收尾时把章节根与栏目接回 HUG 的章节数。 */
+    chaptersNormalized?: number;
   };
 }
 
@@ -329,6 +340,19 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
 
   await stage('layout', () => layout(root, parts, backend, autoLayout, gap));
 
+  // 收尾几何归一：克隆期归一只能管到「克隆那一刻」。填图、文案拉宽、外层
+  // auto-layout 拉伸都可能再把槽弄坏（真机：贴了图的槽被压成 5px，缺资产的槽
+  // 整组撑到 2500px）。这里对**全部**配图槽再跑一遍，并把结果计入 summary，
+  // 作为「归一代码确实执行」的凭据。
+  const figureGeometry = await stage('figures.geometry', () =>
+    normalizeFigureGeometry(backend, sections, warnings)
+  );
+  // 章节高度自愈：横向章节里高的一栏会把另一栏拉成整章高（真机左列 1920×10873，
+  // 主图下面几千 px 空白），同步会把这个固定高当成既成事实越滚越大。
+  const chaptersNormalized = await stage('chapters.geometry', () =>
+    normalizeChapterHeights(backend, chapters)
+  );
+
   const layoutInfo: PartsDocLayout = {
     rootId: root.id,
     topNodeId: top.id,
@@ -347,9 +371,88 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
       imagesPlaced,
       placeholdersUsed,
       figuresPlaced: figures.placed,
-      figuresPlaceholder
+      figuresPlaceholder,
+      figureSlotsNormalized: figureGeometry.ok,
+      figureSlotsUnhealthy: figureGeometry.unhealthy,
+      chaptersNormalized
     }
   };
+}
+
+/** 配图槽的最小可读矩形高：真机上被压到 5~7px 的槽按这个下限救回来。 */
+const FIGURE_MIN_RECT_HEIGHT = 100;
+
+/**
+ * 对整篇的配图槽做最后一次几何归一，逐槽校验不变式。
+ *
+ * 归一是批量的一次插件调用：槽数等于 `配图：` 条数（真机 39 个），逐个 RPC
+ * 会直接把 10s 连接上限顶穿。
+ */
+async function normalizeFigureGeometry(
+  backend: FigmaBackend,
+  sections: PartsSectionLayout[],
+  warnings: SoftWarning[]
+): Promise<{ ok: number; unhealthy: number }> {
+  if (!backend.normalizeFigureSlots) return { ok: 0, unhealthy: 0 };
+  const slots: Array<{ groupId: string; path: string }> = [];
+  for (const s of sections) {
+    for (const c of s.clusters) {
+      c.items.forEach((it, i) => {
+        if (it.t === 'figure') slots.push({ groupId: it.nodeId, path: `${c.title}#${i + 1}` });
+      });
+    }
+  }
+  if (slots.length === 0) return { ok: 0, unhealthy: 0 };
+
+  const results = await backend.normalizeFigureSlots({
+    groups: slots.map((s) => ({ groupId: s.groupId })),
+    minRectHeight: FIGURE_MIN_RECT_HEIGHT
+  });
+  const byId = new Map(results.map((r) => [r.groupId, r]));
+  let ok = 0;
+  let unhealthy = 0;
+  for (const slot of slots) {
+    const g = byId.get(slot.groupId);
+    if (!g || g.missing) {
+      unhealthy += 1;
+      warnings.push({
+        code: SOFT_WARNING_CODES.W_FIGURE_SLOT_GEOMETRY,
+        message: `配图槽 ${slot.path}（${slot.groupId}）归一失败：找不到「配图占位」矩形`,
+        context: slot.path
+      });
+      continue;
+    }
+    const problems = figureSlotGeometryProblems(g);
+    if (problems.length > 0) {
+      unhealthy += 1;
+      warnings.push({
+        code: SOFT_WARNING_CODES.W_FIGURE_SLOT_GEOMETRY,
+        message: `配图槽 ${slot.path}（${slot.groupId}）几何异常：${problems.join('；')}`,
+        context: slot.path
+      });
+    } else {
+      ok += 1;
+    }
+  }
+  return { ok, unhealthy };
+}
+
+/** 章节根与栏目接回 HUG：横向章节不该把矮的一栏拉成整章高。 */
+async function normalizeChapterHeights(
+  backend: FigmaBackend,
+  chapters: NodeInfo[]
+): Promise<number> {
+  if (!backend.normalizeChapterLayout) return 0;
+  let done = 0;
+  for (const chapter of chapters) {
+    try {
+      const r = await backend.normalizeChapterLayout({ chapterId: chapter.id });
+      if (r.ok) done += 1;
+    } catch {
+      /* 高度自愈失败只影响版面高度，不阻断交付 */
+    }
+  }
+  return done;
 }
 
 async function instantiate(
@@ -555,35 +658,6 @@ export function placeholderHintPaint(plateFill?: string): string | undefined {
   return luma < 0.5 ? mixHex(plate, 255, 0.55) : mixHex(plate, 0, 0.55);
 }
 
-/**
- * 占位文案压到灰板正中。
- *
- * 模板里这块文案是靠左贴底的定宽单行（蛋仔：832×52 落在 872×490 板的右下角），
- * 只刷个颜色看着像漏排。这里把框拉到板宽、水平/垂直居中，长文案自己换行。
- */
-async function centerHint(
-  backend: FigmaBackend,
-  hint: NodeInfo,
-  rect: { x: number; y: number; width: number; height: number }
-): Promise<void> {
-  if (!backend.resizeNode || !backend.moveNode) return;
-  const width = Math.max(rect.width - 40, 200);
-  await backend.resizeNode(hint.id, width, hint.absoluteBoundingBox?.height ?? 48);
-  if (backend.setTextAutoResize) {
-    await backend.setTextAutoResize({ nodeId: hint.id, mode: 'HEIGHT' });
-  }
-  if (backend.setTextAlign) {
-    await backend.setTextAlign({ nodeId: hint.id, horizontal: 'CENTER', vertical: 'CENTER' });
-  }
-  const fresh = await backend.getNodeInfo(hint.id);
-  const height = fresh.absoluteBoundingBox?.height ?? 48;
-  await backend.moveNode(
-    hint.id,
-    Math.round(rect.x + (rect.width - width) / 2),
-    Math.round(rect.y + (rect.height - height) / 2)
-  );
-}
-
 function parseHex(hex?: string): { r: number; g: number; b: number } | undefined {
   if (!hex) return undefined;
   const m = /^#([0-9a-fA-F]{6})$/.exec(hex.trim());
@@ -696,23 +770,39 @@ async function fillChapter(
       if (ctx.caps.roleAnnotation !== 'component-variant') {
         await deleteMatching(b, node.id, (n) => isRoleFrameNode(n));
       }
+      // `inline-suffix`（把职能拼进标题）还没实现。以前是静默：md 里的 @职能 条目
+      // 直接消失，文档里搜不到任何角色，也没有一条告警（真机：蛋仔包的「进入提示」）。
+      if (ctx.caps.roleAnnotation === 'inline-suffix' && cluster.roles.length > 0) {
+        ctx.warnings.push({
+          code: SOFT_WARNING_CODES.W_ROLE_ANNOTATION_UNSUPPORTED,
+          message:
+            `第 ${section.index} 章「${cluster.title}」的职能 ${cluster.roles.join(' ')} 未写入：` +
+            '模板声明 roleAnnotation=inline-suffix，引擎尚未实现（当前只支持 component-variant）',
+          context: `${section.index}/${i + 1}`
+        });
+      }
       if (ctx.caps.numberBadge === 'none') {
         await deleteMatching(b, node.id, (n) => n.name === CLUSTER_SLOTS.number);
       }
       const effective = inlineSubtitles(cluster, ctx.caps.clusterGroups);
       const seedId = await findNamed(backend, node.id, CLUSTER_SLOTS.figure);
+      const imageSeed = makeImageSeed(seedId);
       await fillCluster(
         tracedDeletes(b),
         node,
         effective,
         undefined,
         i + 1,
-        makeImageSeed(seedId),
+        imageSeed,
         section.index,
         i,
         ctx.figures,
         ctx.roleBlocks
       );
+      // 种子槽在簇内被删过一次就说明它只是克隆源，用完必须清掉：
+      // 以前 parts 路径从不 flush，于是每簇都多留一个模板原生的空 `配图` 框。
+      // md 没写 `配图：` 时不删——那个槽要留着被隐藏（`loose` 三态里的 hidden）。
+      if (effective.bullets.some(isFigureSlotBullet)) await imageSeed.flush(b);
       // 同一棵簇子树要扫两遍：一遍算版面清单，一遍补灰板和占位文案。
       // 合成一次——4000 节点的簇一次扫描就是 1.7s 级，翻倍直接顶到超时线。
       const { nodes: clusterNodes } = await backend.scanSubtree(node.id, 20000);
@@ -758,19 +848,18 @@ async function fillChapter(
             strokeWeight: 2,
             dash: true
           });
-          if (!hintFill) continue;
           const hint = inCluster.find(
             (n) => n.name === CLUSTER_SLOTS.figureHint && n.parentId === rect.parentId
           );
-          if (hint) {
-            await backend.setNodePaint({ nodeId: hint.id, fill: hintFill });
-            const box = rect.absoluteBoundingBox;
-            await centerHint(backend, hint, {
-              x: typeof rect.x === 'number' ? rect.x : 0,
-              y: typeof rect.y === 'number' ? rect.y : 0,
-              width: box?.width ?? 0,
-              height: box?.height ?? 0
-            });
+          if (hintFill && hint) await backend.setNodePaint({ nodeId: hint.id, fill: hintFill });
+          // 几何统一交给归一：以前这里用 centerHint 把文案压在灰板正中，但克隆
+          // 出来的槽本来就畸形，居中只会把畸形坐实（真机第 2 张起文案飞出框外）。
+          if (backend.normalizeFigureSlot && rect.parentId) {
+            try {
+              await backend.normalizeFigureSlot({ groupId: rect.parentId });
+            } catch {
+              /* 归一失败只影响这一块灰板的观感，不该中断整篇 */
+            }
           }
         }
       }

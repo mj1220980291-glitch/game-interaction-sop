@@ -39,6 +39,7 @@ import {
   type FigmaBackend as V2FigmaBackend
 } from '../v2/index.js';
 import { parseBadgeAnchors } from '../v2/badge-anchor.js';
+import { getBridgeState } from './bridgeState.js';
 
 // =========================================================================
 // Public types
@@ -105,7 +106,7 @@ export const REQUIRED_SKILL_VERSION = '2.3.3';
  * packages/figma-mcp-server/package.json manually; bumping one without the other
  * is a review-time check.
  */
-export const ENGINE_VERSION = '0.3.1';
+export const ENGINE_VERSION = '0.3.7';
 
 // =========================================================================
 // Native tool input schemas (raw JSON Schema, served verbatim to clients)
@@ -596,15 +597,23 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         '【只读，不调 Figma】返回本引擎要求的最低 skill 版本和自身引擎版本。' +
         'SKILL.md Preflight 在会话开场调用此工具，比对本地安装的 skill manifest.json 版本号，' +
         '低于 requiredSkillVersion 时提示用户升级（软警告，不阻断）。' +
-        '返回：{ requiredSkillVersion: string, engineVersion: string }。' +
+        '返回：{ requiredSkillVersion: string, engineVersion: string, bridge?: { port, preferredPort, fallback, holderPid, enginePid, supervisorPid } }。' +
+        'bridge.fallback=true 表示子进程退到了备用端口（render 会报 Cannot connect，代理工具仍正常）；' +
+        'enginePid 每次渲染都变说明有多个引擎进程在接请求。' +
         '引擎 < 0.3.0 不提供此工具，Preflight 会收到 TOOL_NOT_FOUND 并退化为"引擎版本较旧"的提示。',
       inputSchema: SKILL_REQUIREMENTS_INPUT_SCHEMA as unknown as Tool['inputSchema']
     },
     handler: async () => {
       try {
+        const bridge =
+          process.env.FIGMA_BACKEND === 'figma-console' ? getBridgeState() : undefined;
         return jsonResult({
           requiredSkillVersion: REQUIRED_SKILL_VERSION,
-          engineVersion: ENGINE_VERSION
+          engineVersion: ENGINE_VERSION,
+          // 验收方靠这一段判断「测的是不是新进程 / 桥有没有掉到备用端口」：
+          // enginePid 每次渲染都变说明有多个引擎在接请求；fallback=true 时
+          // render 必报 Cannot connect，而代理工具仍然正常。
+          ...(bridge ? { bridge } : {})
         });
       } catch (e) {
         return errorResult(ServerErrorCodes.INTERNAL_ERROR, (e as Error).message);

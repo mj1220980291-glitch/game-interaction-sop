@@ -357,6 +357,111 @@ in set_layoutGrow: Property "layoutGrow" failed validation: Expected ... 0 ... 1
 
 ---
 
+## 陷阱 4：克隆出来的配图槽不会自己重新结算布局
+
+### 现象（2026-11-02 真机）
+
+同一个 `###` 簇里写 3 条 `配图：`：
+
+| 第几张 | `配图占位` rect | `配图占位文案` |
+|---|---|---|
+| 1 | `y=0, h=240` ✅ | `y=256, h=70` ✅ |
+| 2 | `y=814, h=27` ❌ | 缺失 ❌ |
+| 3 | `y=1987, h=37` ❌ | `y=1755, h=2` ❌ |
+
+组高只剩 27~326，矩形一路往下漂，文案压成个位数高度；`warnings` 全空、
+`summary.figuresPlaced` 还报成功。
+
+### 原因
+
+渲染把模板里的 `配图` GROUP 当克隆源逐条 `clone()`：
+
+- 克隆只保证**子节点相对坐标**不变，不保证模板槽当年的布局结算结果；
+- 组换父级后 Figma 不会重算组内布局，继承来的 `layoutGrow` / `layoutSizing*` 原样留着；
+- 引擎唯一调尺寸的地方是 `fillFigurePlaceholder`，而它只在**有资产**时执行，
+  缺资产分支只刷灰板 —— 于是"有图正常 / 缺图必塌"。
+
+### 引擎硬规则
+
+- [ ] 每条 `配图：` 克隆后立刻 `normalizeFigureSlot`（**一次 exec**，别分 RPC 再读回坐标）
+- [ ] 间距真值从**克隆源槽**量（`hint.y - (rect.y + rect.h)`），不写死
+- [ ] 无 auto-layout：矩形回 `(0,0)`、文案 `y = rect.h + gap`、组高 `= rect.h + gap + hint.h`
+- [ ] 有 auto-layout：只固定子节点尺寸（`layoutGrow=0` / `layoutSizingHorizontal=FIXED`），
+      纵向位置交给布局引擎
+- [ ] `GROUP` 不能 `resize`，它的 bbox 由子节点决定 —— 只摆子节点
+- [ ] 归一后读回校验，不满足不变式 → `V2_W_FIGURE_SLOT_GEOMETRY`（含簇路径与实测尺寸）
+- [ ] 克隆源用完要 `imageSeed.flush`，否则每簇多留一个模板原生空 `配图` 框（parts 路径踩过）
+- [ ] **GROUP 的子节点坐标写在「组所在父级」的坐标系里**（实测：`rect.y = 814` 而
+      `rect.absoluteBoundingBox === group.absoluteBoundingBox`）。归一要把子节点挪到
+      **组原点**（`group.x / group.y`），不是归零；`FRAME` 的子节点才是 0 基局部坐标
+- [ ] 先摆矩形、再按矩形当前位置算文案 `y`：反序会让组 bbox 顶部漂移，间距永远算不对
+- [ ] 校验一律用绝对坐标（`rect.abs - group.abs`）：拿局部坐标判「不在组内原点」会
+      把视觉正常的槽判成异常（真机 60 条误报）
+- [ ] **克隆期归一定不够**：填图、文案拉宽、外层 auto-layout 拉伸都会再把槽弄坏。
+      收尾必须对文档内每个槽再归一一次（批量一次 exec），并返回「通过校验的槽数」
+      作为「代码真的跑了」的凭据 —— 0.3.2 就是只做了克隆期归一，真机 39/39 全坏且零告警
+
+---
+
+## 陷阱 5：横向章节会把矮栏目拉成整章高
+
+### 现象（2026-11-03 真机）
+
+`界面说明1`（HORIZONTAL）× 3382×10873，子级：
+
+| 节点 | 尺寸 | sizing |
+|---|---|---|
+| 左列 | 1920×**10873** | `primaryAxisSizingMode: FIXED`、`layoutSizingVertical: FIXED` |
+| Text（说明栏） | 1231×10873 | 纵向 HUG |
+
+左列内容只有一张 1920×1080 主图，却被拉成整章高 → 主图下面几千 px 空白，
+整篇 53757（旧稿 19336），同步把这个固定高当既成事实，越同步越大。
+
+### 引擎硬规则
+
+- [ ] 章节根：`counterAxisAlignItems = MIN`（顶对齐，不拉伸）+ 纵向 `HUG`
+- [ ] 章节内自动布局栏目：`primaryAxisSizingMode = AUTO`、`layoutSizingVertical = HUG`、`layoutGrow = 0`
+- [ ] 渲染收尾对每章执行一次，返回 `chaptersNormalized` 计数
+- [ ] **同步路径同样要复位，且排在全部写入之后**：填充与标号重摆都会把 HUG 压回固定高
+      （真机：create 后 1200 HUG，4 次 reconcile 后 6716 / 10917 FIXED）
+- [ ] **不要对自动布局章节做「两列底边对齐」的 `resizeNode(left, w, taller)`**：那是把
+      HUG 改成固定高，同步会把它当既成事实越滚越大
+- [ ] 同步不该继承上次的固定高：高度来源只有一个——内容
+
+---
+
+## 陷阱 6：Bridge 端口的「所有权」不是靠「有人占着就算活着」判断
+
+### 现象（2026-11-03 真机，两次验收都中）
+
+`render` 周期性报：
+
+```
+V2_RENDER_RUNTIME_ERROR
+figma_execute failed: Cannot connect to Figma Desktop … ws://localhost:9223
+```
+
+同一时刻 `figma_get_status` / `figma_execute` 等代理工具**全部正常**，插件在 Figma 里明明连着。
+
+### 机制
+
+1. `figma-console-mcp` 子进程绑 9223 失败时**静默退到 9224/9225**（不报错）；
+2. Figma 插件只认启动时扫到的 9223；
+3. 于是「我们 → 子进程」通，「子进程 → 插件」不通：只有走 `figma_execute` 的渲染失败；
+4. 失败 → worker 退出 → supervisor 重拉 → 又 spawn，而旧子进程变孤儿继续占 9223 → **自我放大**；
+5. 另一条独立故障：两份 supervisor 双活，工具调用落在旧进程，`engineVersion` 报新版本、行为是旧代码 —— 「修了但没变」的假象就是这么来的。
+
+### 引擎硬规则
+
+- [ ] spawn 前回收首选端口；spawn 后**探测** `figma_get_status`，`portFallbackUsed=true` 就清占用者并重拉子进程
+- [ ] 只强杀同类进程（命令行含 `figma-console` + `mcp`）；别的软件占端口时只报原因
+- [ ] 端口回正不了**不要**让 worker 退出（渲染失败 ≠ 进程该退）
+- [ ] 报错必须指认所有权：`E_BRIDGE_PORT_CONFLICT` 带 `port / holderPid / enginePid / supervisorPid / recovery`
+- [ ] supervisor 用 pid 锁单例，第二份让位退出
+- [ ] 验收口径：`get_skill_requirements().bridge.fallback === true` 时，先修端口再谈几何
+
+---
+
 ## 不可恢复失败的处理
 
 - 任何核心模板节点（`模板`, source `Text`, source `说明块`, source `rec组`, source `气泡`）找不到 → 停止所有 Figma 写入，报告失败

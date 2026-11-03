@@ -26,6 +26,11 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { createWorkerLoop, type WorkerHandle } from './workerLoop.js';
 import { ensureBridgeHost } from './bridgeHost.js';
+import {
+  acquireSupervisorLock,
+  releaseSupervisorLock,
+  SUPERVISOR_LOCK_FILE
+} from './bridgeState.js';
 import { main as runWorker } from './worker.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -42,7 +47,7 @@ async function startWorker(): Promise<RunningWorker> {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [WORKER_ENTRY],
-    env: { ...process.env, GAME_SOP_WORKER: '1' },
+    env: { ...process.env, GAME_SOP_WORKER: '1', GISOP_SUPERVISOR_PID: String(process.pid) },
     stderr: 'inherit'
   });
   const client = new Client({ name: 'figma-interaction-doc-engine-supervisor', version: '0.2.0' });
@@ -100,6 +105,27 @@ async function main(): Promise<void> {
     await runWorker();
     return;
   }
+
+  // 单例：双活的代价是「工具调用落在旧进程上」——engineVersion 报新版本、行为却是
+  // 旧代码，排查时最难认。活着的所有者不是自己就让位退出，让宿主连到那一份。
+  const lock = acquireSupervisorLock();
+  if (!lock.ok) {
+    process.stderr.write(
+      `[figma-interaction-doc-engine] another supervisor is alive (pid=${lock.holderPid}); ` +
+        `this one steps down. Lock: ${SUPERVISOR_LOCK_FILE}\n`
+    );
+    process.exit(0);
+  }
+  const releaseLock = (): void => releaseSupervisorLock();
+  process.on('exit', releaseLock);
+  process.on('SIGINT', () => {
+    releaseLock();
+    process.exit(0);
+  });
+  process.on('SIGTERM', () => {
+    releaseLock();
+    process.exit(0);
+  });
 
   let current: RunningWorker | undefined;
   let tools: Tool[] = [];

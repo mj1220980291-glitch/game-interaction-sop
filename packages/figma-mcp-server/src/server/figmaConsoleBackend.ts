@@ -10,9 +10,10 @@
 
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { retryTransient } from './retry.js';
+import { describeBridgeFailure, getBridgeState } from './bridgeState.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname } from 'node:path';
-import type { FigmaBackend, NodeInfo, FigmaNodeType } from '../v2/figma-client.js';
+import type { FigmaBackend, NodeInfo, FigmaNodeType, Box, FigureSlotGeometry } from '../v2/figma-client.js';
 import { SCRATCH_ROOT_NAME, STAMP_KEY, STAMP_NAMESPACE } from '../v2/reconcile/stamp.js';
 
 // ---- image sources -------------------------------------------------------
@@ -101,7 +102,17 @@ async function exec(
   ) {
     const env = parsed as { success: boolean; result?: unknown; error?: string };
     if (!env.success) {
-      throw new Error(`figma_execute failed: ${env.error ?? 'unknown error'}`);
+      const message = `figma_execute failed: ${env.error ?? 'unknown error'}`;
+      // 「Cannot connect」有两种成因：插件没开，或子进程退到了非首选端口。
+      // 后者必须点明端口归属，否则用户只会看到同一句话反复出现。
+      const bridge = describeBridgeFailure(message);
+      if (bridge) {
+        throw Object.assign(new Error(`${message}\n${bridge}`), {
+          code: 'E_BRIDGE_PORT_CONFLICT',
+          details: { bridge: getBridgeState() }
+        });
+      }
+      throw new Error(message);
     }
     return env.result ?? null;
   }
@@ -273,6 +284,169 @@ function mapNode(raw: Record<string, unknown>): NodeInfo {  return {
  * connected file instead, without switching the user's active file.
  * (Local Mode only; Cloud Mode rejects `fileKey` outright.)
  */
+// ---- 配图槽几何归一（插件脚本） -------------------------------------------
+
+interface FigureSlotSpec {
+  groupId: string;
+  /** 克隆源：间距真值从它量。 */
+  sourceGroupId?: string;
+}
+
+/**
+ * 配图槽归一的插件脚本。
+ *
+ * **GROUP 的子节点坐标写在「组所在父级」的坐标系里**（真机 2026-11-03 实测：
+ * `rect.y = 814` 而 `rect.absoluteBoundingBox === group.absoluteBoundingBox`）。
+ * 所以「把矩形归零」是错的——那会把它挪到父级顶端；正确做法是挪到组的原点
+ * （`group.x / group.y`）。FRAME 的子节点才是 0 基局部坐标。
+ *
+ * 顺序也重要：先摆矩形，再按矩形算文案的 y。反过来的话，文案原先在矩形上方时
+ * 组 bbox 顶部会跟着变，间距就再也算不对了。
+ */
+function figureNormalizeScript(p: {
+  groups: FigureSlotSpec[];
+  rectName: string;
+  hintName: string;
+  gap: number;
+  minRectHeight: number;
+}): string {
+  return `
+    const pick = (root, name) => {
+      if (!root) return null;
+      if (root.name === name) return root;
+      if (!('findAll' in root)) return null;
+      const hits = root.findAll((n) => n.name === name);
+      return hits.length > 0 ? hits[0] : null;
+    };
+    const absBox = (n) => {
+      try {
+        const b = n && n.absoluteBoundingBox;
+        return b ? { x: b.x, y: b.y, width: b.width, height: b.height } : null;
+      } catch (e) { return null; }
+    };
+    const relax = (n) => {
+      if (!n) return;
+      if ('layoutAlign' in n) n.layoutAlign = 'INHERIT';
+      if ('layoutGrow' in n) n.layoutGrow = 0;
+    };
+
+    const out = [];
+    for (const spec of ${JSON.stringify(p.groups)}) {
+      const gid = spec.groupId;
+      const group = await figma.getNodeByIdAsync(gid);
+      if (!group) { out.push({ groupId: gid, missing: true }); continue; }
+      const rect = pick(group, ${JSON.stringify(p.rectName)});
+      if (!rect) { out.push({ groupId: gid, missing: true }); continue; }
+      const hint = pick(group, ${JSON.stringify(p.hintName)});
+
+      // 间距真值从克隆源量：不同项目 pack 的间距不同，写死会错位。
+      let slotGap = ${p.gap};
+      if (spec.sourceGroupId) {
+        const src = await figma.getNodeByIdAsync(spec.sourceGroupId);
+        const sRect = pick(src, ${JSON.stringify(p.rectName)});
+        const sHint = pick(src, ${JSON.stringify(p.hintName)});
+        if (sRect && sHint && typeof sHint.y === 'number' && typeof sRect.y === 'number') {
+          const measured = Math.round(sHint.y - (sRect.y + sRect.height));
+          if (Number.isFinite(measured)) slotGap = Math.max(0, Math.min(measured, 64));
+        }
+      }
+
+      const autoLayout = 'layoutMode' in group && group.layoutMode && group.layoutMode !== 'NONE';
+      const isGroup = group.type === 'GROUP';
+      const ox = typeof group.x === 'number' ? group.x : 0;
+      const oy = typeof group.y === 'number' ? group.y : 0;
+
+      relax(rect);
+      // 已贴图却只有个位数高度的槽：先恢复到最小可读高度，否则图片等于看不见。
+      const minH = ${p.minRectHeight};
+      if (minH > 0 && (rect.height ?? 0) < minH) {
+        try { rect.resize(Math.max(rect.width, 1), minH); } catch (e) {}
+      }
+      if (autoLayout) {
+        if ('layoutSizingHorizontal' in rect) rect.layoutSizingHorizontal = 'FIXED';
+        if ('layoutSizingVertical' in rect) rect.layoutSizingVertical = 'FIXED';
+      } else {
+        rect.x = isGroup ? ox : 0;
+        rect.y = isGroup ? oy : 0;
+      }
+
+      if (hint) {
+        relax(hint);
+        if ('textAutoResize' in hint) hint.textAutoResize = 'HEIGHT';
+        try { hint.resize(Math.max(Math.round(rect.width), 1), Math.max(hint.height, 1)); } catch (e) {}
+        if (autoLayout) {
+          if ('layoutSizingHorizontal' in hint) hint.layoutSizingHorizontal = 'FIXED';
+        } else {
+          hint.x = rect.x;
+          hint.y = Math.round(rect.y + rect.height + slotGap);
+        }
+      }
+
+      // GROUP 的 bbox 由子节点决定（不能 resize）；FRAME 无布局时才需要显式定高。
+      if (!autoLayout && !isGroup) {
+        const w = Math.max(Math.round(rect.width), hint ? Math.round(hint.width) : 0, 1);
+        const h = Math.round(rect.height + (hint ? slotGap + hint.height : 0));
+        try { group.resize(w, Math.max(h, 1)); } catch (e) {}
+      }
+
+      out.push({
+        groupId: gid,
+        groupWidth: group.width,
+        groupHeight: group.height,
+        rectX: rect.x,
+        rectY: rect.y,
+        rectWidth: rect.width,
+        rectHeight: rect.height,
+        hintX: hint ? hint.x : null,
+        hintY: hint ? hint.y : null,
+        hintWidth: hint ? hint.width : null,
+        hintHeight: hint ? hint.height : null,
+        groupAbs: absBox(group),
+        rectAbs: absBox(rect),
+        hintAbs: hint ? absBox(hint) : null,
+        autoLayout: !!autoLayout,
+        isGroup
+      });
+    }
+    return out;
+  `;
+}
+
+function toFigureSlotGeometry(row: Record<string, unknown>): FigureSlotGeometry {
+  const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+  const opt = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
+  const box = (v: unknown): Box | undefined => {
+    if (!v || typeof v !== 'object') return undefined;
+    const o = v as Record<string, unknown>;
+    if (typeof o['x'] !== 'number' || typeof o['y'] !== 'number') return undefined;
+    return {
+      x: o['x'],
+      y: o['y'],
+      width: typeof o['width'] === 'number' ? o['width'] : 0,
+      height: typeof o['height'] === 'number' ? o['height'] : 0
+    };
+  };
+  const groupAbs = box(row['groupAbs']);
+  const rectAbs = box(row['rectAbs']);
+  const hintAbs = box(row['hintAbs']);
+  return {
+    groupWidth: num(row['groupWidth']),
+    groupHeight: num(row['groupHeight']),
+    rectX: num(row['rectX']),
+    rectY: num(row['rectY']),
+    rectWidth: num(row['rectWidth']),
+    rectHeight: num(row['rectHeight']),
+    hintX: opt(row['hintX']),
+    hintY: opt(row['hintY']),
+    hintWidth: opt(row['hintWidth']),
+    hintHeight: opt(row['hintHeight']),
+    ...(groupAbs ? { groupAbs } : {}),
+    ...(rectAbs ? { rectAbs } : {}),
+    ...(hintAbs ? { hintAbs } : {}),
+    autoLayout: row['autoLayout'] === true
+  };
+}
+
 export function buildFigmaConsoleBackend(client: Client, fileKey?: string): FigmaBackend {
   // Single choke point: every op below goes through `run`, so binding the file
   // here is all it takes to target a file end to end.
@@ -1561,6 +1735,72 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         return { width: w, height: h };
       `, 30000) as { width: number; height: number };
       return r;
+    },
+
+    async normalizeFigureSlot({ groupId, sourceGroupId, rectName = '配图占位', hintName = '配图占位文案', gap = 16 }) {
+      const rows = (await run(
+        figureNormalizeScript({
+          groups: [sourceGroupId ? { groupId, sourceGroupId } : { groupId }],
+          rectName,
+          hintName,
+          gap,
+          minRectHeight: 0
+        }),
+        20000
+      )) as Array<Record<string, unknown>>;
+      const row = rows[0];
+      if (!row || row['missing'] === true) {
+        throw new Error(`normalizeFigureSlot: 配图槽 ${groupId} 里找不到「${rectName}」`);
+      }
+      return toFigureSlotGeometry(row);
+    },
+
+    async normalizeFigureSlots({ groups, rectName = '配图占位', hintName = '配图占位文案', gap = 16, minRectHeight = 0 }) {
+      const rows = (await run(
+        figureNormalizeScript({ groups, rectName, hintName, gap, minRectHeight }),
+        40000
+      )) as Array<Record<string, unknown>>;
+      return rows.map((row) => ({
+        groupId: String(row['groupId'] ?? ''),
+        missing: row['missing'] === true,
+        ...toFigureSlotGeometry(row)
+      }));
+    },
+
+    async normalizeChapterLayout({ chapterId }) {
+      const r = await run(`
+        const root = await figma.getNodeByIdAsync(${JSON.stringify(chapterId)});
+        if (!root) return { ok: false, reason: 'chapter not found' };
+        const report = { ok: true, stretched: [], align: null, rootHeight: 0 };
+        if (!('layoutMode' in root) || !root.layoutMode || root.layoutMode === 'NONE') return { ok: false, reason: 'chapter is not auto-layout' };
+        // 横向章节：高度必须由内容决定；子级顶对齐，别让高的一栏把矮的拉长。
+        if (root.layoutMode === 'HORIZONTAL') {
+          try { root.counterAxisAlignItems = 'MIN'; } catch (e) {}
+          try { root.counterAxisSizingMode = 'AUTO'; } catch (e) {}
+          try { root.layoutSizingVertical = 'HUG'; } catch (e) {}
+          report.align = 'MIN';
+        }
+        for (const child of root.children) {
+          if (!('layoutMode' in child) || !child.layoutMode || child.layoutMode === 'NONE') continue;
+          const before = child.height;
+          try { child.layoutAlign = 'INHERIT'; } catch (e) {}
+          try { child.layoutGrow = 0; } catch (e) {}
+          try { child.primaryAxisSizingMode = 'AUTO'; } catch (e) {}
+          try { child.layoutSizingVertical = 'HUG'; } catch (e) {}
+          if (Math.abs((child.height ?? 0) - (root.height ?? 0)) <= 1) {
+            report.stretched.push({ id: child.id, name: child.name, before, after: child.height });
+          }
+        }
+        report.rootHeight = root.height;
+        return report;
+      `, 20000) as Record<string, unknown>;
+      return {
+        ok: r['ok'] === true,
+        ...(typeof r['reason'] === 'string' ? { reason: r['reason'] } : {}),
+        align: (r['align'] as string | null) ?? null,
+        rootHeight: typeof r['rootHeight'] === 'number' ? r['rootHeight'] : 0,
+        stretched: Array.isArray(r['stretched']) ? (r['stretched'] as Array<Record<string, unknown>>) : []
+      };
     },
 
     async commitUndoCheckpoint(_label) {

@@ -35,10 +35,12 @@ import { connectBridgeHost } from './bridgeSocketTransport.js';
 import {
   reclaimOrphanedBridgePorts,
   reclaimPreferredPort,
+  preferredPortHolders,
   waitUntilPortBindable,
   parseBridgePortStatus,
   PREFERRED_BRIDGE_PORT
 } from './reclaimPorts.js';
+import { describeBridgeFailure, getBridgeState, setBridgeState } from './bridgeState.js';
 
 /** 给握手加个上限：常驻宿主刚起时 child 可能还没就绪，不能无限等。 */
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -203,37 +205,94 @@ export async function main(): Promise<void> {  let v2Backend = undefined;
 
     let { client, transport: childTransport } = await startChild();
 
-    // 端口自愈（非阻塞）：子进程退到 9224 时不报错，只是插件连在 9223、我们连在
-    // 9224，表现为「渲染报 Cannot connect，代理的 figma_execute 却正常」。
-    // 这里只做两件事：把占着首选端口的同类进程清掉（下一次启动就能回到 9223），
-    // 以及留一条能搜到的告警。不在这里重启子进程——实测重启后仍可能抢不到端口，
-    // 反而把首屏启动拖慢。
-    void (async () => {
+    /** 读一次子进程的桥端口（老版本子进程没有这些字段 → undefined）。 */
+    const probeBridge = async (): Promise<{ port?: number; preferredPort?: number; fallbackUsed?: boolean } | undefined> => {
+      const status = await client.callTool({ name: 'figma_get_status', arguments: {} });
+      const text = String(
+        (status as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? ''
+      );
+      return parseBridgePortStatus(text);
+    };
+
+    /**
+     * 端口自愈（阻塞，最多几秒）。
+     *
+     * 症状：`render` 报 `Cannot connect to Figma Desktop`，代理工具却全正常。
+     * 因为子进程抢不到 9223 会**静默退到 9224**，插件只认 9223 —— 我们连着自己的
+     * 子进程，子进程连不上插件。旧实现只写一行 stderr 就放过，用户只能靠 netstat
+     * 猜；这里改成：发现退回 → 清掉占位者 → 重拉子进程 → 等插件回连。
+     */
+    const ensurePreferredPort = async (): Promise<void> => {
+      let info: Awaited<ReturnType<typeof probeBridge>>;
       try {
-        const status = await client.callTool({ name: 'figma_get_status', arguments: {} });
-        const text = String(
-          (status as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? ''
-        );
-        const info = parseBridgePortStatus(text);
-        if (!info?.fallbackUsed) return;
-        process.stderr.write(
-          `[figma-interaction-doc-engine] WARNING: bridge child fell back to port ` +
-            `${info.port ?? '?'} (preferred ${info.preferredPort ?? PREFERRED_BRIDGE_PORT}); ` +
-            'renders will fail with "Cannot connect" while proxied figma_* calls still work. ' +
-            'Clearing the squatter so the next start returns to the preferred port.\n'
-        );
-        const taken = reclaimPreferredPort();
-        process.stderr.write(
-          `[figma-interaction-doc-engine] preferred port cleanup: ${taken.action}` +
-            `${taken.pid ? ` pid=${taken.pid}` : ''}` +
-            `${taken.reason ? ` (${taken.reason})` : ''}\n`
-        );
+        info = await probeBridge();
       } catch (err) {
         process.stderr.write(
-          `[figma-interaction-doc-engine] port self-check failed: ${(err as Error).message}\n`
+          `[figma-interaction-doc-engine] bridge probe failed: ${(err as Error).message}\n`
         );
+        return;
       }
-    })();
+      if (!info) return;
+      const preferredPort = info.preferredPort ?? PREFERRED_BRIDGE_PORT;
+      const holders = preferredPortHolders(preferredPort);
+      setBridgeState({
+        ...(info.port !== undefined ? { port: info.port } : {}),
+        preferredPort,
+        fallback: info.fallbackUsed === true,
+        ...(holders.length > 0 ? { holderPid: holders[0] } : {})
+      });
+      if (info.fallbackUsed !== true) return;
+
+      process.stderr.write(
+        `[figma-interaction-doc-engine] WARNING: bridge child on port ${info.port ?? '?'} ` +
+          `(preferred ${preferredPort}); renders will fail with "Cannot connect". Recovering…\n`
+      );
+      // 抢占 + 重拉：只有让子进程自己绑上 9223，插件才有机会连回来。
+      const taken = reclaimPreferredPort(preferredPort);
+      const recovery =
+        `reclaimPreferredPort=${taken.action}` +
+        `${taken.pid ? ` pid=${taken.pid}` : ''}${taken.reason ? ` (${taken.reason})` : ''}`;
+      if (taken.action === 'skipped' || taken.action === 'degraded') {
+        setBridgeState({ recovery: `${recovery}；占用者不是 figma-console，未强杀` });
+        process.stderr.write(
+          `[figma-interaction-doc-engine] cannot reclaim port ${preferredPort}: ${recovery}\n`
+        );
+        return;
+      }
+      try {
+        await client.close();
+      } catch {
+        /* 旧 client 可能已经断了 */
+      }
+      const next = await startChild();
+      client = next.client;
+      childTransport = next.transport;
+      let recovered: Awaited<ReturnType<typeof probeBridge>> | undefined;
+      for (let i = 0; i < 3; i += 1) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          recovered = await probeBridge();
+        } catch {
+          continue;
+        }
+        if (recovered && recovered.fallbackUsed !== true) break;
+      }
+      setBridgeState({
+        ...(recovered?.port !== undefined ? { port: recovered.port } : {}),
+        fallback: recovered?.fallbackUsed === true,
+        recovery:
+          `${recovery}，重拉子进程后端口 ${recovered?.port ?? '?'}` +
+          (recovered?.fallbackUsed === true ? '（仍在退回端口）' : '')
+      });
+      process.stderr.write(`[figma-interaction-doc-engine] bridge recovery: ${recovered?.port ?? '?'}\n`);
+    };
+
+    await ensurePreferredPort();
+    if (getBridgeState().fallback) {
+      process.stderr.write(
+        `[figma-interaction-doc-engine] ${describeBridgeFailure('Cannot connect') ?? ''}\n`
+      );
+    }
 
     // Capture the child's tool list once, at startup. The list is stable for
     // the lifetime of the child process; we serve it verbatim to upstream.

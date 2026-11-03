@@ -174,3 +174,61 @@ describe('expectedItems — parts 不把 @职能 当文本条目', () => {
     ]);
   });
 });
+
+describe('expectedItems — parts 的条目序号不含 #### 子标题', () => {
+  const MD = `# t
+
+跟进UI：a
+需求组：b
+易协作链接：#待补充
+最后更新时间：2026.11.02
+
+## 设计总览
+
+### 功能背景
+
+背景。
+
+### 核心交互
+
+点击。
+
+## 01. 战斗
+
+### 命名输入框
+@GUI
+
+#### 基础行为
+- 默认显示输入框
+- 点击后获得焦点
+
+#### 控件状态
+- 默认状态：无描边
+- 悬停状态：高亮
+- 选中状态：青色描边
+`;
+
+  const cluster = () => parseV2(MD).ir!.sections[0]!.clusters[0]!;
+
+  it('legacy 把子标题算成条目', () => {
+    expect(expectedItems(cluster()).map((i) => i.t)).toEqual([
+      'subtitle',
+      'rule',
+      'rule',
+      'subtitle',
+      'rule',
+      'rule',
+      'rule'
+    ]);
+  });
+
+  it('parts 不打标子标题，序号也必须跳过它', () => {
+    expect(expectedItems(cluster(), { includeSubtitles: false }).map((i) => i.t)).toEqual([
+      'rule',
+      'rule',
+      'rule',
+      'rule',
+      'rule'
+    ]);
+  });
+});

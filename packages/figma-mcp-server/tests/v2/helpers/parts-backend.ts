@@ -82,6 +82,8 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
   const calls: string[] = [];
   const components = new Map<string, PNodeSpec>();
   let seq = 0;
+  /** 配图槽克隆计数：用来复现「第 N 张 y 越累越深」的真机症状。 */
+  let figureCloneSeq = 0;
   const uid = (prefix: string): string => `${prefix}-${++seq}`;
 
   const childrenOf = (id: string): PNode[] =>
@@ -119,6 +121,87 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
     nodes.delete(id);
   };
 
+  /** 配图槽归一：单槽版，`normalizeFigureSlot` 与批量的 `normalizeFigureSlots` 共用。 */
+  const normalizeSlot = (
+    groupId: string,
+    opts: {
+      sourceGroupId?: string;
+      rectName?: string;
+      hintName?: string;
+      gap?: number;
+      minRectHeight?: number;
+    } = {}
+  ) => {
+    const rectName = opts.rectName ?? '配图占位';
+    const hintName = opts.hintName ?? '配图占位文案';
+    let gap = opts.gap ?? 16;
+    const group = nodes.get(groupId);
+    if (!group) return undefined;
+    const rect = byName(groupId, rectName)[0];
+    if (!rect) return undefined;
+    const hint = byName(groupId, hintName)[0];
+    if (hint && opts.sourceGroupId) {
+      const sRect = byName(opts.sourceGroupId, rectName)[0];
+      const sHint = byName(opts.sourceGroupId, hintName)[0];
+      if (sRect && sHint) {
+        const measured = Math.round(sHint.y - (sRect.y + sRect.height));
+        if (Number.isFinite(measured)) gap = Math.max(0, Math.min(measured, 64));
+      }
+    }
+    const autoLayout = Boolean(group.layoutMode && group.layoutMode !== 'NONE');
+    // 真机语义：GROUP 的子节点坐标写在「组所在父级」的坐标系里，FRAME 才是 0 基局部。
+    const isGroup = group.type === 'GROUP';
+    const ox = group.x;
+    const oy = group.y;
+    if ((opts.minRectHeight ?? 0) > 0 && rect.height < opts.minRectHeight!) {
+      rect.height = Math.max(rect.height, opts.minRectHeight!);
+    }
+    if (!autoLayout) {
+      rect.x = isGroup ? ox : 0;
+      rect.y = isGroup ? oy : 0;
+    }
+    if (hint) {
+      hint.width = Math.max(rect.width, 1);
+      if (!autoLayout) {
+        hint.x = rect.x;
+        hint.y = Math.round(rect.y + rect.height + gap);
+      }
+    }
+    if (!autoLayout && !isGroup) {
+      group.width = Math.max(rect.width, hint?.width ?? 0, 1);
+      group.height = Math.round(rect.height + (hint ? gap + hint.height : 0));
+    }
+    // GROUP 的 bbox 由子节点决定（真机上改子节点即自动贴合），这里同样重算。
+    if (isGroup) {
+      const kids = childrenOf(group.id);
+      if (kids.length > 0) {
+        const left = Math.min(...kids.map((k) => k.x));
+        const top = Math.min(...kids.map((k) => k.y));
+        const right = Math.max(...kids.map((k) => k.x + k.width));
+        const bottom = Math.max(...kids.map((k) => k.y + k.height));
+        group.x = Math.round(left);
+        group.y = Math.round(top);
+        group.width = Math.max(Math.round(right - left), 1);
+        group.height = Math.max(Math.round(bottom - top), 1);
+      }
+    }
+    const box = (n: PNode) => ({ x: n.x, y: n.y, width: n.width, height: n.height });
+    return {
+      groupId,
+      groupWidth: group.width,
+      groupHeight: group.height,
+      rectX: rect.x,
+      rectY: rect.y,
+      rectWidth: rect.width,
+      rectHeight: rect.height,
+      ...(hint ? { hintX: hint.x, hintY: hint.y, hintWidth: hint.width, hintHeight: hint.height } : {}),
+      groupAbs: box(group),
+      rectAbs: box(rect),
+      ...(hint ? { hintAbs: box(hint) } : {}),
+      autoLayout
+    };
+  };
+
   const deepClone = (sourceId: string, parentId: string | undefined, name?: string): PNode => {
     const src = nodes.get(sourceId);
     if (!src) throw new Error(`parts backend: source ${sourceId} not found`);
@@ -149,6 +232,7 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
       ...(n.characters !== undefined ? { characters: n.characters } : {}),
       ...(n.children.length > 0 ? { childIds: [...n.children] } : {}),
       ...(n.layoutMode ? { layoutMode: n.layoutMode } : {}),
+      ...(n.fills?.some((f) => f === 'image') ? { hasImageFill: true } : {}),
       absoluteBoundingBox: { x: n.x, y: n.y, width: n.width, height: n.height }
     };
   };
@@ -212,7 +296,15 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
     },
     async cloneNode({ sourceId, parentId, name }: { sourceId: string; parentId?: string; name?: string }) {
       calls.push(`clone:${sourceId}`);
-      return info(deepClone(sourceId, parentId, name).id);
+      const copy = deepClone(sourceId, parentId, name);
+      // 真机（2026-11-02）：克隆出的配图槽不会重新结算布局，`配图占位` 的 y 沿
+      // 文档流累加、整组溢出簇框。这里复现这个症状，几何归一是唯一的修复路径。
+      const rect = byName(copy.id, '配图占位')[0];
+      if (rect) {
+        figureCloneSeq += 1;
+        rect.y += 800 * figureCloneSeq;
+      }
+      return info(copy.id);
     },
     async batchCloneNodes({ sourceId, parentId, count }: { sourceId: string; parentId?: string; count: number }) {
       const out: NodeInfo[] = [];
@@ -236,6 +328,36 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
       nodes.set(n.id, n);
       if (parentId) nodes.get(parentId)?.children.push(n.id);
       return info(n.id);
+    },
+    async fillFigurePlaceholder({
+      groupId,
+      rectId,
+      hintId,
+      maxWidth
+    }: {
+      groupId: string;
+      rectId: string;
+      hintId?: string;
+      sourceNodeId?: string;
+      maxWidth?: number;
+    }) {
+      calls.push(`fillFigure:${groupId}`);
+      const rect = nodes.get(rectId);
+      if (!rect) throw new Error(`parts backend: fill target ${rectId} not found`);
+      const group = nodes.get(groupId);
+      // 源图按 16:9 假尺寸处理：只关心「填图后槽是矩形高、文案已删」。
+      const width = Math.min(Math.max(maxWidth ?? 1231, 1), 1231);
+      const height = Math.round((width * 9) / 16);
+      rect.width = width;
+      rect.height = height;
+      rect.fills = ['image'];
+      if (hintId) remove(hintId);
+      // 真机症状：贴完图的槽被压成个位数高度（图片等于看不见）。收尾归一必须救回来。
+      rect.height = 5;
+      if (group && (!group.layoutMode || group.layoutMode === 'NONE') && group.type !== 'GROUP') {
+        group.height = 5;
+      }
+      return { width, height };
     },
     async resizeNode(nodeId: string, width: number, height: number) {
       calls.push(`resize:${nodeId}`);
@@ -262,6 +384,72 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
         n.x = x;
         n.y = y;
       }
+    },
+    async normalizeFigureSlot({
+      groupId,
+      sourceGroupId,
+      rectName,
+      hintName,
+      gap
+    }: {
+      groupId: string;
+      sourceGroupId?: string;
+      rectName?: string;
+      hintName?: string;
+      gap?: number;
+    }) {
+      calls.push(`normalizeFigure:${groupId}`);
+      const out = normalizeSlot(groupId, {
+        ...(sourceGroupId ? { sourceGroupId } : {}),
+        ...(rectName ? { rectName } : {}),
+        ...(hintName ? { hintName } : {}),
+        ...(gap !== undefined ? { gap } : {})
+      });
+      if (!out) throw new Error(`parts backend: normalize target ${groupId} not found`);
+      return out;
+    },
+    async normalizeFigureSlots({
+      groups,
+      rectName,
+      hintName,
+      gap,
+      minRectHeight
+    }: {
+      groups: Array<{ groupId: string }>;
+      rectName?: string;
+      hintName?: string;
+      gap?: number;
+      minRectHeight?: number;
+    }) {
+      calls.push(`normalizeFigures:${groups.length}`);
+      return groups.map((g) => {
+        const out = normalizeSlot(g.groupId, {
+          ...(rectName ? { rectName } : {}),
+          ...(hintName ? { hintName } : {}),
+          ...(gap !== undefined ? { gap } : {}),
+          ...(minRectHeight !== undefined ? { minRectHeight } : {})
+        });
+        return out ?? { groupId: g.groupId, missing: true };
+      });
+    },
+    async normalizeChapterLayout({ chapterId }: { chapterId: string }) {
+      calls.push(`normalizeChapter:${chapterId}`);
+      const root = nodes.get(chapterId);
+      if (!root) return { ok: false, reason: 'chapter not found', align: null, rootHeight: 0, stretched: [] };
+      if (!root.layoutMode || root.layoutMode === 'NONE') {
+        return { ok: false, reason: 'not auto-layout', align: null, rootHeight: root.height, stretched: [] };
+      }
+      // 真机上根是 HUG，改完子级 Figma 自己重算高度；假后端没有布局引擎，
+      // 只把子级高度改回内容高，根高保持不动（调用方的断言依赖这一点）。
+      const stretched: Array<Record<string, unknown>> = [];
+      for (const id of root.children) {
+        const child = nodes.get(id);
+        if (!child?.layoutMode || child.layoutMode === 'NONE') continue;
+        const wasStretched = Math.abs(child.height - root.height) <= 1;
+        child.height = Math.max(...childrenOf(child.id).map((k) => k.y + k.height), 1);
+        if (wasStretched) stretched.push({ id: child.id, name: child.name });
+      }
+      return { ok: true, align: 'MIN', rootHeight: root.height, stretched };
     },
     async setNodeVisible(nodeId: string, visible: boolean) {
       const n = nodes.get(nodeId);

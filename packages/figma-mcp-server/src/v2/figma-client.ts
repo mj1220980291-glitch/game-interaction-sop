@@ -105,6 +105,36 @@ export interface ScanSubtreeResult {
   truncated: boolean;
 }
 
+/** Measured shape of a 配图 slot after normalization. */
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FigureSlotGeometry {
+  groupWidth: number;
+  groupHeight: number;
+  rectX: number;
+  rectY: number;
+  rectWidth: number;
+  rectHeight: number;
+  hintX?: number;
+  hintY?: number;
+  hintWidth?: number;
+  hintHeight?: number;
+  /**
+   * 绝对坐标。审计必须用这一组：GROUP 的子节点坐标写在**父级坐标系**里，
+   * `rect.y = 0` 不代表「贴在组顶」，只代表「贴在父级顶」。
+   */
+  groupAbs?: Box;
+  rectAbs?: Box;
+  hintAbs?: Box;
+  /** The group lays its children out itself; its height is not ours to assert. */
+  autoLayout: boolean;
+}
+
 /**
  * Backend the host must wire. Each method maps roughly 1:1 to a
  * figma-console MCP tool but with sane typing. Implementations are
@@ -647,6 +677,63 @@ export interface FigmaBackend {
     scale?: number;
     maxWidth: number;
   }): Promise<{ width: number; height: number }>;
+
+  /**
+   * Normalize one 配图 slot's internal geometry, in a single plugin execution.
+   *
+   * Cloning the template slot copies relative coordinates but not the layout
+   * result: from the 2nd figure of a cluster on, the rect kept drifting down and
+   * the hint text collapsed (real run 2026-11-02). This puts the slot back into
+   * the shape the template ships: rect at the group origin, hint right below it,
+   * group height = rect.h + gap + hint.h.
+   *
+   * `gap` is measured from `sourceGroupId` (the clone source) when given, so the
+   * spacing stays whatever the project pack actually uses.
+   */
+  normalizeFigureSlot?(p: {
+    groupId: string;
+    /** Clone source to measure `gap` from. */
+    sourceGroupId?: string;
+    /** Rect name inside the group. Default `配图占位`. */
+    rectName?: string;
+    /** Hint TEXT name inside the group. Default `配图占位文案`. */
+    hintName?: string;
+    /** Fallback gap when it cannot be measured. Default 16. */
+    gap?: number;
+  }): Promise<FigureSlotGeometry>;
+
+  /**
+   * Batch form of {@link normalizeFigureSlot}, run once at the end of a render
+   * over every 配图 slot.
+   *
+   * A clone-time normalize only fixes the moment of cloning; filling the image,
+   * widening the hint, or an outer auto-layout stretching the block can break the
+   * slot again (real run 2026-11-03: filled slots crushed to 5–7px, placeholder
+   * slots stretched to 2500px). One exec over all slots keeps it under the 10s
+   * bridge limit — 39 slots individually would not fit.
+   */
+  normalizeFigureSlots?(p: {
+    groups: Array<{ groupId: string }>;
+    rectName?: string;
+    hintName?: string;
+    gap?: number;
+    /** Rescue a crushed rect back to at least this height (filled slots). */
+    minRectHeight?: number;
+  }): Promise<Array<FigureSlotGeometry & { groupId: string; missing?: boolean }>>;
+
+  /**
+   * Put a chapter back into HUG: horizontal chapter roots align children to the
+   * top, and every auto-layout child hugs its own content. Without this the
+   * taller column defines the chapter height and the shorter one is stretched to
+   * match (real run: 左列 1920×10873 with a single 1080 image).
+   */
+  normalizeChapterLayout?(p: { chapterId: string }): Promise<{
+    ok: boolean;
+    reason?: string;
+    align: string | null;
+    rootHeight: number;
+    stretched: Array<Record<string, unknown>>;
+  }>;
 
   /** Wrap a risky batch in an undo entry. */
   commitUndoCheckpoint(label: string): Promise<void>;

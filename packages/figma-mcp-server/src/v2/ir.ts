@@ -212,7 +212,27 @@ export const SOFT_WARNING_CODES = {
   /** render — 锚点坐标不在 0–1，已夹到图内。 */
   W_BADGE_ANCHOR_OUT_OF_RANGE: 'V2_W_BADGE_ANCHOR_OUT_OF_RANGE',
   /** render — 章节部件里找不到主图槽，该章的主图资产未落图。 */
-  W_MAIN_SLOT_MISSING: 'V2_W_MAIN_SLOT_MISSING'
+  W_MAIN_SLOT_MISSING: 'V2_W_MAIN_SLOT_MISSING',
+  /**
+   * render — 配图槽的几何归一后仍不满足不变式（子节点越框 / 文案被压扁）。
+   * 克隆出来的槽以前从不归尺寸：第 2 张起整组塌掉也是零告警。
+   */
+  W_FIGURE_SLOT_GEOMETRY: 'V2_W_FIGURE_SLOT_GEOMETRY',
+  /**
+   * reconcile — 槽级填图（含缩放/裁剪）失败，退化成「只把图刷进矩形」。
+   * 图还在，但尺寸不会再按源图比例调；以前这种情况是整张图丢掉。
+   */
+  W_FIGURE_FILL_FALLBACK: 'V2_W_FIGURE_FILL_FALLBACK',
+  /**
+   * reconcile — 重新插入的配图槽原本有图（stamp 里带 imageHash），但这次没给资产。
+   * 槽是新建的空槽，旧图不会自己回来；以前是无声丢图。
+   */
+  W_FIGURE_IMAGE_LOST: 'V2_W_FIGURE_IMAGE_LOST',
+  /**
+   * render — 模板声明了 `roleAnnotation: 'inline-suffix'`（把职能拼进标题），
+   * 引擎尚未实现。以前是静默：职能条目直接消失，文档里搜不到任何 @职能。
+   */
+  W_ROLE_ANNOTATION_UNSUPPORTED: 'V2_W_ROLE_ANNOTATION_UNSUPPORTED'
 } as const;
 
 export type SoftWarningCode =

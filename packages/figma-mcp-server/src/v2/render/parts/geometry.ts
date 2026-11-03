@@ -50,11 +50,17 @@ export async function fitChapterHeight(backend: FigmaBackend, chapterId: string,
 
 /**
  * 左列（标题 + 舞台）高度是模板写死的，说明栏随文案变长后两列底边不齐。
- * 章节是自动布局时不能动父级，但拉伸子级没问题（HUG 会被 resize 改成 FIXED）。
+ *
+ * **章节是自动布局时不要拉**：那正是「左列 1920×10873」的来源——把 HUG 改成
+ * 固定高，主图下面留几千 px 空白，同步还会把这个固定高当既成事实越滚越大
+ * （真机 2026-11-03：create 后 1200 HUG，4 次同步后变 6716 FIXED）。
+ * 自动布局章节的对齐交给 `counterAxisAlignItems = MIN` + 两列各自 HUG。
  */
 export async function stretchLeftColumn(backend: FigmaBackend, chapterId: string): Promise<void> {
   if (typeof backend.resizeNode !== 'function') return;
   const info = await backend.getNodeInfo(chapterId);
+  // 旧的非自动布局章节才需要手工对齐底边。
+  if (info.layoutMode === 'HORIZONTAL' || info.layoutMode === 'VERTICAL') return;
   let taller = 0;
   let left: NodeInfo | undefined;
   for (const childId of info.childIds ?? []) {

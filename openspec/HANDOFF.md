@@ -1,6 +1,122 @@
-# 交接说明（2026-11-02）
+# 交接说明（2026-11-03）
 
-## 当前状态快照（2026-11-02 20:30，换对话先读这一节）
+## 当前状态快照（2026-11-03 13:20，换对话先读这一节）
+
+**一句话**：`fix-figure-slot-geometry-and-item-index` **0.3.6 真机签收通过并已归档**（specs +7）；剩余三条遗留（reconcile 填图必挂 / 重插配图槽丢图 / `inline-suffix` 静默丢职能）落在新 change `fix-reconcile-fill-and-role-fallback`，引擎 `0.3.7`。
+
+**签收证据**（用户回执）：39 槽绝对坐标 39/39、占位组高统一 323、几何告警 0；create + reconcile ×3 四章左列恒 1200 HUG / 行 MIN；两次同 md `changes: []`；端口 `fallback:false` 且 3 次 render 无需 taskkill。
+
+**新 change 已做（未真机验）**：
+
+1. reconcile 槽级填图失败 → 退化 `rasterizeNodeToImageFill`（图不丢）+ `V2_W_FIGURE_FILL_FALLBACK` —— 解开「旧文档补图只能重渲」
+2. 重插配图槽原本有图但无资产 → `V2_W_FIGURE_IMAGE_LOST`（`Plan.warnings` 新通道）
+3. `roleAnnotation: inline-suffix` → `V2_W_ROLE_ANNOTATION_UNSUPPORTED`（蛋仔包投产前必须决定「拼标题 vs 新增一行」，只告警不实现）
+
+**代码状态**：`npm run build` ✓，`npm test` **72 files / 569 tests** 全绿，`openspec validate --all --strict`（归档后待复跑）。工作区待提交。
+
+**下一步**：提交本轮（含归档）；用户侧装 0.3.7 验 ①补图 ②删图恢复告警 ③蛋仔包告警。
+
+**技术债**：parts 同步的进程内 harness 仍缺（条目序号/重插丢图只能真机验）；worker 与 bridge 生命周期解耦仍未做。
+
+---
+
+## 上一轮快照（2026-11-03 12:45）
+
+**一句话**：0.3.5 验收基本全绿（Bug 1 / Bug 2 / 端口层 / create 路径 Bug 3），只剩一个真缺陷：**reconcile 路径没复位左列 HUG**（create 后 1200，4 次同步后 6716 / 10917 FIXED）。已修，引擎 `0.3.5` → `0.3.6`。
+
+**本轮两处**：
+
+1. `stretchLeftColumn`（两列底边对齐）对**自动布局章节直接跳过** —— 它就是 `resizeNode(left, w, taller)` 把 HUG 改成固定高的元凶；reconcile 收尾对**每章**跑 `normalizeChapterLayout`，排在全部写入之后、写文档标记之前
+2. `summary.figureSlotsUnhealthy`：归一后仍不合格的槽数（应为 0），验收不用写脚本
+
+**判据修订**（用户侧提的）：整篇高度不再要求「2 万量级」——39 槽 × 323 ≈ 12.6k 是硬下限；改为「占位槽组高统一 323 + 章节高 = 内容高」。
+
+**代码状态**：`npm run build` ✓，`npm test` **71 files / 567 tests** 全绿，`openspec validate --all --strict` 22/22 ✓。工作区未提交。
+
+**下一步**：用户侧装 0.3.6，跑「create → reconcile ×2」，四章左列恒 HUG 且高 = 标题 + 主图 → 签收，归档 change。
+
+**已知未做**：worker 重启时 bridge 子进程与 worker 生命周期解耦（两次回执都提过，值得单独立项）。
+
+---
+
+## 上一轮快照（2026-11-03 12:20）
+
+**一句话**：0.3.4 验收回执：端口 ✓、Bug 3（左列 HUG）✓；Bug 1 根因换成 **GROUP 子节点坐标写在父级坐标系**（不是 auto-layout）；另抓出 0.3.4 的 `gap` 未定义崩溃 + summary 丢两个凭据字段。已全部修，引擎 `0.3.4` → `0.3.5`。
+
+**本轮四条**：
+
+1. 归一以**组原点**为基准平移子节点：`GROUP` → `rect.x = group.x / rect.y = group.y`；`FRAME` 才用 0 基局部坐标。顺序固定「先矩形、再文案」
+2. 校验改用**绝对坐标**：`rectAbs - groupAbs ≈ (0,0)`、`hintAbs.y ≥ rectAbs.bottom`、`groupAbs.h ≈ 内容高` —— 0.3.4 的 60 条告警正是拿局部坐标判「不在组内原点」造成的误报
+3. 修 `gap is not defined`：两份插件脚本（单槽/批量）合并成 `figureNormalizeScript`，从根上消掉漂移；`render.ts` 的 summary 白名单补 `figureSlotsNormalized` / `chaptersNormalized`
+4. 假后端补 GROUP 父级坐标语义 + 新增「槽的父级坐标不是原点（y=814）」用例
+
+**代码状态**：`npm run build` ✓，`npm test` **70 files / 564 tests** 全绿，`openspec validate --all --strict` 22/22 ✓。工作区未提交。
+
+**下一步**：用户侧装 0.3.5 → 先看 `get_skill_requirements().bridge.fallback === false` → 再验 `figureSlotsNormalized` 与几何、整篇高度（应回 2 万量级）、同步两次幂等且章节高度不变。
+
+**已知未做**：worker 重启时 bridge 子进程与 worker 生命周期解耦（回执 §1 建议）；parts 同步的进程内 harness。
+
+---
+
+## 上一轮快照（2026-11-03 11:30）
+
+**一句话**：第三份反馈是 Bridge 端口 9223 所有权竞争（render 间歇 `Cannot connect`、插件被迫手连、双活 supervisor 制造「升级无效」）。已修：端口回退自动自愈（清占用者 + 重拉子进程 + 轮询回正）、`E_BRIDGE_PORT_CONFLICT` 可读错误、`get_skill_requirements` 回 `bridge` 诊断、supervisor pid 单例。引擎 `0.3.3` → `0.3.4`。
+
+**本轮关掉的三条**（回执 §2/§3）：
+
+1. 子进程退到 9224 时以前只写一行 stderr → 现在 worker 探测到 `portFallbackUsed` 就结束同类占用者、**重拉子进程**、3×2s 轮询回正；回正不了也不让 worker 退（自我放大循环的源头）
+2. 报错只有 `Cannot connect` → 现在 `E_BRIDGE_PORT_CONFLICT`，`details.bridge` 带 `port / holderPid / enginePid / supervisorPid / recovery` + 两平台清理命令
+3. 双活 supervisor → `~/.game-interaction-sop/supervisor.lock`，第二份让位 exit 0
+
+**明确未做**：桥进程与 proxy 的 lock 复用（`GISOP_BRIDGE_HOST=1` 仍实验）、插件侧退避重连（在 Figma 插件仓库）。
+
+**上一轮的两条仍等真机复验**（被端口问题阻塞）：配图槽收尾批量归一 + 章节高度自愈。凭据字段 `summary.figureSlotsNormalized` / `chaptersNormalized`。
+
+**代码状态**：`npm run build` 通过，`npm test` **70 files / 563 tests** 全绿，`openspec validate --all --strict` 22/22 通过。工作区未提交。
+
+**下一步**：让用户侧装 0.3.4 → 确认 `get_skill_requirements().bridge.fallback === false` → 再跑几何验收。
+
+---
+
+## 上一轮快照（2026-11-03 11:00）
+
+**一句话**：用户侧 0.3.2 验收回执：Bug 2（同步条目越界）通过；Bug 1（配图几何）**未修好**且零告警；另报新 Bug 3（左列被拉成整章高）。
+已按回执做第二轮：克隆期归一只覆盖「克隆那一刻」，改为**渲染收尾批量再归一**；新增章节高度自愈；新增 `summary.figureSlotsNormalized` 作为「新 build 真在跑」的凭据。引擎 `0.3.2` → `0.3.3`。
+
+**二轮三条改动**：
+
+1. `normalizeFigureSlots`（后端，一次 exec 批量 39 槽）：矩形回原点、文案贴下方、组高随内容；**已填图被压到个位数高度的槽恢复到 ≥100px**。渲染 `layout` 之后对全篇每个 `配图` 槽执行，逐槽校验 → `V2_W_FIGURE_SLOT_GEOMETRY`（带簇 + `#序号`）
+2. `normalizeChapterLayout`：章节根 `counterAxisAlignItems=MIN` + 纵向 HUG，栏目 `AUTO/HUG/layoutGrow=0` —— 修左列 `1920×10873`
+3. 可观测：`summary.figureSlotsNormalized` / `chaptersNormalized`。**回执里 `warnings` 全空的可疑点**：0.3.2 的告警只在克隆期发，且旧 server 进程（PID 49544）可能仍在服务；这两个计数为 0 而文档有配图 ⇒ 连的是旧 build / 旧进程
+
+**Bug 2（已通过，随本次归档）**：`expectedItems` 加 `includeSubtitles`，parts 传 `false`；越界报 `V2_RECONCILE_ITEM_OUT_OF_RANGE`。回执确认幂等 `changes: []`、无 `scratch node not found`。
+
+**明确未修**（回执 P1/P2）：端口 9223 竞争与旧进程残留（→ 另开 `E_BRIDGE_PORT_CONFLICT` change）；parts 同步的进程内 harness 仍缺。
+
+**代码状态**：`npm run build` 通过，`npm test` **69 files / 552 tests** 全绿，`openspec validate --all --strict` 22/22 通过。工作区未提交。
+
+**下一步**：让用户侧按新提示词验收（先看 `figureSlotsNormalized`），绿了再归档本 change。
+
+---
+
+## 上一轮快照（2026-11-03 02:20）
+
+**一句话**：处理用户反馈 #3（引擎 bug 报告：一簇多配图塌陷 + `####` 簇同步必崩）——两条同源缺陷已修，单测锁死，真机验收未跑。
+
+**两条真因**：
+
+1. 配图槽克隆后**从不归一几何**：全仓只有 `fillFigurePlaceholder`（有资产时）会调尺寸，缺资产分支只刷灰板 → 第 2 张起 rect 漂到 y=814/1987、h=27/37、文案压成 1~6px，零告警。修法：新后端方法 `normalizeFigureSlot`（单次 exec，间距真值从克隆源量），克隆 / 占位 / 文案拉宽三处统一走它；归一后仍不合格 → `V2_W_FIGURE_SLOT_GEOMETRY`。
+2. parts 同步**条目序号错位**：打标清单不含 `####` 子标题（`stamp-parts.ts:85`），计划侧 `expectedItems` 却把标题算一条（`layout.ts:69`）→ `ref.i` 越界，dryRun 过、真跑崩。修法：`expectedItems` 加 `includeSubtitles`，parts 传 `false`；越界改报 `V2_RECONCILE_ITEM_OUT_OF_RANGE`。
+
+**顺带修掉**：parts 路径从不 `imageSeed.flush`，每簇多留一个模板原生空 `配图` 框。
+
+**代码状态**：`npm run build` 通过，`npm test` **69 files / 552 tests** 全绿，`openspec validate --all --strict` **22/22** 通过。版本引擎 `0.3.2`。工作区未提交（含上一轮 `fix-role-block-and-badge-layering` 的归档移动）。
+
+**下一步**：真机重渲 M1 到 `4216:41110`，逐槽核几何；对新稿 `4356:21777` / `4356:24493` 或旧稿 `4221:51589` 跑同步验条目序号；再归档本 change。
+
+---
+
+## 上一轮快照（2026-11-02 20:30）
 
 **一句话**：处理用户反馈 #2（`引擎问题反馈-角色组件与标号.md`）——修完「parts 路径不认职能组件」「主图实例压住标号」「配置问题无法对账」三个缺陷，真机用真实配图验收通过并推送。配套修了同步的两个连带问题（`@职能` 重复插入、主图换 id 后 stamp 丢失）。
 

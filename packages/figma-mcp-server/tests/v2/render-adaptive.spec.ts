@@ -196,7 +196,7 @@ describe('renderFromParts 自适应', () => {
     expect(h.nodes.get(r.rootId)!.layoutMode).toBe('VERTICAL');
   });
 
-  it('配图占位文案压在灰板正中（水平 + 垂直）', async () => {
+  it('配图占位文案贴在灰板下方（几何归一）', async () => {
     const { h, ir, pack } = setup({}, { withFigure: true });
     addAutoLayout(h);
     addPaint(h);
@@ -205,8 +205,11 @@ describe('renderFromParts 自适应', () => {
 
     const rect = h.byName(r.rootId, '配图占位')[0]!;
     const hint = h.byName(r.rootId, '配图占位文案')[0]!;
-    expect(hint.x).toBe(Math.round(rect.x + (rect.width - hint.width) / 2));
-    expect(hint.y).toBe(Math.round(rect.y + (rect.height - hint.height) / 2));
+    expect(rect.x).toBe(0);
+    expect(rect.y).toBe(0);
+    expect(hint.x).toBe(0);
+    expect(hint.y).toBeGreaterThanOrEqual(rect.height);
+    expect(hint.width).toBe(rect.width);
   });
 
   it('geometry.rootGap 写进根帧 itemSpacing', async () => {    const { h, ir, pack } = setup();

@@ -99,7 +99,7 @@ export async function reconcileV2(
   const snap = buildSnapshot(tree, profile);
   const planned = planReconcile(snap, ir, { scope: input.scope, assetMap: input.assetMap });  if (!planned.ok) return fail(planned.code, planned.message, parseWarnings);
   const plan = planned.plan;
-  const warnings = [...parseWarnings, ...snap.warnings];
+  const warnings = [...parseWarnings, ...snap.warnings, ...plan.warnings];
   const report = { changes: plan.changes, conflicts: plan.conflicts, preserved: plan.preserved };
   const ok = (): RenderResult => ({
     ok: true,
@@ -209,6 +209,21 @@ export async function reconcileV2(
             anchors,
             false
           );
+        }
+      }
+
+      // 收尾复位：每章都要，不只是改动过的那些。
+      // 同步期间的填充、标号重摆都会把栏目的 HUG 重新压成固定高（真机 0.3.5：
+      // create 后 1200 HUG，4 次 reconcile 后 6716 / 10917 FIXED），所以这段必须
+      // 排在所有写入之后、打文档标记之前。
+      if (backend.normalizeChapterLayout) {
+        for (const section of snap.sections) {
+          if (!section.node) continue;
+          try {
+            await backend.normalizeChapterLayout({ chapterId: section.node.id });
+          } catch {
+            /* 高度复位失败不该让整轮同步失败 */
+          }
         }
       }
     }
@@ -430,8 +445,28 @@ async function renderScratch(
       id(ref: Ref): string {
         if (typeof ref === 'string') return ref;
         const id = scratchPartsId(layoutRef, pos, ref);
-        if (!id) throw new Error(`scratch node not found for ${JSON.stringify(ref)}`);
-        return id;
+        if (id) return id;
+        // 越界 = 计划侧的条目序号与临时文档的条目清单不同源（`####` 标题、职能
+        // 条目、被隐藏的槽都会让两边错位）。以前这里抛裸 Error，最后被包成
+        // `V2_RECONCILE_RUNTIME_ERROR`，只剩下 "scratch node not found"，看不出
+        // 到底差在哪一条。
+        const p = pos.get(ref.s);
+        const sec = p === undefined ? undefined : layoutRef.sections[p];
+        const cl = ref.c === undefined ? undefined : sec?.clusters[ref.c];
+        throw Object.assign(
+          new Error(
+            `scratch 条目 ${JSON.stringify(ref)} 在临时文档里找不到` +
+              `（该簇实测 ${cl ? cl.items.length : 0} 条，ref 指向第 ${(ref.i ?? 0) + 1} 条）`
+          ),
+          {
+            code: 'V2_RECONCILE_ITEM_OUT_OF_RANGE',
+            details: {
+              ref,
+              layoutItems: cl ? cl.items.length : 0,
+              clusterTitle: cl?.title
+            }
+          }
+        );
       },
       stampOf(ref: Ref) {
         const id = resolver.id(ref);
@@ -575,15 +610,35 @@ async function runFills(backend: FigmaBackend, fills: FillTask[], warnings: Soft
       } else {
         if (!backend.fillFigurePlaceholder) throw new Error('backend lacks fillFigurePlaceholder');
         if (!f.rectId) throw new Error(`配图 GROUP ${f.groupId} has no 配图占位 RECTANGLE`);
-        await backend.fillFigurePlaceholder({
-          sourceNodeId: f.asset.nodeId,
-          groupId: f.groupId,
-          rectId: f.rectId,
-          hintId: f.hintId,
-          crop: f.asset.crop,
-          scale: f.asset.scale,
-          maxWidth: f.maxWidth
-        });
+        try {
+          await backend.fillFigurePlaceholder({
+            sourceNodeId: f.asset.nodeId,
+            groupId: f.groupId,
+            rectId: f.rectId,
+            hintId: f.hintId,
+            crop: f.asset.crop,
+            scale: f.asset.scale,
+            maxWidth: f.maxWidth
+          });
+        } catch (fillError) {
+          // 槽级填图会顺带 resize 组、删文案，其中任何一步在目标文档里都可能被
+          // Figma 拒绝（真机：`object is not extensible`，create 能填、reconcile 不行）。
+          // 这时退化成「只把图刷进矩形」：图还在，尺寸不再按比例调。
+          if (!backend.rasterizeNodeToImageFill) throw fillError;
+          await backend.rasterizeNodeToImageFill({
+            sourceNodeId: f.asset.nodeId,
+            targetNodeId: f.rectId,
+            ...(f.asset.crop ? { crop: f.asset.crop } : {}),
+            ...(f.asset.scale !== undefined ? { scale: f.asset.scale } : {})
+          });
+          warnings.push({
+            code: SOFT_WARNING_CODES.W_FIGURE_FILL_FALLBACK,
+            message:
+              `${f.path}: 槽级填图失败（${(fillError as Error).message}），已退化为直接刷图，` +
+              '尺寸未按源图比例调整',
+            context: f.path
+          });
+        }
         await backend.stampNodes!([
           { nodeId: f.groupId, stamp: { ...f.stamp, asset: f.asset } as unknown as Record<string, unknown>, captureHash: true }
         ]);
