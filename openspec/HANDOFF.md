@@ -1,6 +1,29 @@
 # 交接说明（2026-11-03）
 
-## 当前状态快照（2026-11-03 13:40，换对话先读这一节）
+## 当前状态快照（2026-11-03 14:30，换对话先读这一节）
+
+**一句话**：主串联联调收口。`fix-figure-slot-geometry-and-item-index`（0.3.6 签收）与 `fix-reconcile-fill-and-role-fallback`（0.3.9 复验）**两个 change 都已归档**；同步补图链路打通，M1 配图 20/39。引擎 `0.3.9`，已推送 `fbc22e9`。
+
+**P1 真因（值得记住）**：不是对象被冻，而是 `PARTS_PROFILE.figureSlot` 写死 `'rect'` —— `named-group` 模板的配图条目是 `GROUP`，同步把它当裸矩形，`rectId = group.id`；GROUP 没有 `fills`，赋值抛 `object is not extensible`，退化路径拿同一 id 同错。修法：`figureSlotShape(nodeType, profile)` 按节点类型判，档案只兜底。
+
+**本轮新增能力（都真机验过）**：
+- 同步补图可用（0.3.9：两图落上、`errors/warnings` 空、二次幂等、引擎图 vs 手工图区分正确）
+- 删除带图配图 → `V2_W_FIGURE_IMAGE_LOST`（0.3.8 验过）
+- `inline-suffix` 职能丢失 → `V2_W_ROLE_ANNOTATION_UNSUPPORTED`（0.3.7 验过）
+- 章节左列 HUG / 配图槽绝对坐标归一 / 同步条目序号 / Bridge 端口所有权（0.3.6 基线）
+
+**遗留（明确未做，等决策）**：
+1. `inline-suffix` **实现**（拼进 `#Title_Main` 还是新增一行）——需设计确认，蛋仔投产前必须定
+2. 「删图→恢复不丢图」——要 stamp schema 存 `{assetKey, imageHash}`，或改「删除即隐藏保留像素」
+3. `####` 在 `clusterGroups: none` 上自动降级展平——需先定语义
+4. worker 与 bridge 生命周期解耦
+5. parts 同步的进程内 harness（技术债）
+
+**代码状态**：build ✓，`npm test` 72 files / 573 tests 全绿，`openspec validate --all --strict` 22/22。
+
+---
+
+## 上一轮快照（2026-11-03 13:40）
 
 **一句话**：0.3.6 已签收归档并推送（`0086553`）。0.3.7 回执：P3 ✅、P1/P2 ❌ → 已定位 P1 真因并修（填图脚本把「落图」和「改布局属性」写在同一个 try，`layoutSizingHorizontal` 在非 auto-layout 父级下抛 `object is not extensible`，整张图跟着丢）；P2 告警点前移到**删除时**。引擎 `0.3.8`。
 
