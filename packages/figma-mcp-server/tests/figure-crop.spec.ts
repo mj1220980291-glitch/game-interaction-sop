@@ -129,7 +129,9 @@ describe('fillFigurePlaceholder', () => {
     expect(r).toEqual({ width: 1231, height: 692 });
     expect([h.rect.width, h.rect.height]).toEqual([1231, 692]);
     expect(h.rect.fills).toEqual([{ type: 'IMAGE', scaleMode: 'FILL', imageHash: 'H' }]);
-    expect(h.group.layoutSizingHorizontal).toBe('FIXED');
+    // 组不在自动布局父级下时不设 sizing：那个赋值会抛
+    // `TypeError: object is not extensible`（真机 reconcile 填图必挂的元凶）。
+    expect(h.group.layoutSizingHorizontal).toBe('FILL');
     expect(h.hint.removed).toBe(true);
     expect(h.created).toHaveLength(1);
     expect(h.created[0]!.removed).toBe(true);

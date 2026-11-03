@@ -676,7 +676,12 @@ export interface FigmaBackend {
     crop?: CropRect;
     scale?: number;
     maxWidth: number;
-  }): Promise<{ width: number; height: number }>;
+  }): Promise<{
+    width: number;
+    height: number;
+    /** 图已经落上，但这些收尾步骤失败了（清描边 / 改尺寸 / 删文案）。 */
+    softFails?: string[];
+  }>;
 
   /**
    * Normalize one 配图 slot's internal geometry, in a single plugin execution.

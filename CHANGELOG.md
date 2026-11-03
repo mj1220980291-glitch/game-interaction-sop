@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## v2.4.0 — 2026-11-03
+
+**0.3.7 回执：同步填图仍挂（`object is not extensible`）、删图恢复仍静默。** 引擎 `0.3.7` → `0.3.8`。
+
+### 1. 填图：把「图落上」与「收尾」拆开
+
+真机 create 能填、reconcile 必挂。原因不是索引口径，而是填图脚本把**收尾步骤**（`group.layoutSizingHorizontal = 'FIXED'`、`group.resize`、`rect.x` 居中、`hint.remove`）和落图写在同一个 try 里：目标文档里的槽若不在 auto-layout 父级下，这些赋值会抛 `TypeError: object is not extensible`，整张图跟着丢。
+
+- 落图（`rect.fills`）单独失败才算失败；其余步骤改成 `soft()` 逐步 try/catch，失败只记 `softFails`
+- `layoutSizingHorizontal` 只在**父级真是自动布局**时才设
+- 带裁剪导出失败 → 退化整图导出（记 `export.crop` 到 `softFails`）
+- `fillFigurePlaceholder` 返回 `softFails`；reconcile 有值即发 `V2_W_FIGURE_FILL_FALLBACK`（图已落上、收尾失败）
+- 退化路径也失败时 message 同时带两层错误
+
+### 2. 删除带图配图槽：当场告警
+
+配图删掉后像素不可恢复（标记里只有 `imageHash`），所以告警点从「重新插入时」前移到**删除时**：
+
+- 删除带 `imageHash` 的配图条目 → `V2_W_FIGURE_IMAGE_LOST`，message 含条目文本、hash 前缀与「加回来时请给 assetMap」
+- 重插时若旧标记里仍有 hash 且无资产，再发一次（同一告警码）
+
+### 3. 测试
+
+- `figure-crop.spec.ts` 修正 sizing 断言（无 auto-layout 父级时不再设 `FIXED`）
+- 72 files / 569 tests 全绿
+
+### 4. 版本
+
+- 引擎 `0.3.7` → `0.3.8`；`ENGINE_VERSION` 与 `package.json` 同步
+
 ## v2.3.9 — 2026-11-03
 
 **0.3.6 签收通过后的三条遗留：同步填图必挂、重插配图槽丢图、`inline-suffix` 静默丢职能。** 引擎 `0.3.6` → `0.3.7`。

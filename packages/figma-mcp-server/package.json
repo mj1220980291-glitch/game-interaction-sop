@@ -1,6 +1,6 @@
 {
   "name": "figma-interaction-doc-engine",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Deterministic engine that turns v2 interaction-doc Markdown into Figma documents via figma-console-mcp. 0.3.1: parts renders honor roleBlock (variantKeys / componentSetId), main-image instances keep their slot index, and role/config diagnostics are echoed in the render result.",
   "type": "module",
   "private": true,

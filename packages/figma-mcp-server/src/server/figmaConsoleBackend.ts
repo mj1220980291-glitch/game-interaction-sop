@@ -1709,31 +1709,59 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         const rect = await figma.getNodeByIdAsync(${JSON.stringify(rectId)});
         if (!group || !rect) throw new Error('fillFigurePlaceholder: placeholder not found: group=' + ${JSON.stringify(groupId)} + ' rect=' + ${JSON.stringify(rectId)});
 
-        const { bytes, width: srcW, height: srcH } = await exportRegion(src, ${JSON.stringify(crop ?? null)}, ${scale});
-        const image = figma.createImage(bytes);
-        rect.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
-        // 占位虚线是模板自带的描边：填上图不清掉，成图外圈会留一圈虚线。
-        if ('strokes' in rect && rect.strokes.length > 0) rect.strokes = [];
+        const softFails = [];
+        const CROP = ${JSON.stringify(crop ?? null)};
 
-        const w = Math.min(srcW, ${maxWidth});
-        const h = Math.round(srcH * w / srcW);
-        if ('layoutSizingHorizontal' in group) group.layoutSizingHorizontal = 'FIXED';
-        rect.resize(w, h);
-        // 配图槽在模板里常是一条 FILL 整条（宽 1231、高 237）：图缩到 800×460 后
-        // 组还是原高度，会压住下一个簇；宽度不变时图也得在组里居中。
-        if (!group.layoutMode || group.layoutMode === 'NONE') {
-          try { group.resize(group.width, h); } catch (e) {}
-          if (typeof rect.x === 'number' && group.width > w) {
+        // 导出是唯一不可退让的一步，但「带裁剪导出失败」可以退成整图导出——
+        // 真机上裁剪走临时 frame + clone，源节点若在实例里会抛
+        // \`TypeError: object is not extensible\`（create 能填、reconcile 挂）。
+        let exported;
+        try {
+          exported = await exportRegion(src, CROP, ${scale});
+        } catch (e) {
+          if (!CROP) throw new Error('fillFigurePlaceholder[export] ' + ((e && e.message) || e));
+          softFails.push('export.crop: ' + ((e && e.message) || e));
+          exported = await exportRegion(src, null, ${scale});
+        }
+        const { bytes, width: srcW, height: srcH } = exported;
+        const image = figma.createImage(bytes);
+        const w = Math.max(1, Math.min(srcW, ${maxWidth}));
+        const h = Math.max(1, Math.round(srcH * w / srcW));
+
+        // **图必须落上**：这一步失败才算填图失败。
+        rect.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
+
+        // 以下都是锦上添花：清虚线、改尺寸、居中、删占位文案。
+        // 目标文档里的槽可能不在 auto-layout 父级下，\`layoutSizingHorizontal\`
+        // 这类赋值会抛 \`TypeError: object is not extensible\`，以前它把整张图一起带走。
+        const soft = async (name, fn) => { try { await fn(); } catch (e) { softFails.push(name + ': ' + ((e && e.message) || e)); } };
+
+        await soft('strokes', () => { if ('strokes' in rect && rect.strokes.length > 0) rect.strokes = []; });
+        await soft('rect.resize', () => { rect.resize(w, h); });
+        await soft('group.sizing', () => {
+          // 只有父级真是自动布局时才设 sizing，否则这个属性没有意义
+          const parent = group.parent;
+          const inAuto = parent && 'layoutMode' in parent && parent.layoutMode && parent.layoutMode !== 'NONE';
+          if (inAuto && 'layoutSizingHorizontal' in group) group.layoutSizingHorizontal = 'FIXED';
+        });
+        await soft('group.resize', () => {
+          if ((!group.layoutMode || group.layoutMode === 'NONE') && group.type !== 'GROUP') {
+            group.resize(group.width, h);
+          }
+        });
+        await soft('rect.center', () => {
+          if (typeof rect.x === 'number' && (!group.layoutMode || group.layoutMode === 'NONE') && group.width > w) {
             rect.x = Math.round((group.width - w) / 2);
           }
-        }
-
+        });
         ${hintId ? `
+        await soft('hint.remove', async () => {
           const hint = await figma.getNodeByIdAsync(${JSON.stringify(hintId)});
           if (hint) hint.remove();
+        });
         ` : ''}
-        return { width: w, height: h };
-      `, 30000) as { width: number; height: number };
+        return { width: w, height: h, ...(softFails.length > 0 ? { softFails } : {}) };
+      `, 30000) as { width: number; height: number; softFails?: string[] };
       return r;
     },
 

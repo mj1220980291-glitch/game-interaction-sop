@@ -699,6 +699,18 @@ class Planner {
       if (this.itemClean(it)) {
         pre.push({ op: 'delete', nodeId: it.node.id });
         this.change({ path, action: 'delete', detail: it.W });
+        // 配图一旦删掉，像素就没了：标记里只有 imageHash，没有可恢复的图片数据。
+        // 在**删除这一刻**告警，比等到下次「加回来发现是空槽」有用（真机：
+        // 删两条 `配图：` 再恢复 = 两张图消失，两次同步都零告警）。
+        if (it.t === 'figure' && (it.stamp?.imageHash ?? null) !== null && it.stamp?.imageHash !== '') {
+          this.planWarnings.push({
+            code: SOFT_WARNING_CODES.W_FIGURE_IMAGE_LOST,
+            message:
+              `${path}: 删除的配图「${it.W}」带图（imageHash ${String(it.stamp?.imageHash).slice(0, 12)}…），` +
+              '像素不会被保留；markdown 里加回来时请同时给 assetMap，否则新槽是空的',
+            context: path
+          });
+        }
         dirty = true;
       } else {
         this.conflict({

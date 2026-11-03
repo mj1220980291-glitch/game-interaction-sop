@@ -1,6 +1,23 @@
 # 交接说明（2026-11-03）
 
-## 当前状态快照（2026-11-03 13:20，换对话先读这一节）
+## 当前状态快照（2026-11-03 13:40，换对话先读这一节）
+
+**一句话**：0.3.6 已签收归档并推送（`0086553`）。0.3.7 回执：P3 ✅、P1/P2 ❌ → 已定位 P1 真因并修（填图脚本把「落图」和「改布局属性」写在同一个 try，`layoutSizingHorizontal` 在非 auto-layout 父级下抛 `object is not extensible`，整张图跟着丢）；P2 告警点前移到**删除时**。引擎 `0.3.8`。
+
+**本轮两条**：
+
+1. 填图拆成「落图（硬失败）」+「收尾（`soft()` 逐步吞错，记 `softFails`）」；`layoutSizingHorizontal` 只在父级真 auto-layout 时设；裁剪导出失败退整图导出；`softFails` 非空 → `V2_W_FIGURE_FILL_FALLBACK`；两条路都挂才报 `FILL_FAILED`（message 带两层错误）
+2. `V2_W_FIGURE_IMAGE_LOST` 前移到删除带 `imageHash` 的配图条目时；重插若仍有留痕再发一次
+
+**回归口径**：39 槽 39/39、组高 323、告警 0、四章 1200 HUG、两次同 md `changes: []` —— 这些是已签收基线，改填图脚本后必须仍然成立。
+
+**技术债（未做）**：`####` 在 `clusterGroups: none` 上自动降级展平（需先定语义）；worker 与 bridge 生命周期解耦；parts 同步进程内 harness。
+
+**代码状态**：build ✓，`npm test` 72 files / 569 tests 全绿，`openspec validate --all --strict` 22/22。
+
+---
+
+## 上一轮快照（2026-11-03 13:20）
 
 **一句话**：`fix-figure-slot-geometry-and-item-index` **0.3.6 真机签收通过并已归档**（specs +7）；剩余三条遗留（reconcile 填图必挂 / 重插配图槽丢图 / `inline-suffix` 静默丢职能）落在新 change `fix-reconcile-fill-and-role-fallback`，引擎 `0.3.7`。
 

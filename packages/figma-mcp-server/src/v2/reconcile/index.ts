@@ -611,7 +611,7 @@ async function runFills(backend: FigmaBackend, fills: FillTask[], warnings: Soft
         if (!backend.fillFigurePlaceholder) throw new Error('backend lacks fillFigurePlaceholder');
         if (!f.rectId) throw new Error(`配图 GROUP ${f.groupId} has no 配图占位 RECTANGLE`);
         try {
-          await backend.fillFigurePlaceholder({
+          const filled = await backend.fillFigurePlaceholder({
             sourceNodeId: f.asset.nodeId,
             groupId: f.groupId,
             rectId: f.rectId,
@@ -620,17 +620,35 @@ async function runFills(backend: FigmaBackend, fills: FillTask[], warnings: Soft
             scale: f.asset.scale,
             maxWidth: f.maxWidth
           });
+          if (filled.softFails && filled.softFails.length > 0) {
+            warnings.push({
+              code: SOFT_WARNING_CODES.W_FIGURE_FILL_FALLBACK,
+              message: `${f.path}: 图已落上，但这些收尾步骤失败——${filled.softFails.join('；')}`,
+              context: f.path
+            });
+          }
         } catch (fillError) {
           // 槽级填图会顺带 resize 组、删文案，其中任何一步在目标文档里都可能被
           // Figma 拒绝（真机：`object is not extensible`，create 能填、reconcile 不行）。
           // 这时退化成「只把图刷进矩形」：图还在，尺寸不再按比例调。
           if (!backend.rasterizeNodeToImageFill) throw fillError;
-          await backend.rasterizeNodeToImageFill({
-            sourceNodeId: f.asset.nodeId,
-            targetNodeId: f.rectId,
-            ...(f.asset.crop ? { crop: f.asset.crop } : {}),
-            ...(f.asset.scale !== undefined ? { scale: f.asset.scale } : {})
-          });
+          try {
+            await backend.rasterizeNodeToImageFill({
+              sourceNodeId: f.asset.nodeId,
+              targetNodeId: f.rectId,
+              ...(f.asset.crop ? { crop: f.asset.crop } : {}),
+              ...(f.asset.scale !== undefined ? { scale: f.asset.scale } : {})
+            });
+          } catch (fallbackError) {
+            // 两条路都不通才真正失败；message 要带全，别只留第一层。
+            throw Object.assign(
+              new Error(
+                `槽级填图失败（${(fillError as Error).message}）；` +
+                  `退化刷图也失败（${(fallbackError as Error).message}）`
+              ),
+              { code: 'V2_FIGURE_FILL_FAILED' }
+            );
+          }
           warnings.push({
             code: SOFT_WARNING_CODES.W_FIGURE_FILL_FALLBACK,
             message:
