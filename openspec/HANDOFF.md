@@ -4,6 +4,8 @@
 
 **一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.2`、skill `2.4.1`、`requiredSkillVersion 2.4.0`，验收方同意归档推送。
 
+**新立项（2026-11-04）**：`openspec/changes/fail-fast-bridge-liveness`（P0，待实施）。现场：变色龙项目渲染恒报 `V2_RENDER_RUNTIME_ERROR / Cannot connect`、`enginePid` 每调都变。日志真相是宿主 60s 请求超时 → `self-heal triggered … -32001` → 重启整个 MCP；触发原因是「插件 socket 在、sandbox 假死」，而引擎侧探活默认关、`exec` 无客户端超时、`describeBridgeFailure` 对「端口对/无回程」直接返回空。修法：探活默认开 + `exec` 客户端侧 ≤20s 超时（`V2_BRIDGE_NO_REPLY`）+ 诊断第三态 + 返回体 `bridge` 快照 + worker boot 后 20s 重连窗口。
+
 **验收凭据（M1/M2/M3，enginePid 40712，bridge 9223）**：
 
 | 项 | 观测 |
