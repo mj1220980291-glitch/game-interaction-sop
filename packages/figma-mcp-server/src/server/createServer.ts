@@ -456,7 +456,12 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         '命中多个同名文本时取第 1 个并报 V2_W_BADGE_ANCHOR_TEXT_AMBIGUOUS（用 occurrence 指定）。' +
         '例：{ "01/2": { "text": "Click to input", "offset": [-24, -24] } }。' +
         '【配置对账】返回体带 resolvedRoleBlock{mode,source,componentSetId,variantPrefix,labelTextName,roles}、configPath、enginePid；' +
-        'enginePid 每次不同 = 有多个引擎进程在接请求。' +
+        'enginePid = worker 进程 pid；每次不同 = 宿主重启了整个 MCP（请求超时后的自愈），不是 worker 正常换人。' +
+        '【桥诊断】返回体带 bridge{port,preferredPort,fallback,holderPid,pluginConnected,lastRoundtripMs,enginePid,supervisorPid}。' +
+        '判断顺序：fallback=true → 端口问题；pluginConnected=false → 插件没接入；两者都正常但渲染仍失败 → 不是桥的问题。' +
+        '开写前默认探活（GISOP_PREFLIGHT=0 可关）：失败返回 V2_BRIDGE_DOWN。' +
+        '单次 figma_execute 客户端侧上限 = 插件 timeout + 5s（GISOP_EXEC_TIMEOUT_MS 可覆盖）：' +
+        '插件 socket 在但 sandbox 假死时返回 V2_BRIDGE_NO_REPLY（message 带端口与 pid），不会再挂到宿主 60s 超时。' +
         '【同步模式】文档已渲染过、需要再次写入时，传 target.rootId（上次返回的 rootInstanceId）：' +
         '引擎不新建文档，而是逐条比对后只改有变化的地方；设计师手改的文字、手贴的图、拖过的气泡一律保留，' +
         '双方都改过的条目不覆盖，列在 conflicts 里；返回 changes / conflicts / preserved。' +
@@ -750,9 +755,10 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         '【只读，不调 Figma】返回本引擎要求的最低 skill 版本和自身引擎版本。' +
         'SKILL.md Preflight 在会话开场调用此工具，比对本地安装的 skill manifest.json 版本号，' +
         '低于 requiredSkillVersion 时提示用户升级（软警告，不阻断）。' +
-        '返回：{ requiredSkillVersion: string, engineVersion: string, bridge?: { port, preferredPort, fallback, holderPid, enginePid, supervisorPid } }。' +
+        '返回：{ requiredSkillVersion: string, engineVersion: string, bridge?: { port, preferredPort, fallback, holderPid, pluginConnected, lastRoundtripMs, enginePid, supervisorPid } }。' +
         'bridge.fallback=true 表示子进程退到了备用端口（render 会报 Cannot connect，代理工具仍正常）；' +
-        'enginePid 每次渲染都变说明有多个引擎进程在接请求。' +
+        'bridge.pluginConnected=false 表示子进程没有插件接入（插件没开，或刚重启还没重连）；' +
+        'enginePid 每次渲染都变说明宿主重启了整个 MCP（请求超时后的自愈），不是 worker 正常换人。' +
         '引擎 < 0.3.0 不提供此工具，Preflight 会收到 TOOL_NOT_FOUND 并退化为"引擎版本较旧"的提示。',
       inputSchema: SKILL_REQUIREMENTS_INPUT_SCHEMA as unknown as Tool['inputSchema']
     },
@@ -763,9 +769,9 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         return jsonResult({
           requiredSkillVersion: REQUIRED_SKILL_VERSION,
           engineVersion: ENGINE_VERSION,
-          // 验收方靠这一段判断「测的是不是新进程 / 桥有没有掉到备用端口」：
-          // enginePid 每次渲染都变说明有多个引擎在接请求；fallback=true 时
-          // render 必报 Cannot connect，而代理工具仍然正常。
+          // 验收方靠这一段判断「测的是不是新进程 / 桥有没有掉到备用端口 / 插件在不在」：
+          // enginePid 每调都变 = 宿主重启了整个 MCP；fallback=true 时 render 必报
+          // Cannot connect，而代理工具仍然正常。
           ...(bridge ? { bridge } : {})
         });
       } catch (e) {

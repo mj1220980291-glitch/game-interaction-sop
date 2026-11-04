@@ -30,7 +30,19 @@ export interface BridgeState {
   checkedAt?: string;
   /** 恢复尝试的结果，人读。 */
   recovery?: string;
+  /**
+   * 探活结论：插件是否真的能回话。
+   *
+   * socket 建立 ≠ 健康：插件沙箱（code.js）可能已经假死，ui.html 的 WebSocket
+   * 还挂着，`figma_execute` 发出去没有回程。只有一次真实往返能证明「活」。
+   */
+  pluginConnected?: boolean;
+  /** 最近一次探活的往返耗时（ms）。无回程时不填。 */
+  lastRoundtripMs?: number;
 }
+
+/** 单次 `figma_execute` 无回程的专属错误码（插件 sandbox 假死）。 */
+export const NO_REPLY_CODE = 'V2_BRIDGE_NO_REPLY';
 
 const state: BridgeState = { preferredPort: 9223, fallback: false };
 
@@ -60,21 +72,53 @@ export function bridgeCleanupHint(port = state.preferredPort): string {
 /**
  * 把「连不上插件」的原始报错补成可执行的诊断。
  *
- * 只在确实是端口冲突（`fallback` 或已知占用者）时补，避免把所有连接失败
- * 都归因到端口——插件没开、文件没开也一样会 Cannot connect。
+ * 三种状态都要说清，别再让人靠 netstat 猜：
+ *   1. 子进程退到了非首选端口 → 插件连在 9223，我们连在自己的 9224；
+ *   2. 首选端口被别的进程占着 → 同上，附带占用者 pid；
+ *   3. 端口正确、没有占用者，但插件没回话 → 插件没接入，或沙箱假死。
+ *
+ * 只在确实是连接类失败时才补，避免把所有错误都归因到桥。
  */
 export function describeBridgeFailure(errorMessage: string): string | undefined {
   if (!/cannot connect/i.test(errorMessage)) return undefined;
   const s = getBridgeState();
-  if (!s.fallback && s.holderPid === undefined) return undefined;
+  const who =
+    `引擎 worker pid=${s.enginePid}` + (s.supervisorPid ? ` / supervisor pid=${s.supervisorPid}` : '');
+
+  // 第三种状态：端口没问题，问题在插件侧。以前这里 return undefined，于是真机
+  // 上「socket 在、沙箱假死」只会反复吐一句 Cannot connect，一句诊断都没有。
+  if (!s.fallback && s.holderPid === undefined) {
+    return (
+      `桥在 ${s.port ?? s.preferredPort} 上正常监听，但没有插件回话（${who}）；` +
+      '在目标文件里关掉插件再重新运行（Plugins → Development → Figma Desktop Bridge），' +
+      '窗口保持打开后重试'
+    );
+  }
+
   const lines = [
     `桥端口冲突：子进程实际绑定 ${s.port ?? '?'}，Figma 插件只认 ${s.preferredPort}`,
     `${s.holderPid !== undefined ? `端口 ${s.preferredPort} 被 pid=${s.holderPid} 占用；` : ''}` +
-      `引擎 worker pid=${s.enginePid}${s.supervisorPid ? ` / supervisor pid=${s.supervisorPid}` : ''}`,
+      who,
     ...(s.recovery ? [`自动恢复：${s.recovery}`] : []),
     bridgeCleanupHint()
   ];
   return lines.join('；');
+}
+
+/**
+ * 单次 exec 无回程（插件 sandbox 假死）的诊断。
+ *
+ * 与 `Cannot connect` 分开：那句是「没有插件客户端」，这句是「有客户端但沙箱
+ * 不回话」。两者用户动作相同（关掉重开插件），但根因不同，回执里必须能区分。
+ */
+export function describeNoReply(budgetMs: number): string {
+  const s = getBridgeState();
+  const who =
+    `引擎 worker pid=${s.enginePid}` + (s.supervisorPid ? ` / supervisor pid=${s.supervisorPid}` : '');
+  return (
+    `figma_execute 在 ${budgetMs}ms 内没有回程（端口 ${s.port ?? s.preferredPort}，${who}）；` +
+    '插件 socket 还在但 sandbox 已假死：在 Figma 里关掉插件再重新运行，然后重试'
+  );
 }
 
 // ---- supervisor 单例锁 ----------------------------------------------------

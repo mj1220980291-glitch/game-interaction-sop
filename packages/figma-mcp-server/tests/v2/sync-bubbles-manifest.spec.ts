@@ -11,6 +11,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderV2MarkdownToFigma } from '../../src/v2/render.js';
+import { ENGINE_VERSION } from '../../src/v2/version.js';
 import { CHAPTER_SLOTS } from '../../src/v2/template-slots.js';
 import { BADGE_MASTER_NAME } from '../../src/v2/template-slots.js';
 import type {
@@ -330,6 +331,6 @@ describe('P1 同步返回 bubbles', () => {
   it('engineVersion 随返回体回显（判断跑的是不是新 build）', async () => {
     delete process.env.GISOP_TEMPLATE_PACK;
     const r = await sync(harness({ badges: [1, 2] }));
-    expect(r.engineVersion).toBe('0.4.2');
+    expect(r.engineVersion).toBe(ENGINE_VERSION);
   });
 });

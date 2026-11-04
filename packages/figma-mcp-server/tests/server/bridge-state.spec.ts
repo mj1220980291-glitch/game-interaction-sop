@@ -16,6 +16,7 @@ import {
   acquireSupervisorLock,
   bridgeCleanupHint,
   describeBridgeFailure,
+  describeNoReply,
   getBridgeState,
   pidAlive,
   readSupervisorLock,
@@ -25,11 +26,24 @@ import {
 
 describe('bridge 诊断', () => {
   beforeEach(() => {
-    setBridgeState({ port: 9223, preferredPort: 9223, fallback: false, holderPid: undefined, recovery: undefined });
+    setBridgeState({
+      port: 9223,
+      preferredPort: 9223,
+      fallback: false,
+      holderPid: undefined,
+      recovery: undefined,
+      pluginConnected: undefined,
+      lastRoundtripMs: undefined
+    });
   });
 
-  it('端口正常时不把 Cannot connect 归因到端口', () => {
-    expect(describeBridgeFailure('figma_execute failed: Cannot connect to Figma Desktop')).toBeUndefined();
+  it('端口正确但插件没回话时给出第三态诊断（2026-11-04 真机）', () => {
+    const text = describeBridgeFailure('figma_execute failed: Cannot connect to Figma Desktop')!;
+    expect(text).toContain('9223');
+    expect(text).toContain(`pid=${process.pid}`);
+    expect(text).toContain('关掉插件再重新运行');
+    // 不能把「插件没接入」说成端口冲突
+    expect(text).not.toContain('端口冲突');
   });
 
   it('退到备用端口时给出版本归属与占用者', () => {
@@ -39,6 +53,19 @@ describe('bridge 诊断', () => {
     expect(text).toContain('9223');
     expect(text).toContain('51292');
     expect(text).toContain(`pid=${process.pid}`);
+  });
+
+  it('无回程诊断与「没有插件客户端」分开', () => {
+    const text = describeNoReply(20000);
+    expect(text).toContain('20000ms');
+    expect(text).toContain('sandbox');
+    expect(text).toContain('关掉插件再重新运行');
+  });
+
+  it('探活结论进状态', () => {
+    setBridgeState({ pluginConnected: true, lastRoundtripMs: 37 });
+    expect(getBridgeState().pluginConnected).toBe(true);
+    expect(getBridgeState().lastRoundtripMs).toBe(37);
   });
 
   it('恢复结果进诊断', () => {

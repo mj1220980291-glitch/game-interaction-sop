@@ -10,7 +10,7 @@
 
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { retryTransient } from './retry.js';
-import { describeBridgeFailure, getBridgeState } from './bridgeState.js';
+import { describeBridgeFailure, describeNoReply, getBridgeState, NO_REPLY_CODE, setBridgeState } from './bridgeState.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import type { FigmaBackend, NodeInfo, FigmaNodeType, Box, FigureSlotGeometry } from '../v2/figma-client.js';
@@ -75,16 +75,53 @@ export function buildPlaceInstanceScript(sourceId: string, placeholderId: string
       `;
 }
 
+/**
+ * 客户端侧上限：插件 timeout + 5s。
+ *
+ * 插件一直不回话时，`client.callTool` 会挂到 figma-console 连接层的超时（实测
+ * 60s），正好等于宿主「请求超时 → 重启整个 MCP」的阈值：于是每次渲染都变成
+ * 「干等 60s，然后 enginePid 变了」。这里自己收口，把失败压到 20s 内。
+ */
+export function execBudget(pluginTimeout: number): number {
+  const override = Number(process.env.GISOP_EXEC_TIMEOUT_MS);
+  if (Number.isFinite(override) && override > 0) return override;
+  return pluginTimeout + 5000;
+}
+
+/**
+ * 给一次 `client.callTool` 加客户端侧超时。
+ *
+ * 超时后原 promise 仍可能 reject，先挂空 catch，避免 unhandled rejection 把
+ * worker 顶掉。
+ */
+export async function withExecBudget<T>(call: Promise<T>, budgetMs: number): Promise<T> {
+  call.catch(() => {});
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(Object.assign(new Error(describeNoReply(budgetMs)), { code: NO_REPLY_CODE }));
+    }, budgetMs);
+  });
+  try {
+    return await Promise.race([call, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function exec(
   client: Client,
   code: string,
   timeout = 15000,
   fileKey?: string
 ): Promise<unknown> {
-  const res = await client.callTool({
-    name: 'figma_execute',
-    arguments: fileKey ? { code, timeout, fileKey } : { code, timeout }
-  });
+  const res = await withExecBudget(
+    client.callTool({
+      name: 'figma_execute',
+      arguments: fileKey ? { code, timeout, fileKey } : { code, timeout }
+    }),
+    execBudget(timeout)
+  );
   // figma-console MCP wraps content as: [{ type: 'text', text: JSON }]
   const content = (res as { content?: Array<{ type: string; text?: string }> }).content;
   if (!content || content.length === 0) return null;
@@ -104,12 +141,17 @@ async function exec(
     if (!env.success) {
       const message = `figma_execute failed: ${env.error ?? 'unknown error'}`;
       // 「Cannot connect」有两种成因：插件没开，或子进程退到了非首选端口。
-      // 后者必须点明端口归属，否则用户只会看到同一句话反复出现。
+      // 两种都必须点明，否则用户只会看到同一句话反复出现。
       const bridge = describeBridgeFailure(message);
       if (bridge) {
+        // figma-console 抛这句只可能是「子进程没有任何插件客户端」。
+        setBridgeState({ pluginConnected: false, lastRoundtripMs: undefined });
+        const s = getBridgeState();
+        const portConflict = s.fallback || s.holderPid !== undefined;
         throw Object.assign(new Error(`${message}\n${bridge}`), {
-          code: 'E_BRIDGE_PORT_CONFLICT',
-          details: { bridge: getBridgeState() }
+          // 只有真是端口归属问题才用端口码；插件没接入沿默认渲染错误码，但带上诊断。
+          ...(portConflict ? { code: 'E_BRIDGE_PORT_CONFLICT' } : {}),
+          details: { bridge: s }
         });
       }
       throw new Error(message);
@@ -459,7 +501,20 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     },
 
     async healthCheck() {
-      await run(`return 1;`, 5000);
+      const startedAt = Date.now();
+      try {
+        await run(`return 1;`, 5000);
+        setBridgeState({ pluginConnected: true, lastRoundtripMs: Date.now() - startedAt });
+      } catch (err) {
+        const message = String((err as Error)?.message ?? '');
+        // 「Cannot connect」= 一个插件客户端都没有；超时 / 无回程 = 有 socket 但沙箱不回话。
+        setBridgeState(
+          /cannot connect/i.test(message)
+            ? { pluginConnected: false, lastRoundtripMs: undefined }
+            : { pluginConnected: true, lastRoundtripMs: undefined }
+        );
+        throw err;
+      }
     },
 
     // --- Read ops --------------------------------------------------------

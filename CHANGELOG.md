@@ -1,5 +1,43 @@
 # CHANGELOG
 
+## v2.4.2（skill）/ 0.4.3（引擎）— 2026-11-04
+
+**桥不再「假活」：活链判定改成插件回环往返，渲染不再把 60s 交给宿主自愈。** 现场：变色龙项目
+`render_v2_markdown_to_figma` 恒报 `V2_RENDER_RUNTIME_ERROR / Cannot connect`，`enginePid`
+每调都变（49956 → 27364 → 10580 → …）。
+
+### 1. 根因（日志实锤，非猜测）
+
+宿主 MCP 日志（`codemaker-language-server/logs/20261104/180217-…-14536-0.log`）：
+`Calling MCP tool: render…` → **正好 60.000s** 后 `self-heal triggered … -32001: Request
+timed out` → `Restarting MCP server (old pid=…)`。三连复现（20:45:35→46:35、20:48:50→49:50）。
+
+- `enginePid` 每调都变 = **宿主重启了整个 MCP**，不是 worker swap（swap 只在 boot / dist 变更时发生）
+- 触发者是「插件 socket 在、sandbox 假死」：`figma_execute` 发出去没有回程，`figma-console-mcp`
+  连接层 60s 才抛错，正好撞宿主阈值 → 重启 → 插件来不及重连 → 下一次 render 立刻 `Cannot connect`
+- 引擎侧三道防线全缺：探活默认关、`client.callTool` 无客户端超时、`describeBridgeFailure` 对
+  「端口对、无回程」直接 `return undefined`（一句诊断都不给）
+
+### 2. 修复
+
+- **活链判定**：`healthCheck` 记 `pluginConnected` / `lastRoundtripMs`；`Cannot connect`（没有插件客户端）与超时（socket 在、sandbox 不回话）分开归因
+- **渲染探活默认开**：`GISOP_PREFLIGHT !== '0'`；失败仍走 5×3s 重试吸收切文件抖动，最终返回 `V2_BRIDGE_DOWN`
+- **客户端侧 exec 上限**：`execBudget = 插件 timeout + 5s`（`GISOP_EXEC_TIMEOUT_MS` 覆盖），超时抛 `V2_BRIDGE_NO_REPLY`，message 带端口 + worker/supervisor pid + 重开插件指引；超时后的 rejection 挂空 catch，不污染 worker
+- **诊断第三态**：`describeBridgeFailure` 端口正确但无回程时输出「桥在 9223 监听、没有插件回话」+ pid，不再返回空
+- **返回体 `bridge` 快照**（create / sync 都有）：`port / preferredPort / fallback / holderPid / pluginConnected / lastRoundtripMs / enginePid / supervisorPid`，定性顺序写进工具描述
+- **worker boot 探活**：装配后探一次（8s 上限）记状态，失败只记 stderr、不退出；重连窗口交给 render 的探活重试（不阻塞启动）
+
+### 3. 回归
+
+- 新增 `tests/server/exec-timeout.spec.ts`（7 条：预算默认/覆盖/超时码/正常返回/三种探活归因）
+- `tests/server/bridge-state.spec.ts` 第三态 + `describeNoReply`；`tests/v2/render-target-file.spec.ts` 改为「默认探活」并断言 `bridge` 快照
+- 全量：80 files / 631 tests 通过（`--no-file-parallelism`）
+
+### 4. 未完成（待真机）
+
+- 假死机上复现 `V2_BRIDGE_NO_REPLY` 且宿主日志无 `self-heal triggered`（本机无假死现场）
+- boot 探活失败不阻断启动的单测（`entry-boot` 目前只覆盖「不装后端」路径）
+
 ## 未发布（文档补充，无版本变更）— 2026-11-04
 
 **新增排障路径：引擎 MCP 在 host 里「连接失败」≠ 插件/模板问题。** 现场：CodeMaker 里

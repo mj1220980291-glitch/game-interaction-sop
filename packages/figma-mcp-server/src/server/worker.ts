@@ -306,6 +306,25 @@ export async function main(): Promise<void> {  let v2Backend = undefined;
         `${proxyTools.length} child tool(s) will be proxied\n`
     );
 
+    // 起来先探一次：把「插件到底能不能回话」记进 bridgeState，返回体才有依据。
+    //
+    // 只探一次、不等待重连（上限 8s）：Figma 没开时是常态，启动阻塞 20s 会把
+    // 宿主那边变成「连上了但半天不理人」。重连窗口交给 render 的探活重试
+    // （5×3s）去吸收。
+    if (v2Backend?.healthCheck) {
+      try {
+        await withTimeout(v2Backend.healthCheck(), 8000, 'bridge probe timeout');
+        process.stderr.write(
+          `[figma-interaction-doc-engine] bridge probe ok — plugin reachable ` +
+            `(${getBridgeState().lastRoundtripMs ?? '?'}ms)\n`
+        );
+      } catch (err) {
+        process.stderr.write(
+          `[figma-interaction-doc-engine] bridge probe failed: ${(err as Error).message}\n`
+        );
+      }
+    }
+
     // Best-effort: warn if there is another figma-console-mcp process bound
     // to a port we don't own. This usually means a separate `figma-console`
     // MCP server is also configured in CodeMaker, which will cause the

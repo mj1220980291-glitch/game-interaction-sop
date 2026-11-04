@@ -52,9 +52,11 @@ Promise.race([client.callTool(...), sleep(budget).then(() => { throw NoReplyErro
 
 `enginePid` 继续保留，但文档要写明：**它变 = 宿主重启了整个 MCP**，不是 worker swap。
 
-### 6. worker boot 后的重连窗口
+### 6. worker boot 后的探活（实施时修正：不等 20s）
 
-worker 在 `v2Backend` 装配完成后做一次探活，失败则按 2s 间隔最多等 20s（`worker.ts` 已有注释：「worker 换了以后插件要 20s 上下才重连完」）。这一步把「宿主重启后的第一个请求必挂」消掉。
+worker 在 `v2Backend` 装配完成后做**一次**探活（8s 上限），把 `pluginConnected` / `lastRoundtripMs` 记进状态；失败只记 stderr，不让 worker 退出。
+
+原方案是「失败就等 20s 重连窗口」，实施时否掉：Figma 没打开是常态，启动阻塞 20s 会把宿主那边变成「连上了但半天不理人」。重连窗口由 render 的探活重试（5×3s）承担——它只在实际要写画布时才付这笔时间。
 
 ### 7. 不做的事
 

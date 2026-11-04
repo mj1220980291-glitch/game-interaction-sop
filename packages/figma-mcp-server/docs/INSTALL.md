@@ -131,6 +131,46 @@ dir "%TEMP%\figma-console-mcp-*.json"
 两者都排除后仍失败，才回到下面 `V2_BACKEND_UNAVAILABLE` 的排查（那是进程活着、
 后端没接上的情形，banner 里 `proxy:` 为 0）。
 
+### 渲染一直失败且 `enginePid` 每次调用都变
+
+症状：连续几次 `render_v2_markdown_to_figma` 都失败，返回体的 `enginePid` 每次不同
+（如 49956 → 27364 → 10580），报错恒为 `V2_RENDER_RUNTIME_ERROR / Cannot connect to
+Figma Desktop`，端口监听方也在变。
+
+**这不是 worker 自己换人**。worker swap 只发生在 boot 与 `dist` 变更时；
+`enginePid` 每调都变 = **宿主把整个 MCP 服务重启了**。证据在宿主的 MCP 日志里
+（CodeMaker：`~/.codemaker/codemaker-language-server/logs/<日期>/<时间戳>-<pid>-0.log`）：
+
+```
+20:44:12.928  Calling MCP tool: render_v2_markdown_to_figma on server figma-interaction-doc-engine
+20:45:12.940  [WARN] MCP callTool self-heal triggered … MCP error -32001: Request timed out
+20:45:12.940  Restarting MCP server: figma-interaction-doc-engine (old pid=32288)
+20:45:16.817  MCP server connected: figma-interaction-doc-engine   ← 新 enginePid
+```
+
+两次时间戳相差**整整 60s** = 宿主的请求超时阈值。触发原因是插件侧
+**socket 还在、sandbox 已假死**：`figma_execute` 发出去没有回程，引擎不返回，
+宿主到 60s 判超时；重启后插件还没来得及重连，下一次 render 立刻
+`Cannot connect`，于是自锁。
+
+0.4.3 起引擎自己收口，不再把 60s 交给宿主：
+
+| 错误码 | 含义 | 用户动作 |
+|---|---|---|
+| `V2_BRIDGE_DOWN` | 开写前探活失败（默认开，`GISOP_PREFLIGHT=0` 关） | 重开插件后重试 |
+| `V2_BRIDGE_NO_REPLY` | 探活过了，但单次 exec 在 `插件 timeout + 5s` 内没有回程（`GISOP_EXEC_TIMEOUT_MS` 可改） | 关掉插件再重开——sandbox 已假死 |
+
+返回体的 `bridge` 快照按这个顺序定性，不用 netstat：
+
+| 字段 | 结论 |
+|---|---|
+| `bridge.fallback === true` | 端口问题（子进程退到 9224+） |
+| `bridge.pluginConnected === false` | 插件没接入 |
+| 两者都正常、`lastRoundtripMs` 有值但渲染仍失败 | 不是桥的问题，去查模板 / md |
+
+若日志里仍看到 `self-heal triggered`，说明跑的是旧 build：确认 `engineVersion`
+是 `0.4.3` 以上，`npm run build` 后重启该窗口的 MCP。
+
 ### `V2_BACKEND_UNAVAILABLE`
 
 `render_v2_markdown_to_figma` 返回此错误码，说明引擎启动时没接上 Figma 后端。

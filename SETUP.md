@@ -2,6 +2,8 @@
 
 > **面向 AI Agent**：本文档是结构化的逐步安装指南。你的 AI 助手可以直接读取这份文档，引导你完成全部配置。
 
+> **人自己看**：图文版在 [docs/tutorial/](./docs/tutorial/index.html)，第六步的验证和常见报错都在那里。
+
 本仓库提供一套 AI 驱动的游戏 UI 交互文档 SOP，核心由三部分组成：
 
 | 部分 | 说明 |
@@ -64,12 +66,18 @@ node dist/server/index.js
 | Args（第一行） | `<仓库绝对路径>/packages/figma-mcp-server/dist/server/index.js` |
 | Env（第一行） | `FIGMA_BACKEND=figma-console` |
 | Env（第二行） | `FIGMA_ACCESS_TOKEN=<你的 Token>` |
+| Env（第三行，可选） | `GISOP_PREFLIGHT=1`（默认已开；写 `0` 才关） |
+| Env（第四行，可选） | `GISOP_EXEC_TIMEOUT_MS=20000`（单次 exec 客户端上限，默认插件 timeout + 5s） |
 | AutoApprove | `true` |
 | Timeout | `120` |
 
 > `FIGMA_BACKEND=figma-console` 不能省。缺了它引擎不会拉起子进程，
 > `render_v2_markdown_to_figma` 会一直返回 `V2_BACKEND_UNAVAILABLE`，
 > 且看不到任何 `figma_*` 代理工具。
+>
+> 两个可选 env 只在排障时动：`GISOP_PREFLIGHT` 控制渲染前是否探活（0.4.3 起默认开，
+> 失败返回 `V2_BRIDGE_DOWN`）；`GISOP_EXEC_TIMEOUT_MS` 控制单次 `figma_execute`
+> 的客户端上限（超时返回 `V2_BRIDGE_NO_REPLY`，不再挂到宿主 60s 超时）。
 
 #### Claude Desktop / Cursor / Cline（JSON 格式）
 

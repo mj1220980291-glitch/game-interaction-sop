@@ -101,7 +101,7 @@ describe('target.fileKey 决定写进哪个文件 (Bug A)', () => {
     expect(Object.keys(store)).toHaveLength(sizeBefore);
   });
 
-  it('开写前探活失败就停手，不留下半张画布（GISOP_PREFLIGHT=1）', async () => {
+  it('开写前探活默认执行，失败就停手，不留下半张画布', async () => {
     const { backend, store } = makeBackend();
     const sizeBefore = Object.keys(store).length;
     const spied: FigmaBackend = {
@@ -111,20 +111,15 @@ describe('target.fileKey 决定写进哪个文件 (Bug A)', () => {
       }
     };
 
-    process.env.GISOP_PREFLIGHT = '1';
-    try {
-      const result = await renderV2MarkdownToFigma({ markdown: MD }, spied);
+    const result = await renderV2MarkdownToFigma({ markdown: MD }, spied);
 
-      expect(result.ok).toBe(false);
-      expect(result.errors[0]?.code).toBe('V2_BRIDGE_DOWN');
-      expect(result.errors[0]?.message).toContain('Desktop Bridge');
-      expect(Object.keys(store)).toHaveLength(sizeBefore);
-    } finally {
-      delete process.env.GISOP_PREFLIGHT;
-    }
+    expect(result.ok).toBe(false);
+    expect(result.errors[0]?.code).toBe('V2_BRIDGE_DOWN');
+    expect(result.errors[0]?.message).toContain('Desktop Bridge');
+    expect(Object.keys(store)).toHaveLength(sizeBefore);
   });
 
-  it('探活默认关闭：没开 GISOP_PREFLIGHT 时不拦渲染', async () => {
+  it('GISOP_PREFLIGHT=0 显式关掉探活', async () => {
     const { backend } = makeBackend();
     let probes = 0;
     const spied: FigmaBackend = {
@@ -135,10 +130,37 @@ describe('target.fileKey 决定写进哪个文件 (Bug A)', () => {
       }
     };
 
-    const result = await renderV2MarkdownToFigma({ markdown: MD }, spied);
+    process.env.GISOP_PREFLIGHT = '0';
+    try {
+      const result = await renderV2MarkdownToFigma({ markdown: MD }, spied);
+      expect(result.ok, JSON.stringify(result.errors)).toBe(true);
+      expect(probes).toBe(0);
+    } finally {
+      delete process.env.GISOP_PREFLIGHT;
+    }
+  });
 
-    expect(result.ok, JSON.stringify(result.errors)).toBe(true);
-    expect(probes).toBe(0);
+  it('返回体带 bridge 快照（成功与失败都给）', async () => {
+    const ok = makeBackend();
+    const okResult = await renderV2MarkdownToFigma({ markdown: MD }, ok.backend);
+    expect(okResult.bridge?.preferredPort).toBe(9223);
+    expect(okResult.bridge?.enginePid).toBe(process.pid);
+
+    const failing = {
+      ...makeBackend().backend,
+      withFileKey() {
+        return this as unknown as FigmaBackend;
+      },
+      async getNodeInfo() {
+        throw new Error('figma_execute failed: file not connected');
+      }
+    } as unknown as FigmaBackend;
+    const badResult = await renderV2MarkdownToFigma(
+      { markdown: MD, target: { fileKey: TEMPLATE_FILE } },
+      failing
+    );
+    expect(badResult.ok).toBe(false);
+    expect(badResult.bridge?.enginePid).toBe(process.pid);
   });
 
   it('后端没有 healthCheck 时照旧渲染（老后端不阻塞）', async () => {

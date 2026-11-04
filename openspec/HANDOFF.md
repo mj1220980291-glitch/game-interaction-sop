@@ -4,7 +4,7 @@
 
 **一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.2`、skill `2.4.1`、`requiredSkillVersion 2.4.0`，验收方同意归档推送。
 
-**新立项（2026-11-04）**：`openspec/changes/fail-fast-bridge-liveness`（P0，待实施）。现场：变色龙项目渲染恒报 `V2_RENDER_RUNTIME_ERROR / Cannot connect`、`enginePid` 每调都变。日志真相是宿主 60s 请求超时 → `self-heal triggered … -32001` → 重启整个 MCP；触发原因是「插件 socket 在、sandbox 假死」，而引擎侧探活默认关、`exec` 无客户端超时、`describeBridgeFailure` 对「端口对/无回程」直接返回空。修法：探活默认开 + `exec` 客户端侧 ≤20s 超时（`V2_BRIDGE_NO_REPLY`）+ 诊断第三态 + 返回体 `bridge` 快照 + worker boot 后 20s 重连窗口。
+**0.4.3 / skill 2.4.2（2026-11-04，已实施待真机）**：`fail-fast-bridge-liveness` 的 P0 全部落地。现场：变色龙项目渲染恒报 `V2_RENDER_RUNTIME_ERROR / Cannot connect`、`enginePid` 每调都变。日志真相是宿主 60.000s 请求超时 → `self-heal triggered … -32001` → 重启整个 MCP；触发原因是「插件 socket 在、sandbox 假死」。修法：活链判定改为插件回环往返（`pluginConnected` / `lastRoundtripMs`）、渲染探活默认开（`GISOP_PREFLIGHT=0` 才关）、单次 exec 客户端上限 `插件 timeout + 5s` 返回 `V2_BRIDGE_NO_REPLY`、诊断补第三态、返回体带 `bridge` 快照、worker boot 探活不阻塞。回归 80 files / 631 tests 全绿。**待真机**：假死机上确认 20s 内拿到 `V2_BRIDGE_NO_REPLY` 且宿主日志无 `self-heal triggered`。
 
 **验收凭据（M1/M2/M3，enginePid 40712，bridge 9223）**：
 

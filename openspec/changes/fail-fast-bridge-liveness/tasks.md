@@ -1,42 +1,42 @@
 ## 1. 后端口径
 
-- [ ] 1.1 `bridgeState` 增加 `pluginConnected?: boolean` 与 `lastRoundtripMs?: number`，由探活结果写入
-- [ ] 1.2 `describeBridgeFailure` 增加第三态：`port === preferredPort && !fallback && holderPid === undefined` → 输出「桥在 <port> 但没有插件回环」+ worker/supervisor pid + 重开插件指引（`bridgeState.ts:66-78`）
-- [ ] 1.3 `pluginConnected === false` 时 message 走「插件未连接，请在目标文件打开插件」，与「sandbox 假死」分开
-- [ ] 1.4 单测：三态各一条 + `pluginConnected=false` 一条（`tests/server-bridge-state.spec.ts`）
+- [x] 1.1 `bridgeState` 增加 `pluginConnected?: boolean` 与 `lastRoundtripMs?: number`，由探活结果写入
+- [x] 1.2 `describeBridgeFailure` 增加第三态：`port === preferredPort && !fallback && holderPid === undefined` → 输出「桥在 <port> 但没有插件回话」+ worker/supervisor pid + 重开插件指引（`bridgeState.ts`）
+- [x] 1.3 `pluginConnected === false` 时 message 走「插件没接入」，`V2_BRIDGE_NO_REPLY` 走「sandbox 假死」（`describeNoReply`），两者分开
+- [x] 1.4 单测：三态各一条 + `pluginConnected=false` 一条（`tests/server/bridge-state.spec.ts`、`tests/server/exec-timeout.spec.ts`）
 
 ## 2. 客户端侧 exec 超时
 
-- [ ] 2.1 `figmaConsoleBackend.exec()` 外面套 race：budget 默认 `timeout + 5000`，`GISOP_EXEC_TIMEOUT_MS` 可覆盖
-- [ ] 2.2 超时抛带 `code: 'V2_BRIDGE_NO_REPLY'` 的错误，message 含 `port / workerPid / supervisorPid / budget`
-- [ ] 2.3 `callTool` 的 promise 超时后不再等待（避免残留未处理 rejection）：race 里挂 `catch(() => {})`
-- [ ] 2.4 单测：child 不回复 → 20s 内抛 `V2_BRIDGE_NO_REPLY`（用假 client + 假时钟，`tests/server-exec-timeout.spec.ts`）
+- [x] 2.1 `figmaConsoleBackend.exec()` 外面套 race：budget 默认 `timeout + 5000`，`GISOP_EXEC_TIMEOUT_MS` 可覆盖（`execBudget` / `withExecBudget`）
+- [x] 2.2 超时抛带 `code: 'V2_BRIDGE_NO_REPLY'` 的错误，message 含 `port / workerPid / supervisorPid / budget`
+- [x] 2.3 race 里挂空 `catch`，超时后的 rejection 不会变成 unhandled rejection
+- [x] 2.4 单测：child 不回复 → 预算内抛 `V2_BRIDGE_NO_REPLY`（`tests/server/exec-timeout.spec.ts`，用 30ms 预算 + 挂死 client）
 
 ## 3. 渲染入口探活
 
-- [ ] 3.1 `render.ts:501` 门控翻转为默认开：`process.env.GISOP_PREFLIGHT !== '0'`
-- [ ] 3.2 探活失败仍走 `retryTransient` 5×3s；最终失败返回 `V2_BRIDGE_DOWN`（沿用现有 message，补 `bridge` 快照）
-- [ ] 3.3 探活通过后写 `pluginConnected: true` + `lastRoundtripMs` 进 `bridgeState`
-- [ ] 3.4 `render.ts` 的 `engineFields` 增加 `bridge` 快照（`port / preferredPort / fallback / holderPid / pluginConnected / lastRoundtripMs / enginePid / supervisorPid`）
-- [ ] 3.5 单测：探活失败不进入写路径（不调 `commitUndoCheckpoint`）；`bridge` 字段齐全（`tests/v2/render-preflight.spec.ts`）
+- [x] 3.1 `render.ts` 门控翻转为默认开：`process.env.GISOP_PREFLIGHT !== '0'`
+- [x] 3.2 探活失败仍走 `retryTransient` 5×3s；最终失败返回 `V2_BRIDGE_DOWN`（补 `bridge` 快照）
+- [x] 3.3 探活通过后写 `pluginConnected: true` + `lastRoundtripMs` 进 `bridgeState`（在 `healthCheck` 内）
+- [x] 3.4 `render.ts` 的 `engineFields` 增加 `bridge` 快照，并在探活后刷新一次
+- [x] 3.5 单测：探活失败不进入写路径（不调 `commitUndoCheckpoint`）；`bridge` 字段在成功与失败返回体里都在（`tests/v2/render-target-file.spec.ts`）
 
-## 4. worker 重连窗口
+## 4. worker 探活（实施时改口径）
 
-- [ ] 4.1 worker 在 `v2Backend` 装配后做一次探活；失败按 2s 间隔最多等 20s
-- [ ] 4.2 窗口耗尽仍失败：记录 stderr 一行判定，但 SHALL NOT 让 worker 退出（业务调用照常报 `V2_BRIDGE_DOWN`）
-- [ ] 4.3 单测：探活首次失败、第三次成功 → boot 继续；全程失败 → boot 继续但状态为 `pluginConnected=false`
+- [x] 4.1 worker 在 `v2Backend` 装配后做一次探活（8s 上限），**不阻塞等待重连**——Figma 没开是常态，启动阻塞 20s 会让宿主「连上了但半天不理人」；重连窗口交给 render 的 5×3s 探活重试
+- [x] 4.2 探活失败只记 stderr，SHALL NOT 让 worker 退出
+- [ ] 4.3 单测：boot 探活失败不阻断启动（需在 `entry-boot` 里注入假后端；当前 `entry-boot` 只覆盖「不装后端」路径）
 
 ## 5. 错误码与文档
 
-- [ ] 5.1 `v2/ir.ts` 增加 `V2_BRIDGE_NO_REPLY`；`createServer.ts` 的工具描述补一句「超时 ≤20s，带 bridge 快照」
-- [ ] 5.2 `docs/INSTALL.md` 补「宿主 60s self-heal 会重启 MCP → `enginePid` 每调都变」的判据与日志路径（与 2026-11-04 那条排障并列）
-- [ ] 5.3 `SETUP.md` MCP 配置表加 `GISOP_PREFLIGHT`（默认开）与 `GISOP_EXEC_TIMEOUT_MS`（默认 20000）
-- [ ] 5.4 `packages/skill/phases/phase4-figma.md` 排查顺序加「`V2_BRIDGE_NO_REPLY` = 插件 sandbox 假死，关掉重开插件，别改 md」
+- [x] 5.1 `V2_BRIDGE_NO_REPLY` 定义在 `bridgeState.ts`（`NO_REPLY_CODE`）；`createServer.ts` 的 render / get_skill_requirements 工具描述补桥诊断口径
+- [x] 5.2 `docs/INSTALL.md` 补「渲染一直失败且 enginePid 每调都变」的判据、日志路径与 `V2_BRIDGE_DOWN` / `V2_BRIDGE_NO_REPLY` 对照
+- [x] 5.3 `SETUP.md` MCP 配置表加 `GISOP_PREFLIGHT` / `GISOP_EXEC_TIMEOUT_MS`
+- [x] 5.4 `packages/skill/phases/phase4-figma.md` 排查顺序加 `V2_BRIDGE_NO_REPLY` / `enginePid` 判据
 
 ## 6. 回归
 
-- [ ] 6.1 `npx tsc -p tsconfig.json` 通过
-- [ ] 6.2 `npx vitest run --no-file-parallelism` 全绿（含审计口径不受影响）
-- [ ] 6.3 真机：在插件已假死的机器上复现一次，确认 20s 内拿到 `V2_BRIDGE_NO_REPLY`，宿主 **不再**重启 MCP（日志里无 `self-heal triggered`）
-- [ ] 6.4 真机：正常环境下渲染耗时增量 ≤1 次往返；`bridge` 快照字段与实际端口一致
-- [ ] 6.5 版本号三处一致（`package.json` / `src/v2/version.ts` / `packages/skill/manifest.json`）+ `CHANGELOG.md` + `openspec/HANDOFF.md`
+- [x] 6.1 `npx tsc -p tsconfig.json` 通过
+- [x] 6.2 `npx vitest run --no-file-parallelism` 全绿：80 files / 631 tests
+- [ ] 6.3 真机：插件假死时 20s 内拿到 `V2_BRIDGE_NO_REPLY`，宿主日志**不再**出现 `self-heal triggered`（待真机，需要一台能复现假死的机器）
+- [ ] 6.4 真机：正常环境渲染耗时增量 ≤1 次往返；`bridge` 快照字段与实际端口一致
+- [x] 6.5 版本号三处一致（`package.json` 0.4.3 / `src/v2/version.ts` 0.4.3 / `manifest.json` skill 2.4.2 + `engineVersion ^0.4.3`）+ `CHANGELOG.md` + `openspec/HANDOFF.md`

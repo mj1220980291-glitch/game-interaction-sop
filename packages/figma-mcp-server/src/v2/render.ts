@@ -102,6 +102,7 @@ import {
   type ReconcilePreserved
 } from './reconcile/index.js';
 import { isTransientBridgeError, retryTransient } from '../server/retry.js';
+import { getBridgeState } from '../server/bridgeState.js';
 import {
   anchorKey,
   badgeDefaultsWarning,
@@ -381,6 +382,22 @@ export interface RenderResult {
   configPath?: string;
   /** 回答本次调用的进程 id —— 多实例排查用。 */
   enginePid?: number;
+  /**
+   * 桥状态快照。判断顺序：`fallback` → 端口问题；`pluginConnected === false`
+   * → 插件没接入；`lastRoundtripMs` 有值但渲染仍失败 → 不是桥的问题。
+   *
+   * `enginePid` 每调都变 = 宿主重启了整个 MCP（请求超时后的自愈），不是 worker swap。
+   */
+  bridge?: {
+    port?: number;
+    preferredPort: number;
+    fallback: boolean;
+    holderPid?: number;
+    pluginConnected?: boolean;
+    lastRoundtripMs?: number;
+    enginePid: number;
+    supervisorPid?: number;
+  };
   errors: Array<HardError | { code: string; message: string; details?: string }>;
   warnings: SoftWarning[];
   summary?: {
@@ -420,10 +437,14 @@ export async function renderV2MarkdownToFigma(
   });
   const packCaps = packResolution.hit?.pack.capabilities;
   const runId = Math.random().toString(36).slice(2, 10);
-  const engineFields: Pick<RenderResult, 'configPath' | 'enginePid' | 'runId' | 'engineVersion'> = {
+  const engineFields: Pick<
+    RenderResult,
+    'configPath' | 'enginePid' | 'runId' | 'engineVersion' | 'bridge'
+  > = {
     enginePid: process.pid,
     runId,
     engineVersion: ENGINE_VERSION,
+    bridge: getBridgeState(),
     ...(templateConfig.configPath ? { configPath: templateConfig.configPath } : {})
   };
 
@@ -493,12 +514,16 @@ export async function renderV2MarkdownToFigma(
     };
   }
 
-  // Phase A3 — 桥还活着吗（默认关闭，`GISOP_PREFLIGHT=1` 显式打开）。
+  // Phase A3 — 桥还活着吗（默认开，`GISOP_PREFLIGHT=0` 显式关）。
   //
-  // 真机反例：同一时刻探活报 `Cannot connect`、直连 `figma_execute` 却正常，
-  // 开着会把正常渲染挡掉（本会话踩过一次，白拦了 4 轮）。默认关，等把这种假阴性
-  // 查清再说。
-  if (targetBackend.healthCheck && process.env.GISOP_PREFLIGHT === '1') {
+  // 为什么默认开：不探的话，插件 sandbox 假死时第一笔写操作会干等 60s 才抛
+  // `Cannot connect`（见 `figma-client.ts` 的 healthCheck 注释），而这 60s 正好
+  // 等于宿主「请求超时 → 重启整个 MCP」的阈值：真机现场（2026-11-04）表现成
+  // 「每次调用 enginePid 都变 + 永远 Cannot connect」。探活把这一轮压到 15s 内。
+  //
+  // 曾经误报过一次（探活失败、直连正常），所以给了 5×3s 重试窗口吸收切文件抖动；
+  // 那种抖动是「第一次定向调用失败、第二次起正常」，窗口内足够恢复。
+  if (targetBackend.healthCheck && process.env.GISOP_PREFLIGHT !== '0') {
     try {
       // 刚切过目标文件时，第一次定向调用经常会先失败一次（figma-console 的连接
       // 建立过程），所以这里自己重试一下，别把可恢复的抖动报成桥断了。
@@ -510,6 +535,9 @@ export async function renderV2MarkdownToFigma(
         log: (m) => process.stderr.write(`[figma-interaction-doc-engine] ${m}\n`)
       });
     } catch (e) {
+      // 探活结果（pluginConnected / lastRoundtripMs）已经写进 bridgeState，
+      // 这里刷新一次快照，返回体才有「这次到底是哪种失败」。
+      engineFields.bridge = getBridgeState();
       return {
         ok: false,
         ...packFields,
@@ -519,12 +547,13 @@ export async function renderV2MarkdownToFigma(
             code: 'V2_BRIDGE_DOWN',
             message:
               `渲染前探活失败，Bridge 或 Figma 插件没有响应：${(e as Error).message}。` +
-              '在 Figma 里重开一次 Desktop Bridge 插件（Plugins → Development）后重试。'
+              '在 Figma 里关掉并重新运行 Desktop Bridge 插件（Plugins → Development）后重试。'
           }
         ],
         warnings: parsed.warnings
       };
     }
+    engineFields.bridge = getBridgeState();
   }
 
   if (input.target?.rootId) {

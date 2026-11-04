@@ -94,6 +94,8 @@ Phase 2 完成（Markdown 已保存、`validate_phase1_signoff` 返回 ok）+ Ph
 4. 报错里出现 `ws://localhost:923x` 且 x 每重启一次 +1，或用 `figma_get_status` 看到 `portFallbackUsed: true`：这是**端口漂移**（旧引擎进程没退、僵尸占满 9223–9232），不是插件问题。处理办法见 `packages/figma-mcp-server/docs/INSTALL.md` 的「重启引擎后 Bridge『坏了』」，不要反复重开插件
    - 0.3.3 起引擎会自己抢回 9223 并重拉子进程；仍失败时渲染返回 `E_BRIDGE_PORT_CONFLICT`，`details.bridge` 里有 `port / holderPid / enginePid / supervisorPid`，照着清理即可
    - `get_skill_requirements` 的 `bridge.fallback = true` 时，**不要**判定成几何或模板缺陷：render 本身不可用，先修端口
+   - `V2_BRIDGE_NO_REPLY` = 插件 socket 在、sandbox 已假死（单次 exec 超过 `插件 timeout + 5s` 没有回程）。动作只有「在 Figma 里关掉插件再重新运行」；**不要**改 Markdown、不要降级贴图、不要换文件。`V2_BRIDGE_DOWN` 同理（开写前探活失败）
+   - 返回体 `bridge.enginePid` 每调都变 = **宿主重启了整个 MCP**（请求超时后的自愈），不是 worker 换人；这种现场先看 `bridge.pluginConnected`，别去猜模板
 5. 渲染返回的 `enginePid` 每次不一样、或 `configPath` 不是刚改的那份文件：**多个引擎进程在接请求**（多开窗口最常见）。先 `figma_get_status` 看 `otherInstances`，只留一个窗口并重启该窗口的 MCP
 6. 两条都不通 → 停下来等用户，不改 Markdown、不降级贴图、不换文件硬写
 
