@@ -1,6 +1,32 @@
 # 交接说明（2026-11-03）
 
-## 当前状态快照（2026-11-03 14:45，换对话先读这一节）
+## 当前状态快照（2026-11-04 10:57，换对话先读这一节）
+
+**一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.2`、skill `2.4.1`、`requiredSkillVersion 2.4.0`，验收方同意归档推送。
+
+**验收凭据（M1/M2/M3，enginePid 40712，bridge 9223）**：
+
+| 项 | 观测 |
+|---|---|
+| B adopt 真跑 | `knfkg9iz` ok:true、无 `SCRATCH_MISMATCH`；5 条 `needs-new-node` + `V2_W_RECONCILE_NO_CREATE`（降级通过）；画布 949→949、标号 18→18、preserved 全在 |
+| dryRun 一致性 | `y4yalzov` changes `[]`、conflicts 7 条与真跑逐 path/kind 相同 |
+| 幂等 | `lp1aor57` `changes: []`；M2 `72g666bt` → `9nr3vchu` 同 |
+| P1 清单 | reconcile 带 `bubbles`：M1 18（4/6/4/4）、M2 9（3/6）、M3 16（6/7/3），40/40 nodeId 画布复核一致 |
+| P2 | 旧文案只剩单路径（`V2_TEMPLATE_FILE_UNREACHABLE`）；5 次同步无 `packMissing` |
+| P3 | 锚点文案命中「adopt 模式跳过标号重排」；`02/2/#12` 三次同步无二次 `FIGURE_IMAGE_LOST` |
+
+**关键修复记忆点**：`dryRun` 不跑 scratch、真跑才跑 → adopt（无包）时计划过、真跑炸。现在 `planReconcile({canCreate})` 在**计划阶段**判定能不能建节点，不能建就记 `conflicts[kind=needs-new-node]`，两种模式结论一致。这条已写进 `docs/figma-mcp-pitfalls.md` 陷阱 8。
+
+**遗留（不阻断）**：
+1. M1 的 5 处 `needs-new-node` 待模板包配回后重跑补齐：`02/1/#3`、`02/2/#6`、`02/2/#12`、`02/5/#5`、`04/1/#3`
+2. 环境侧：验收机 git/npm 不在 PATH，构建走绝对路径 `node + npm-cli.js`（非引擎缺陷）
+3. 删图恢复不丢图、`####` 自动降级、worker↔bridge 解耦、parts 同步 harness —— 仍为旧遗留
+
+**代码状态**：build ✓；`npx vitest run --no-file-parallelism` 79 files / 621 tests 全绿（并行会被 Windows 临时文件锁吃掉 7 个文件，必须串行）。
+
+---
+
+## 上一轮快照（2026-11-03 14:45）
 
 **一句话**：`inline-suffix` 职能实现完成（引擎 `0.4.0`）：职能拼在**第一条普通正文句尾**并上色，同步侧同口径。新 change `implement-inline-role-suffix` 待真机验收。
 

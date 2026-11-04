@@ -209,6 +209,10 @@ CodeMaker (and any other MCP host) MUST NOT be configured with both a standalone
 
 输出 SHALL 新增 `mode: 'create' | 'reconcile'`。同步模式下 SHALL 额外返回 `changes`、`conflicts`、`preserved` 三个数组。
 
+`conflicts[].kind` SHALL 包含 `needs-new-node`：adopt 模式（无模板包）下无法新建节点的那批路径。出现时 SHALL 同时返回 `V2_W_RECONCILE_NO_CREATE`，其余改动照常写入；`dryRun` 与真跑的同批参数 SHALL 得出相同的 `changes` / `conflicts`。
+
+返回体 SHALL 含 `engineVersion`（与 `get_skill_requirements` 同源）与 `runId`，用于判定「跑的是不是新 build」与超时后对账。同步模式 SHALL NOT 返回 `packMissing` / `packCandidates`。
+
 工具描述 SHALL 写明：重新渲染已有文档时应传 `rootId`；冲突不会被自动覆盖；`dryRun` 可用于预览。
 
 新增工具 SHALL NOT 改动 `validate_v2_markdown` / `render_v2_markdown_to_figma` 已有的名称与入参契约。
@@ -305,16 +309,31 @@ CodeMaker (and any other MCP host) MUST NOT be configured with both a standalone
 
 ### Requirement: render_v2_markdown_to_figma 支持标号锚点 badgeAnchors
 
-`render_v2_markdown_to_figma` SHALL 接受可选入参 `badgeAnchors`：键为 `"NN/C"`（章序号 / 簇序号，均从 1 起），值为主图归一化坐标 `{ x, y }`（0–1，左上原点），可带仅供人读的 `note`。
+`render_v2_markdown_to_figma` SHALL 接受可选入参 `badgeAnchors`：键为 `"NN/C"`（章序号 / 簇序号，均从 1 起）。值 SHALL 支持两种写法：
 
-命中锚点的簇 SHALL 把标号摆到 `{x, y}` × 主图实际尺寸的位置；该簇没有锚点且传了 `badgeAnchors` 时 SHALL 退回模板网格并报 `V2_W_BADGE_ANCHOR_MISSING`；坐标越界 SHALL 夹取到主图内并报 `V2_W_BADGE_ANCHOR_OUT_OF_RANGE`。
+1. 坐标锚点 `{ x, y }`（主图归一化 0–1，左上原点），可带仅供人读的 `note`；
+2. 文本锚点 `{ text, offset?, occurrence? }`：引擎 SHALL 在主图子树内按 TEXT 节点的 `characters` 匹配（空白折叠、大小写不敏感），把标号摆到「命中控件左上角 + `offset`」并按主图实际矩形归一化。命中多个同名文本时 SHALL 取第 `occurrence`（缺省 1）个，未给 `occurrence` 时 SHALL 报 `V2_W_BADGE_ANCHOR_TEXT_AMBIGUOUS`。
 
-完全不传 `badgeAnchors` 时，标号位置与告警行为 SHALL 与改动前完全一致（全部按网格、不产生锚点告警）。
+文本锚点 SHALL 在每次摆放时重新解析（主图资产落位之后），以便主图被 `figma_instance` 替换后仍然成立。文本匹配不到时 SHALL 退回模板网格并报 `V2_W_BADGE_ANCHOR_TEXT_NOT_FOUND`。
 
-#### Scenario: 按锚点摆放
+命中锚点的簇 SHALL 把标号摆到锚点换算出的位置；该簇没有锚点且传了 `badgeAnchors` 时 SHALL 退回模板网格并报 `V2_W_BADGE_ANCHOR_MISSING`；坐标越界 SHALL 夹取到主图内并报 `V2_W_BADGE_ANCHOR_OUT_OF_RANGE`。
+
+完全不传 `badgeAnchors` 且文档簇数 > 0 时，仍 SHALL 全部按网格摆放，但 SHALL 报一条 `V2_W_BADGE_ANCHOR_DEFAULTED`（不再静默）。
+
+#### Scenario: 按坐标锚点摆放
 
 - **WHEN** 1 章 2 簇的文档传入 `badgeAnchors: {"01/1": {x:0.25, y:0.4}, "01/2": {x:0.5, y:0.6}}`，主图 1200×745
 - **THEN** 标号 1 / 2 SHALL 落在 `(300, 298)` / `(600, 447)`，且 SHALL NOT 出现锚点相关告警
+
+#### Scenario: 按控件文本自动锚定
+
+- **WHEN** 主图内有一个 `characters = "Click to input"` 的 TEXT（bbox 左上 `(100, 50)`），主图 1200×745，传入 `{"01/1": {text: "Click to input", offset: [-24, -24]}}`
+- **THEN** 标号 SHALL 落在 `(76, 26)`，且不产生锚点告警
+
+#### Scenario: 文本找不到退回网格
+
+- **WHEN** 文本锚点的 `text` 在主图子树里不存在
+- **THEN** 该簇标号退回网格，并报一条 `V2_W_BADGE_ANCHOR_TEXT_NOT_FOUND`（`context: "NN/C"`）
 
 #### Scenario: 缺锚点退回网格
 
@@ -326,10 +345,48 @@ CodeMaker (and any other MCP host) MUST NOT be configured with both a standalone
 - **WHEN** 传入 `{x: -0.5, y: 2}`
 - **THEN** 标号夹到主图左上/下边界，并报一条 `V2_W_BADGE_ANCHOR_OUT_OF_RANGE`
 
-#### Scenario: 不传锚点保持旧行为
+#### Scenario: 不传锚点不再静默
 
-- **WHEN** 调用方不传 `badgeAnchors`
-- **THEN** 标号位置与旧版本一致，`warnings` 中 SHALL NOT 出现任何 `V2_W_BADGE_ANCHOR_*`
+- **WHEN** 文档有簇但调用方不传 `badgeAnchors`
+- **THEN** 标号位置与旧版本一致（全部按网格），并 SHALL 报一条 `V2_W_BADGE_ANCHOR_DEFAULTED`
+
+### Requirement: 标号数量自检与气泡清单
+
+摆放标号后引擎 SHALL 重新读取标号容器并核对可见标号数：
+
+- 数量等于该章簇数 → 无告警；
+- 不等 → SHALL 报 `V2_W_BADGE_COUNT_MISMATCH`，message 含应有数、实际数与缺失编号。
+
+`render_v2_markdown_to_figma` 的返回体 SHALL 含 `bubbles`（数组，每项 `{ section, cluster, nodeId }`），供调用方逐章对账。create 模式下 `bubbles.length` SHALL 等于 `summary.bubbleCount`；reconcile 模式下 SHALL 从画布逐章读回实际标号（`dryRun` 读现状），数量与簇数不符时 SHALL 报 `V2_W_BADGE_COUNT_MISMATCH`。
+
+标签容器内的旧标号 SHALL 在**新标号补齐之后**才清理（先补齐、后删除），以免克隆失败时整章标号被清空。
+
+#### Scenario: 标号丢失可被发现
+
+- **WHEN** 某章应有 3 个标号、容器里只有 2 个
+- **THEN** 返回一条 `V2_W_BADGE_COUNT_MISMATCH`，message 指出缺 3 号
+
+### Requirement: Phase 1 完成声明门禁
+
+`render_v2_markdown_to_figma` 与 `validate_v2_markdown` SHALL 接受可选入参 `phase1Signoff`（Phase 1 需求挖掘完成声明）：
+
+- `schema_version` SHALL 为 `1`；
+- `unresolved_conflicts` / `pending_questions` SHALL 为空数组；
+- `dimensions` 的 `params` / `diff_areas` / `business` / `conflicts` SHALL 均为 `true`。
+
+传入但不满足时，引擎 SHALL 返回 `ok: false` 且不写画布，错误码分别为 `V2_SIGNOFF_INVALID` / `V2_SIGNOFF_CONFLICTS_OPEN` / `V2_SIGNOFF_PENDING_QUESTIONS` / `V2_SIGNOFF_DIMENSIONS_INCOMPLETE`。不传时 SHALL 照常渲染，但 SHALL 报 `V2_W_PHASE1_SIGNOFF_MISSING`（保持对老调用方的向后兼容）。
+
+新增只读工具 `validate_phase1_signoff`：接受内联 `signoff` 对象或 `path`（缺省 `<cwd>/.interaction-sop/phase1-signoff.json`），返回 `ok/errors/warnings/source`；文件不可读时返回 `V2_SIGNOFF_FILE_MISSING`。
+
+#### Scenario: 未决冲突未清零
+
+- **WHEN** `phase1Signoff.unresolved_conflicts` 非空
+- **THEN** 渲染 SHALL 返回 `ok:false` + `V2_SIGNOFF_CONFLICTS_OPEN`，且画布不变
+
+#### Scenario: 不传声明
+
+- **WHEN** 完全不传 `phase1Signoff`
+- **THEN** 渲染照常完成，`warnings` 含 `V2_W_PHASE1_SIGNOFF_MISSING`
 
 ### Requirement: render_v2_markdown_to_figma 回显解析后的角色配置
 

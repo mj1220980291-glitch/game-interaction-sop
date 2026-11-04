@@ -42,7 +42,12 @@ prints the config snippet to paste into your agent's MCP config file.
 
 The engine no longer hard-codes the template. It resolves, in order:
 
-1. `template: { fileKey, nodeId }` on `render_v2_markdown_to_figma`
+0. **`template: { componentKey }`** — published library component; the only
+   reliable cross-file addressing (target file does not need the template)
+1. `template: { fileKey, nodeId }` — same-file mode only; `fileKey` must equal
+   `target.fileKey` (cross-file now fails with `V2_TEMPLATE_OTHER_FILE` /
+   `V2_TEMPLATE_FILE_UNREACHABLE` instead of silently probing `1:14` in the
+   target file)
 2. env `FIGMA_TEMPLATE_FILE_KEY` / `FIGMA_TEMPLATE_NODE_ID`
 3. `~/.game-interaction-sop/template.json`
 4. the `figma` block of `~/.game-interaction-sop/config.local.json`

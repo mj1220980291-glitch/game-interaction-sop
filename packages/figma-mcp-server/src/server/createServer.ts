@@ -23,6 +23,8 @@
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -39,6 +41,10 @@ import {
   type FigmaBackend as V2FigmaBackend
 } from '../v2/index.js';
 import { parseBadgeAnchors } from '../v2/badge-anchor.js';
+import { checkPhase1Signoff } from '../v2/phase1-signoff.js';
+import { ENGINE_VERSION, REQUIRED_SKILL_VERSION } from '../v2/version.js';
+
+export { ENGINE_VERSION, REQUIRED_SKILL_VERSION };
 import { getBridgeState } from './bridgeState.js';
 
 // =========================================================================
@@ -98,24 +104,49 @@ export type NativeToolHandler = (
  * 2.3.2: default style ships with role_annotation / wording frontmatter, SKILL.md
  *        gains Preflight calling get_skill_requirements. Engines older than 0.3.0
  *        do not expose this tool, so the Preflight gracefully falls back.
+ * 2.4.0: Phase 1 完成声明门禁（validate_phase1_signoff）。
+ *
+ * 单一来源见 `v2/version.ts`：渲染返回体也带同一个版本号，用来判断「跑的是不是新 build」。
  */
-export const REQUIRED_SKILL_VERSION = '2.3.3';
-
-/**
- * Engine's own version string surfaced to Preflight. Kept in sync with
- * packages/figma-mcp-server/package.json manually; bumping one without the other
- * is a review-time check.
- */
-export const ENGINE_VERSION = '0.4.0';
 
 // =========================================================================
 // Native tool input schemas (raw JSON Schema, served verbatim to clients)
 // =========================================================================
 
+const PHASE1_SIGNOFF_JSON = {
+  type: 'object',
+  description:
+    'Phase 1 需求挖掘完成声明（机器可验证）：unresolved_conflicts / pending_questions 必须是空数组，' +
+    'dimensions 的 params / diff_areas / business / conflicts 必须都为 true。',
+  properties: {
+    schema_version: { type: 'number', enum: [1] },
+    requirement: { type: 'string' },
+    checked_at: { type: 'string' },
+    unresolved_conflicts: { type: 'array' },
+    pending_questions: { type: 'array' },
+    dimensions: {
+      type: 'object',
+      properties: {
+        params: { type: 'boolean' },
+        diff_areas: { type: 'boolean' },
+        business: { type: 'boolean' },
+        conflicts: { type: 'boolean' }
+      },
+      required: ['params', 'diff_areas', 'business', 'conflicts'],
+      additionalProperties: false
+    },
+    evidence: { type: 'object' }
+  },
+  required: ['schema_version', 'unresolved_conflicts', 'pending_questions', 'dimensions'],
+  additionalProperties: true
+} as const;
+
 const V2_VALIDATE_INPUT_SCHEMA = {
   type: 'object',
   properties: {
-    markdown: { type: 'string', minLength: 1 }
+    markdown: { type: 'string', minLength: 1 },
+    /** 传了就校验：不合格直接 ok:false（Phase 1 硬门禁）。 */
+    phase1Signoff: PHASE1_SIGNOFF_JSON
   },
   required: ['markdown'],
   additionalProperties: false
@@ -189,18 +220,41 @@ const V2_RENDER_INPUT_SCHEMA = {
     badgeAnchors: {
       type: 'object',
       description:
-        '标号锚点：键 "NN/C"（第 NN 章第 C 个簇，均从 1 起），值 { x, y } 为主图内的归一化坐标' +
-        '（0–1，左上原点），可带 note 说明。命中就按锚点摆图上标号；某簇没给则退回模板网格并报 ' +
-        'V2_W_BADGE_ANCHOR_MISSING；整表不传 = 全部按网格（行为与旧版一致）。',
+        '标号锚点：键 "NN/C"（第 NN 章第 C 个簇，均从 1 起）。两种写法可混用：' +
+        '① { text, offset?, occurrence? } —— 按主图内控件文本自动定位（首选，不用量坐标，主图换成实例也不失效）；' +
+        '② { x, y } —— 主图归一化坐标（0–1，左上原点）。' +
+        '文本找不到 → 退回模板网格并报 V2_W_BADGE_ANCHOR_TEXT_NOT_FOUND；某簇缺键 → 退回网格并报 V2_W_BADGE_ANCHOR_MISSING；' +
+        '整表不传 → 全部按网格并报 V2_W_BADGE_ANCHOR_DEFAULTED（不再静默）；坐标越界夹取并报 V2_W_BADGE_ANCHOR_OUT_OF_RANGE。',
       additionalProperties: {
-        type: 'object',
-        properties: {
-          x: { type: 'number' },
-          y: { type: 'number' },
-          note: { type: 'string' }
-        },
-        required: ['x', 'y'],
-        additionalProperties: false
+        anyOf: [
+          {
+            type: 'object',
+            properties: {
+              text: { type: 'string', minLength: 1, description: '主图内控件的文字（空白折叠、大小写不敏感）' },
+              offset: {
+                type: 'array',
+                items: { type: 'number' },
+                minItems: 2,
+                maxItems: 2,
+                description: '相对命中文本左上角的像素偏移，如 [-24, -24]'
+              },
+              occurrence: { type: 'number', minimum: 1, description: '同名文本取第几个（1 起）' },
+              note: { type: 'string' }
+            },
+            required: ['text'],
+            additionalProperties: false
+          },
+          {
+            type: 'object',
+            properties: {
+              x: { type: 'number' },
+              y: { type: 'number' },
+              note: { type: 'string' }
+            },
+            required: ['x', 'y'],
+            additionalProperties: false
+          }
+        ]
       }
     },
     target: {
@@ -214,6 +268,14 @@ const V2_RENDER_INPUT_SCHEMA = {
     },
     scope: { type: 'string', pattern: '^\\d{2}(/\\d+)?$' },
     dryRun: { type: 'boolean' },
+    forceReconcile: {
+      type: 'boolean',
+      description:
+        '同步模式专用：显式接受「模板包缺失 / 指纹变化」，在旧文档上按 adopt 流程继续增量同步。' +
+        'pack 缺失时跳过包相关能力（标号重排等）；指纹变化时按当前包同步，成功后重打指纹。' +
+        '给 template.componentKey 时，pack 缺失会被视为隐式 adopt（跨文件唯一可靠寻址方式）。'
+    },
+    phase1Signoff: PHASE1_SIGNOFF_JSON,
     position: {
       type: 'object',
       properties: { x: { type: 'number' }, y: { type: 'number' } },
@@ -284,7 +346,79 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
       try {
         const markdown = String(args?.markdown ?? '');
         const r = parseV2(markdown);
+        if (args?.phase1Signoff !== undefined) {
+          const signoff = checkPhase1Signoff(args.phase1Signoff);
+          if (!signoff.ok) {
+            return jsonResult({
+              ...r,
+              ok: false,
+              errors: [...r.errors, ...signoff.errors],
+              warnings: [...r.warnings, ...signoff.warnings],
+              phase1Signoff: { ok: false, errors: signoff.errors }
+            });
+          }
+          return jsonResult({ ...r, phase1Signoff: { ok: true, warnings: signoff.warnings } });
+        }
         return jsonResult(r);
+      } catch (e) {
+        return errorResult(ServerErrorCodes.INTERNAL_ERROR, (e as Error).message);
+      }
+    }
+  };
+
+  /**
+   * Phase 1 完成声明校验（S4 的机器可验证门禁）。
+   *
+   * 两个入口：直接给对象（skill 拼好传上来），或给文件路径 / 缺省读
+   * `<cwd>/.interaction-sop/phase1-signoff.json`。只读，不碰 Figma。
+   */
+  const validatePhase1SignoffTool: NativeToolDef = {
+    tool: {
+      name: 'validate_phase1_signoff',
+      description:
+        '校验 Phase 1 需求挖掘完成声明。规则：schema_version=1、unresolved_conflicts=[]、' +
+        'pending_questions=[]、dimensions 的 params/diff_areas/business/conflicts 全为 true。' +
+        '传 signoff 对象则直接校验；传 path 则读该 JSON；都不传读 `<cwd>/.interaction-sop/phase1-signoff.json`。' +
+        '返回 ok/errors/warnings/path。Phase 2 入口必须先拿到 ok:true 才能写 Markdown。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          signoff: PHASE1_SIGNOFF_JSON,
+          path: { type: 'string' }
+        },
+        additionalProperties: false
+      } as unknown as Tool['inputSchema']
+    },
+    handler: async (args) => {
+      try {
+        let raw = args?.signoff;
+        const path =
+          typeof args?.path === 'string' && args.path.trim() !== ''
+            ? args.path
+            : join(process.cwd(), '.interaction-sop', 'phase1-signoff.json');
+        let source = 'inline';
+        if (raw === undefined) {
+          source = path;
+          try {
+            raw = JSON.parse(readFileSync(path, 'utf8'));
+          } catch (e) {
+            return jsonResult({
+              ok: false,
+              source,
+              errors: [
+                {
+                  code: 'V2_SIGNOFF_FILE_MISSING',
+                  message:
+                    `读不到 Phase 1 完成声明 ${path}：${(e as Error).message}。` +
+                    '按 skill phase1-analysis.md 的模板落盘后再试。'
+                }
+              ],
+              warnings: []
+            });
+          }
+        }
+        const checked = checkPhase1Signoff(raw);
+        return jsonResult({ ...checked, source });
       } catch (e) {
         return errorResult(ServerErrorCodes.INTERNAL_ERROR, (e as Error).message);
       }
@@ -296,7 +430,11 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
       name: 'render_v2_markdown_to_figma',
       description:
         '把 v2 Markdown 写入 Figma 模板。需要在 createServer 时传入 v2Backend。' +
-        'template 可选：{fileKey,nodeId} 覆盖模板地址（优先级：入参 > FIGMA_TEMPLATE_FILE_KEY/NODE_ID > ~/.game-interaction-sop/template.json > 官方默认）。' +
+        'template 三种寻址，优先级：template.componentKey（团队库已发布组件，**跨文件唯一可靠方式**，推荐）> ' +
+        '{fileKey,nodeId}（同文件模式：fileKey 必须等于 target.fileKey；跨文件会明确报 V2_TEMPLATE_OTHER_FILE / V2_TEMPLATE_FILE_UNREACHABLE，不会回落成「在目标文件里找 1:14」）' +
+        '> FIGMA_TEMPLATE_FILE_KEY/NODE_ID > ~/.game-interaction-sop/template.json > 官方默认。' +
+        '只传 template.fileKey 不传 target.fileKey 时，按模板文件定向写入并告警 V2_W_TARGET_FROM_TEMPLATE（旧行为是写进活动文件）。' +
+        'componentKey 可用时返回体不带 packMissing/packCandidates。' +
         'Markdown 里的 `- @策划：…` 条目会渲染成「职能标记」组件实例。' +
         '两种配置（优先用前者）：① roleBlock.variantKeys = {角色: 已发布变体 key} —— 跨库唯一可用方式，经 importComponentByKeyAsync 导入；' +
         '② roleBlock.componentSetId = 组件集 nodeId —— 只在渲染目标文件内解析，跨库会报 V2_ROLE_BLOCK_SET_NOT_IN_TARGET_FILE。' +
@@ -309,10 +447,14 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         '源节点必须在渲染目标文件内。' +
         '例：{ "01": { type:"figma_node", fileKey:"…", nodeId:"588:6399" }, "01/1/2": { type:"figma_node", fileKey:"…", nodeId:"588:6399", crop:{ x:700, y:0, width:520, height:160 } } }。' +
         '匹配不到的键与单张配图失败均为软告警，不中断渲染。' +
-        'badgeAnchors 可选：图上标号的位置。键 "NN/C"（章/簇，1 起），值 { x, y } 为主图归一化坐标（0–1，左上原点），可带 note。' +
-        '取值建议贴控件左上再往上偏 10–20px（0.01≈主图高的 1%），别取控件正中。' +
-        '整表不传 = 全部按模板网格、不产生任何锚点告警；传了表但某簇缺键才退回网格并报 V2_W_BADGE_ANCHOR_MISSING；越界夹取并报 V2_W_BADGE_ANCHOR_OUT_OF_RANGE。' +
-        '例：{ "01/2": { x:0.28, y:0.52, note:"命名输入框左侧" } }。' +
+        'badgeAnchors 可选：图上标号的位置。键 "NN/C"（章/簇，1 起）。首选文本锚点：' +
+        '{ "01/2": { "text": "Click to input", "offset": [-24,-24] } } —— 引擎在主图子树里按控件文本找，' +
+        '摆放前读 absoluteBoundingBox 换算（主图换成 figma_instance 后不会失效，不需要重算坐标）。' +
+        '也可用坐标锚点 {x,y}：主图归一化 0–1，左上原点，贴控件左上再往上偏 10–20px，别取控件正中。' +
+        '整表不传 = 全部按模板网格并返回 V2_W_BADGE_ANCHOR_DEFAULTED（不再静默）；' +
+        '传了表但某簇缺键 → 退回网格 + V2_W_BADGE_ANCHOR_MISSING；文本找不到 → 退回网格 + V2_W_BADGE_ANCHOR_TEXT_NOT_FOUND；' +
+        '命中多个同名文本时取第 1 个并报 V2_W_BADGE_ANCHOR_TEXT_AMBIGUOUS（用 occurrence 指定）。' +
+        '例：{ "01/2": { "text": "Click to input", "offset": [-24, -24] } }。' +
         '【配置对账】返回体带 resolvedRoleBlock{mode,source,componentSetId,variantPrefix,labelTextName,roles}、configPath、enginePid；' +
         'enginePid 每次不同 = 有多个引擎进程在接请求。' +
         '【同步模式】文档已渲染过、需要再次写入时，传 target.rootId（上次返回的 rootInstanceId）：' +
@@ -320,9 +462,18 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         '双方都改过的条目不覆盖，列在 conflicts 里；返回 changes / conflicts / preserved。' +
         'scope:"NN" 或 "NN/C" 只同步一个界面或一个簇；dryRun:true 只返回计划不写画布。' +
         '只比对文字，不比对样式。scope / dryRun 只能和 rootId 一起用。' +
+        '返回体带 bubbles（逐章气泡清单：section/cluster/nodeId）与 figureSlots（配图槽 path/title/nodeId）——' +
+        'create 与 reconcile 都有；reconcile 是从画布读的，顺带核对数量（不符报 V2_W_BADGE_COUNT_MISMATCH）。' +
+        '返回体还带 engineVersion / runId：报错文案与版本对不上时，先确认跑的是不是新 build（旧 dist / 旧 worker）。' +
         '【模板包可观测】返回体带 pack{path,origin,project,components,capabilities} 说明本次用了哪个模板包；' +
-        '没找到时给 packMissing:true + packCandidates（4 个候选路径及各自 missing/invalid/incomplete 原因）。' +
-        '传了 template.fileKey/nodeId 但已命中模板包时，这两个字段不参与决策，返回软告警 V2_W_TEMPLATE_ARG_IGNORED。',
+        'create 没找到时给 packMissing:true + packCandidates（4 个候选路径及各自 missing/invalid/incomplete 原因）；' +
+        '库引用模式（componentKey）与同步模式不返回这两块（同步只看 pack 命中与否，缺包由 V2_W_PACK_ADOPTED / V2_W_RECONCILE_NO_CREATE 解释）。' +
+        '传了 template.fileKey/nodeId 但已命中模板包时，这两个字段不参与决策，返回软告警 V2_W_TEMPLATE_ARG_IGNORED。' +
+        '【同步 adopt】旧文档由 pack 渲染、现在 pack 没了或指纹变了，默认拒绝（V2_PACK_MISMATCH）。' +
+        '传 template.componentKey 或 forceReconcile:true 可继续增量同步；指纹变化时成功后自动重打指纹（V2_W_PACK_ADOPTED）。' +
+        'adopt 且没有模板包时不能新建节点：需要新增的界面/簇/条目列在 conflicts（kind: needs-new-node），' +
+        '其余改动照常写入，并返回 V2_W_RECONCILE_NO_CREATE——dryRun 与真跑结论一致，不会一边通过一边炸。' +
+        '写操作超时 / 断连时返回体带 runId 与 sideEffects（已确认落地的 changes），同参数重跑是幂等的（V2_W_WRITE_TIMEOUT_RECONCILED）。',
       inputSchema: V2_RENDER_INPUT_SCHEMA as unknown as Tool['inputSchema']
     },
     handler: async (args) => {
@@ -355,9 +506,11 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
             target,
             scope: args?.scope as string | undefined,
             dryRun: args?.dryRun as boolean | undefined,
+            forceReconcile: args?.forceReconcile as boolean | undefined,
+            phase1Signoff: args?.phase1Signoff,
             position: args?.position as { x: number; y: number } | undefined,
             autoPlace: args?.autoPlace as 'below' | 'right' | undefined,
-            template: args?.template as { fileKey?: string; nodeId?: string } | undefined
+            template: args?.template as { fileKey?: string; nodeId?: string; componentKey?: string } | undefined
           },
           opts.v2Backend
         );
@@ -624,6 +777,7 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
   return [
     validateV2Markdown,
     renderV2MarkdownTool,
+    validatePhase1SignoffTool,
     probeTemplateTool,
     compileTemplateTool,
     getSkillRequirementsTool

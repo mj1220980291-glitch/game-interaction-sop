@@ -38,6 +38,17 @@ const node = (nodeId: string, extra: Partial<Extract<AssetSpec, { type: 'figma_n
   ...extra
 });
 
+/**
+ * 2026-11 起每次渲染都带两条「全局门禁」告警（标号没锚点 / Phase 1 声明缺），
+ * 与配图无关。配图断言只看其余告警。
+ */
+const GLOBAL_WARNINGS = new Set([
+  'V2_W_BADGE_ANCHOR_DEFAULTED',
+  'V2_W_PHASE1_SIGNOFF_MISSING'
+]);
+const restWarnings = (r: { warnings: Array<{ code: string }> }) =>
+  r.warnings.filter((w) => !GLOBAL_WARNINGS.has(w.code));
+
 function blocks(store: NodeStore, rootId: string) {
   const rightCol = collectByName(store, rootId, 'Text')[0];
   if (!rightCol) throw new Error('rendered doc has no right column');
@@ -123,7 +134,7 @@ describe('配图资产按键填充且占位尺寸按图片比例', () => {
     expect(r.summary?.figuresPlaceholder).toBe(0);
     expect(r.warnings.filter((w) => w.code === 'V2_W_FIGURE_ASSET_MISSING')).toEqual([]);
     expect(r.warnings.filter((w) => w.code === 'V2_W_STAMP_LAYOUT_MISMATCH')).toEqual([]);
-    expect(r.warnings).toEqual([]);
+    expect(restWarnings(r)).toEqual([]);
   });
 
   it('K 跨 #### 连续计数', async () => {
@@ -153,7 +164,7 @@ describe('配图资产按键填充且占位尺寸按图片比例', () => {
     expect(r.ok, JSON.stringify(r.errors)).toBe(true);
     const bs = blocks(m.store, r.rootInstanceId!);
     expect(figuresIn(m.store, bs[0]!.id)).toEqual(['配图占位：一', 'IMG<400×200>']);
-    expect(r.warnings).toEqual([]);
+    expect(restWarnings(r)).toEqual([]);
   });
 
   it('按裁剪区域比例定尺寸，上限为说明块宽，文案被删除', async () => {
@@ -282,7 +293,7 @@ describe('配图资产按键填充且占位尺寸按图片比例', () => {
     expect(r.ok, JSON.stringify(r.errors)).toBe(true);
     expect(m.figureFills).toHaveLength(0);
     expect(r.summary?.figuresPlaced).toBe(0);
-    expect(r.warnings).toEqual([]);
+    expect(restWarnings(r)).toEqual([]);
     const bs = blocks(m.store, r.rootInstanceId!);
     expect(figuresIn(m.store, bs[0]!.id)).toEqual(['配图占位：A', '配图占位：B']);
   });

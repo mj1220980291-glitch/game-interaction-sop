@@ -54,6 +54,7 @@ import {
   resolveTemplateConfig,
   resolvePackWithTrace,
   loadPartsPack,
+  isLibraryTemplate,
   DEFAULT_TEMPLATE,
   type PackCandidate,
   type PackResolution,
@@ -103,10 +104,15 @@ import {
 import { isTransientBridgeError, retryTransient } from '../server/retry.js';
 import {
   anchorKey,
+  badgeDefaultsWarning,
   clampAnchor,
   isOutOfRange,
+  isTextAnchor,
   type BadgeAnchorMap
 } from './badge-anchor.js';
+import { resolveTextAnchors } from './badge-resolve.js';
+import { checkPhase1Signoff } from './phase1-signoff.js';
+import { ENGINE_VERSION } from './version.js';
 
 // --- Traced clone helper -------------------------------------------------
 
@@ -178,6 +184,58 @@ export type AssetSpec =
    */
   | { type: 'figma_instance'; fileKey: string; nodeId: string };
 
+/** 一个标号的落地记录：第几章第几簇、画布上的节点 id。 */
+export interface BubbleRecord {
+  /** 章节序号，`"01"` / `"02"` … */
+  section: string;
+  /** 章内簇序号（1 起），与标号上的数字一致。 */
+  cluster: number;
+  nodeId: string;
+}
+
+/** 一个配图槽：`"NN/C/K"` 键 + 该槽的 `配图：` 描述。 */
+export interface FigureSlotRecord {
+  /** `"NN/C/K"`，与 `assetMap` 的键同构。 */
+  path: string;
+  section: string;
+  cluster: number;
+  /** 簇内第几条 `配图：`（1 起，跨 `####` 连续）。 */
+  ordinal: number;
+  /** `配图：` 后面的描述文本（去掉前缀）。 */
+  title?: string;
+  /** 渲染后的槽节点 id（parts 路径有；legacy 路径条目本身可能有多层）。 */
+  nodeId?: string;
+}
+
+/**
+ * 按 IR 列出全部配图槽。
+ *
+ * 真实动机（E7）：`"NN/C/K"` 要求人工数出每个簇每张「配图：」的顺序，3 章
+ * 16 簇的成本极高。引擎把槽位摊成清单后，人只需要在清单上填源画板 id，
+ * 不用再回头数 md。渲染流程再把 `nodeId` 合并进来，形成「占位 ↔ 源画板」底表。
+ */
+export function figureSlotsFromIr(ir: DocIR): FigureSlotRecord[] {
+  const out: FigureSlotRecord[] = [];
+  for (const section of ir.sections) {
+    section.clusters.forEach((cluster, ci) => {
+      let ordinal = 0;
+      for (const bullet of cluster.bullets) {
+        if (!isFigureSlotBullet(bullet)) continue;
+        ordinal += 1;
+        const title = bullet.replace(/^\s*[-·•*]+\s*/, '').replace(/^配图\s*[：:]\s*/u, '').trim();
+        out.push({
+          path: `${section.index}/${ci + 1}/${ordinal}`,
+          section: section.index,
+          cluster: ci + 1,
+          ordinal,
+          ...(title ? { title } : {})
+        });
+      }
+    });
+  }
+  return out;
+}
+
 export interface RenderInput {
   markdown: string;
   /**
@@ -190,13 +248,18 @@ export interface RenderInput {
    */
   assetMap?: Record<string, AssetSpec>;
   /**
-   * 标号锚点。键 `"NN/C"`（章/簇，1 起），值为主图内的**归一化坐标**
-   * （0–1，左上为原点）：
+   * 标号锚点。键 `"NN/C"`（章/簇，1 起）。两种写法可混用：
    *
-   *   `{ "01/2": { x: 0.28, y: 0.52, note: "命名输入框左侧" } }`
+   *   1. 坐标：主图归一化坐标（0–1，左上原点）
+   *      `{ "01/2": { x: 0.28, y: 0.52, note: "命名输入框左侧" } }`
+   *   2. 文本：按主图内控件文字定位，引擎在摆放前读画布换算
+   *      `{ "01/2": { text: "Click to input", offset: [-24, -24] } }`
    *
-   * 命中就按锚点摆标号；某簇没给则退回模板网格并报
-   * `V2_W_BADGE_ANCHOR_MISSING`；整表不传 = 行为与改动前一致（全部按网格）。
+   * 文本锚点是首选：不用量坐标，主图换成真实实例后也不会失效。
+   * 命中就按锚点摆标号；文本找不到 → 退回网格并报
+   * `V2_W_BADGE_ANCHOR_TEXT_NOT_FOUND`；某簇没给 → 退回网格并报
+   * `V2_W_BADGE_ANCHOR_MISSING`；整表不传 → 全部按网格并报
+   * `V2_W_BADGE_ANCHOR_DEFAULTED`。
    * 越界坐标会被夹到图内并报 `V2_W_BADGE_ANCHOR_OUT_OF_RANGE`。
    */
   badgeAnchors?: BadgeAnchorMap;
@@ -224,6 +287,24 @@ export interface RenderInput {
   /** Sync only: compute and report the plan without writing. */
   dryRun?: boolean;
   /**
+   * 同步时显式接受模板包缺失 / 指纹变化，在旧文档上继续做增量同步。
+   *
+   * 早期文档由 pack 渲染，后来 pack 文件不在机器上了，或者模板重编过了；
+   * 引擎默认拒绝（`V2_PACK_MISMATCH`），因为按新能力改旧结构可能删错节点。
+   * 打开这个开关 = 调用方确认「结构没变，只改文字」，引擎会：
+   *   - pack 缺失：跳过包相关能力（标号重排等），继续同步文本；
+   *   - 指纹变化：按当前包同步，成功后**重打指纹**（adopt）。
+   * 给 `template.componentKey` 时，pack 缺失会被视为隐式 adopt（跨文件唯一
+   * 可靠寻址方式，也是 M1 现场唯一走得通的路径）。
+   */
+  forceReconcile?: boolean;
+  /**
+   * Phase 1 需求挖掘完成声明。机器可验证：`unresolved_conflicts` /
+   * `pending_questions` 必须为空，四个维度必须全 true。
+   * 传了但不合格 → 拒绝渲染；不传 → 软告警（老调用方不被挡）。
+   */
+  phase1Signoff?: unknown;
+  /**
    * Template to clone. Omitted, {@link resolveTemplateConfig} walks
    * env → `~/.game-interaction-sop/template.json` → default.
    */
@@ -249,8 +330,32 @@ export interface RenderInput {
 export interface RenderResult {
   ok: boolean;
   mode?: 'create' | 'reconcile';
-  /** Newly created template-instance node ID (root of the rendered doc). */
+  /** 新文档的根节点 ID（创建）或同步的根节点 ID（同步）。 */
   rootInstanceId?: string;
+  /** 本次调用的幂等 token：超时后重跑/对账都带上它。 */
+  runId?: string;
+  /**
+   * 回答本次调用的引擎版本。与 `get_skill_requirements` 同源；
+   * 报错文案对不上版本时，先确认跑的是不是新 build（旧 dist / 旧 worker）。
+   */
+  engineVersion?: string;
+  /** 超时/断连后对账出来的副作用（已经落到画布上的部分）。 */
+  sideEffects?: {
+    /** 创建路径：根帧仍在画布上（回滚未确认）。 */
+    createdRootId?: string;
+    /** 同步路径：已确认落地的改动路径。 */
+    appliedPaths?: string[];
+  };
+  /**
+   * 逐章气泡清单。M3 出现过「返回 bubbleCount:16、画布上 03 章少一个」，
+   * 有了这份清单就能逐号对账，不用靠截图猜。
+   */
+  bubbles?: BubbleRecord[];
+  /**
+   * 配图槽清单（path / 章节 / 簇 / 序号 / 描述 / 节点 id）。
+   * 簇配图的 `"NN/C/K"` 键要人工数顺序，这份清单是「占位 ↔ 源画板」映射底表。
+   */
+  figureSlots?: FigureSlotRecord[];
   /**
    * Which template pack this render used. Absent when none was found — then
    * `packMissing` + `packCandidates` explain the four paths that were tried.
@@ -302,14 +407,40 @@ export async function renderV2MarkdownToFigma(
   // 模板包只查一次：cwd/env 在整轮渲染里不会变，三处各查一遍只会多出
   // 「读到一半被改」的窗口，也让缺包时的报错各说各话。
   const packResolution = resolvePackWithTrace();
-  const packFields = packResultFields(packResolution);
-  const packCaps = packResolution.hit?.pack.capabilities;
   // 诊断字段：多实例 / 配置漂移时，一次调用就能看清「哪个进程、读的哪个文件」。
   const templateConfig = resolveTemplateConfig(input.template);
-  const engineFields: Pick<RenderResult, 'configPath' | 'enginePid'> = {
+  // 库引用模式（componentKey）根本不需要模板包：pack 缺失不该再出现在返回体里，
+  // 也不该因为机器上残留一份坏 pack 就拒绝渲染。
+  const libraryMode = isLibraryTemplate(templateConfig);
+  const packFields = packResultFields(packResolution, {
+    libraryMode,
+    // 同步不渲染新文档：模板包缺失是 create 期的诊断，塞进 sync 返回体只会
+    // 让人以为「少配了东西」。命中时仍回显 pack（用来判断文档是按哪套部件渲染的）。
+    sync: Boolean(input.target?.rootId)
+  });
+  const packCaps = packResolution.hit?.pack.capabilities;
+  const runId = Math.random().toString(36).slice(2, 10);
+  const engineFields: Pick<RenderResult, 'configPath' | 'enginePid' | 'runId' | 'engineVersion'> = {
     enginePid: process.pid,
+    runId,
+    engineVersion: ENGINE_VERSION,
     ...(templateConfig.configPath ? { configPath: templateConfig.configPath } : {})
   };
+
+  // Phase A0 — Phase 1 完成声明。传了就必须合格（机器可验证），不传只软提醒：
+  // 老调用方不该被这条新门禁挡住，但 SOP 侧要求 Phase 2 落盘后带着它来。
+  if (input.phase1Signoff !== undefined) {
+    const signoff = checkPhase1Signoff(input.phase1Signoff);
+    if (!signoff.ok) {
+      return {
+        ok: false,
+        ...packFields,
+        ...engineFields,
+        errors: signoff.errors,
+        warnings: []
+      };
+    }
+  }
 
   // Phase A — Parse + hard-validate.
   // 校验松紧要跟模板走：没有总览区 / 职能写句尾的模板，按官方形状要求会一律拒收。
@@ -325,6 +456,23 @@ export async function renderV2MarkdownToFigma(
       errors: parsed.errors,
       warnings: parsed.warnings
     };
+  }
+
+  if (input.phase1Signoff === undefined) {
+    parsed.warnings.push({
+      code: SOFT_WARNING_CODES.W_PHASE1_SIGNOFF_MISSING,
+      message:
+        '本次没有 phase1Signoff：Phase 1 的需求挖掘完成声明缺失。' +
+        'SOP 要求 Phase 2 入口先落盘 `.interaction-sop/phase1-signoff.json` 并校验通过'
+    });
+  }
+
+  // 簇数 > 0 却一个锚点都没传 → 必须说出来（以前是零告警）。
+  // 同步模式自己发这条（文案要区分「按网格摆放」和「本次未重排」）。
+  if (!input.badgeAnchors && !input.target?.rootId) {
+    const clusterCount = parsed.ir.sections.reduce((n, s) => n + s.clusters.length, 0);
+    const warning = badgeDefaultsWarning(clusterCount);
+    if (warning) parsed.warnings.push(warning);
   }
 
   // Phase A2 — Bind the target file, before anything touches the canvas.
@@ -396,6 +544,8 @@ export async function renderV2MarkdownToFigma(
     const figures = makeFigureState(input.assetMap);
     const keyWarnings = findUnmatchedAssetKeys(ir, input.assetMap);
     const roleWarnings: SoftWarning[] = [];
+    const bubbles: BubbleRecord[] = [];
+    let figureSlots: FigureSlotRecord[] = figureSlotsFromIr(ir);
     let rootInstanceId: string | undefined;
     let partsLayout: PartsDocLayout | undefined;
     let partsSummary: PartsSummary | undefined;
@@ -413,18 +563,38 @@ export async function renderV2MarkdownToFigma(
         (layout, summary) => { partsLayout = layout; partsSummary = summary; },
         packResolution,
         { x: placement.x, y: placement.y },
-        (info) => { resolvedRoleBlock = info; }
+        (info) => { resolvedRoleBlock = info; },
+        {
+          onBubbles: (records) => bubbles.push(...records),
+          onFigureSlots: (records) => { figureSlots = records; }
+        }
       );
     } catch (e) {
       const err = e as Error & { code?: string; details?: string };
       // Best-effort rollback: delete the entire root subtree if it was created.
       // More reliable than triggerUndo(1) which only undoes the last figma_execute
       // entry and leaves the rest of the partial render on canvas.
+    let leakedRootId: string | undefined;
+    const failureWarnings = [...parsed.warnings];
     if (rootInstanceId) {
       try {
         await targetBackend.deleteNodes([rootInstanceId]);
       } catch {
         /* root may already be partially cleaned up — ignore */
+      }
+      // E6：写操作超时无法排除「执行成功但响应丢失」。回滚之后再读一次根节点，
+      // 还在就说明回滚没确认，必须把 id 交出去，别让人以为画布是干净的。
+      try {
+        await targetBackend.getNodeInfo(rootInstanceId);
+        leakedRootId = rootInstanceId;
+        failureWarnings.push({
+          code: SOFT_WARNING_CODES.W_WRITE_TIMEOUT_RECONCILED,
+          message:
+            `渲染失败后回滚未确认：根帧 ${rootInstanceId} 可能仍在画布上（runId ${runId}）。` +
+            '先按这个 id 检查后再决定重跑；重跑会新建一份，不会复用它。'
+        });
+      } catch {
+        /* 已删除：回滚确认 */
       }
     }
     // 不带 target 时 legacy 路径会去克隆模板实例，缺包时抛出的是 `cloneNode:
@@ -438,6 +608,7 @@ export async function renderV2MarkdownToFigma(
       ok: false,
       ...packFields,
       ...engineFields,
+      ...(leakedRootId ? { sideEffects: { createdRootId: leakedRootId } } : {}),
       errors: [
         {
           code: missingPackClone ? 'V2_TEMPLATE_PACK_MISSING' : err.code ?? 'V2_RENDER_RUNTIME_ERROR',
@@ -447,7 +618,7 @@ export async function renderV2MarkdownToFigma(
           ...(err.details ? { details: err.details } : {})
         }
       ],
-      warnings: parsed.warnings
+      warnings: failureWarnings
     };
   }
 
@@ -486,6 +657,8 @@ export async function renderV2MarkdownToFigma(
       ...packFields,
       ...engineFields,
       ...(resolvedRoleBlock ? { resolvedRoleBlock } : {}),
+      ...(bubbles.length > 0 ? { bubbles } : {}),
+      ...(figureSlots.length > 0 ? { figureSlots } : {}),
       errors: [],
       warnings: [
         ...parsed.warnings,
@@ -606,7 +779,8 @@ async function resolvePlacement(
  * 加候选轨迹。轨迹只在缺包时给，正常路径的返回体不该被 4 条诊断撑大。
  */
 function packResultFields(
-  resolution: PackResolution
+  resolution: PackResolution,
+  opts: { libraryMode?: boolean; sync?: boolean } = {}
 ): Pick<RenderResult, 'pack' | 'packMissing' | 'packCandidates'> {
   const hit = resolution.hit;
   if (hit) {
@@ -620,6 +794,11 @@ function packResultFields(
       }
     };
   }
+  // 库引用模式（template.componentKey）根本不用 pack：再把 packMissing +
+  // 4 条候选路径塞进返回体，只会让人以为「少配了一个东西」。
+  // 同步同理：pack 缺失只影响"能不能新建节点"，返回体里已经有
+  // V2_W_PACK_ADOPTED / V2_W_RECONCILE_NO_CREATE 解释，不需要候选清单。
+  if (opts.libraryMode || opts.sync) return {};
   if (resolution.disabledByEnv) return {};
   return { packMissing: true, packCandidates: resolution.candidates };
 }
@@ -639,6 +818,8 @@ function describeMissingPack(resolution: PackResolution, detail?: string): strin
   return (
     `模板包未命中，已查 ${resolution.candidates.length} 个路径：\n` +
     lines.join('\n') +
+    '\npack 完整 schema（schema_version: 1 + components.top/chapter/cluster + capabilities）见 ' +
+    'packages/skill/references/template-contract.md；没有 pack 时优先用 template.componentKey（跨文件唯一可靠方式）。' +
     (detail ? `\n原始错误：${detail}` : '')
   );
 }
@@ -770,13 +951,16 @@ async function bindTargetFile(
   packResolution: PackResolution
 ): Promise<{ backend: FigmaBackend; warnings: SoftWarning[] }> {
   const warnings: SoftWarning[] = [];
-  const fileKey = input.target?.fileKey;
+  const template = resolveTemplateConfig(input.template);
+  const explicitRef = input.template ?? {};
+  const libraryMode = isLibraryTemplate(template);
   const packHit = packResolution.hit;
 
   // 模板包显式指了路径却读不出来，是配置错误，不是「没配」——静默回落 legacy
   // 会让人对着一个完全无关的模板调试。
+  // 库引用模式例外：componentKey 走团队库，模板包在不在都不影响（E2）。
   const envCandidate = packResolution.candidates.find((c) => c.origin === 'env');
-  if (!packHit && envCandidate && envCandidate.state !== 'hit') {
+  if (!packHit && !libraryMode && envCandidate && envCandidate.state !== 'hit') {
     throw Object.assign(new Error(describeMissingPack(packResolution)), {
       code: 'V2_TEMPLATE_PACK_MISSING'
     });
@@ -790,6 +974,20 @@ async function bindTargetFile(
       message:
         `已命中模板包 ${packHit.path}（origin=${packHit.origin}），` +
         `template.fileKey/nodeId 只影响 legacy 模板寻址，本次未参与任何决策`
+    });
+  }
+
+  // template.fileKey 以前被接受、被记录、然后被丢弃：渲染永远写进 Figma 当前
+  // 活动文件。同文件模式（模板就在这个文件里）下这就是错的，所以没给
+  // target.fileKey 时按模板文件定向，并明说这件事。
+  let fileKey = input.target?.fileKey;
+  if (!fileKey && !libraryMode && !packHit && explicitRef.fileKey) {
+    fileKey = explicitRef.fileKey;
+    warnings.push({
+      code: SOFT_WARNING_CODES.W_TARGET_FROM_TEMPLATE,
+      message:
+        `未给 target.fileKey，已按 template.fileKey=${fileKey} 定向写入模板所在文件` +
+        '（旧行为是写进 Figma 当前活动文件）。要在别的文件落文档请显式传 target.fileKey。'
     });
   }
 
@@ -807,18 +1005,53 @@ async function bindTargetFile(
   }
 
   const bound = backend.withFileKey(fileKey);
-  const template = resolveTemplateConfig(input.template);
 
   // Library mode: the template lives in a published library, not in the target
   // file. Nothing to probe — the node id would resolve to an unrelated node in
   // whatever file happens to be open.
-  if (template.componentKey) return { backend: bound, warnings };
+  if (libraryMode) return { backend: bound, warnings };
 
   // 多部件模式：渲染目标是任意空文件，模板在库文件里，目标文件里没有 `1:14`
   // 可探；探了必然报「node not found」。
   if (packHit) return { backend: bound, warnings };
 
   const templateNodeId = template.nodeId ?? DEFAULT_TEMPLATE.nodeId;
+  const templateFileKey = template.fileKey;
+
+  // 跨文件：Figma 不能把另一个文件里的节点克隆进当前文件。先把「模板文件
+  // 到底连没连」查清楚，再给一条指向 componentKey 的出路——这正是 E1 里
+  // 「在目标文件找 1:14」的误导性回落的根因。
+  // 只有**显式传进来的** template.fileKey 才走这条路；来自配置 / 默认值的
+  // 模板地址仍按老方式探目标文件（那条检查能挡住「目标文件里的 1:14 是别的图层」）。
+  if (explicitRef.fileKey && templateFileKey && templateFileKey !== fileKey) {
+    let reachable = false;
+    let probeError = '';
+    try {
+      await backend.withFileKey(templateFileKey).getNodeInfo(templateNodeId);
+      reachable = true;
+    } catch (e) {
+      probeError = (e as Error).message;
+    }
+    if (!reachable) {
+      throw Object.assign(
+        new Error(
+          `模板文件 ${templateFileKey} 没有连接 Desktop Bridge（在该文件里打开插件后重试）：` +
+            `节点 ${templateNodeId} 读不到。当前连接的是目标文件 ${fileKey}。` +
+            `如果模板已发布到团队库，改用 template.componentKey——这是跨文件唯一可靠的寻址方式。` +
+            `原始错误：${probeError}`
+        ),
+        { code: 'V2_TEMPLATE_FILE_UNREACHABLE' }
+      );
+    }
+    throw Object.assign(
+      new Error(
+        `模板节点 ${templateNodeId} 在文件 ${templateFileKey} 里可访问，但渲染目标是 ${fileKey}。` +
+          'Figma 不允许跨文件克隆节点。两条出路：① template.componentKey 指向团队库已发布组件（首选）；' +
+          '② 让 target.fileKey 等于模板文件（同文件模式）。'
+      ),
+      { code: 'V2_TEMPLATE_OTHER_FILE' }
+    );
+  }
 
   let templateNode: NodeInfo;
   try {
@@ -826,10 +1059,11 @@ async function bindTargetFile(
   } catch (e) {
     throw Object.assign(
       new Error(
-        `模板包未命中（已查 ${packResolution.candidates.length} 个路径，见 packCandidates）。` +
-          `因此回落到 legacy 模板：在目标文件 ${fileKey} 中查找节点 ${templateNodeId}。` +
-          `该文件不是模板文件，这里失败通常是模板包没配好，而不是目标文件有问题。` +
-          `原始错误：${(e as Error).message}。Is the Desktop Bridge plugin running in that file?`
+        `模板节点 ${templateNodeId} 在文件 ${fileKey} 里读不到。` +
+          `常见原因是该文件不是模板文件、节点 id 不对，或模板文件没在 Figma 里打开并连接 Desktop Bridge。` +
+          `（模板地址：${templateFileKey ?? '未配置'} / ${templateNodeId}；模板包未命中，已查 ` +
+          `${packResolution.candidates.length} 个路径）改用 template.componentKey 可绕开文件寻址。` +
+          `原始错误：${(e as Error).message}`
       ),
       { code: 'V2_TARGET_FILE_UNREACHABLE' }
     );
@@ -872,7 +1106,12 @@ export async function renderInner(
   /** 新文档落点（页面坐标）。 */
   placement?: { x: number; y: number },
   /** 角色块解析结果的回显（成功才带）。 */
-  onRoleBlocksResolved?: (info: ResolvedRoleBlock | undefined) => void
+  onRoleBlocksResolved?: (info: ResolvedRoleBlock | undefined) => void,
+  /** 渲染期的对账产物：逐章气泡清单、配图槽清单。 */
+  collect?: {
+    onBubbles?: (records: BubbleRecord[]) => void;
+    onFigureSlots?: (records: FigureSlotRecord[]) => void;
+  }
 ): Promise<string> {
   // 1. Clone master template into target page.
   const template = resolveTemplateConfig(input.template);
@@ -934,6 +1173,8 @@ export async function renderInner(
     for (const w of partsResult.warnings) report?.(w);
     figures.placed += partsResult.summary.figuresPlaced;
     figures.placeholders += partsResult.summary.figuresPlaceholder;
+    collect?.onBubbles?.(partsResult.bubbles);
+    collect?.onFigureSlots?.(partsResult.figureSlots);
     onPartsLayout?.(partsResult.layout, partsResult.summary);
     return partsResult.rootId;
   }
@@ -1070,7 +1311,7 @@ export async function renderInner(
     const sectionNode = sectionNodes[i];
     if (!section || !sectionNode) continue;
 
-    await renderSection(
+    const sectionBubbles = await renderSection(
       backend,
       sectionNode,
       section,
@@ -1080,6 +1321,7 @@ export async function renderInner(
       input.badgeAnchors,
       (w) => report?.(w)
     );
+    if (sectionBubbles.length > 0) collect?.onBubbles?.(sectionBubbles);
 
     if (input.assetMap?.[section.index]?.type === 'image') imagesPlaced++;
     else placeholdersUsed++;
@@ -1219,7 +1461,7 @@ async function renderSection(
   roleBlocks: RoleBlockRuntime | undefined,
   badgeAnchors?: BadgeAnchorMap,
   report?: (w: SoftWarning) => void
-): Promise<void> {
+): Promise<BubbleRecord[]> {
   // Re-index this section's named children.
   const named = await indexCloneByName(backend, sectionNode.id, [
     SECTION_CHILD_NAMES.interfaceNameLabel,
@@ -1368,10 +1610,44 @@ async function renderSection(
     const frameBox = bubbleFrameInfo.absoluteBoundingBox;
     const frameW = frameBox?.width ?? 1920;
     const frameH = frameBox?.height ?? 1080;
+    const anchorWarnings: SoftWarning[] = [];
+    const picked = section.clusters.map((_, i) => badgeAnchors?.[anchorKey(section.index, i + 1)]);
+    // 只有文本锚点才需要读主图矩形：没锚点的老路径必须保持原有调用序列。
+    const hasTextAnchors = picked.some((a) => a !== undefined && isTextAnchor(a));
+    const imageBox =
+      hasTextAnchors && mainPlaceholder
+        ? (await backend.getNodeInfo(mainPlaceholder.id)).absoluteBoundingBox
+        : undefined;
+    // 文本锚点必须在此解析：主图资产已经落好，控件坐标是最终坐标。
+    const rect = imageBox ?? {
+      x: frameBox?.x ?? 0,
+      y: frameBox?.y ?? 0,
+      width: frameW,
+      height: frameH
+    };
+    const targets =
+      hasTextAnchors && badgeAnchors
+        ? await resolveTextAnchors({
+            backend,
+            searchRootId: mainPlaceholder?.id ?? sectionNode.id,
+            rect,
+            anchors: picked,
+            sectionIndex: section.index,
+            warnings: anchorWarnings
+          })
+        : undefined;
+    for (const w of anchorWarnings) report?.(w);
+    // 没走文本解析时（没有文本锚点），坐标锚点直接可用。
+    const numeric = picked.map((a) =>
+      a !== undefined && !isTextAnchor(a) ? a : undefined
+    );
     const offsetFor = (i: number): { x: number; y: number } => {
-      const anchor = badgeAnchors?.[anchorKey(section.index, i + 1)];
+      const anchor = targets ? targets[i] : numeric[i];
       if (!anchor) {
-        if (badgeAnchors) {
+        // 文本锚点解析失败已经报过 TEXT_NOT_FOUND，不再报第二遍。
+        const source = picked[i];
+        const textAlreadyWarned = source !== undefined && isTextAnchor(source);
+        if (badgeAnchors && !textAlreadyWarned) {
           report?.({
             code: SOFT_WARNING_CODES.W_BADGE_ANCHOR_MISSING,
             message: `第 ${section.index} 章第 ${i + 1} 个簇没有标号锚点（badgeAnchors["${section.index}/${i + 1}"]），标号按模板网格放置`,
@@ -1399,7 +1675,19 @@ async function renderSection(
       if (!b) continue;
       await placeBubbleInFrame(backend, b, bubbleFrameInfo, offsetFor(i));
     }
+    // 摆放后自检：气泡数量必须与簇数一致（M3 曾出现少一个且无告警）。
+    if (bubbleNodes.length !== section.clusters.length) {
+      report?.({
+        code: SOFT_WARNING_CODES.W_BADGE_COUNT_MISMATCH,
+        message:
+          `第 ${section.index} 章标号自检失败：应有 ${section.clusters.length} 个，实际摆放 ${bubbleNodes.length} 个` +
+          `（气泡容器 ${bubbleFrame.id}）`
+      });
+    }
+    return bubbleNodes.map((b, i) => ({ section: section.index, cluster: i + 1, nodeId: b.id }));
   }
+
+  return [];
 }
 
 /** True when the cluster carries no `####` at all — the fast path. */
@@ -1458,11 +1746,19 @@ const FIGURE_MAX_WIDTH_FALLBACK = 1231;
 
 const SECTION_KEY_RE = /^\d{2}$/;
 const FIGURE_KEY_RE = /^(\d{2})\/(\d+)\/(\d+)$/;
+/** `"01/2/低血量示意"` —— 按 `配图：` 描述定位的键（byTitle）。 */
+const FIGURE_TITLE_KEY_RE = /^(\d{2})\/(\d+)\/(.+)$/;
 
 /** Render-wide bookkeeping for figure assets and text-write side effects. */
 export interface FigureState {
-  /** Asset for figure K of cluster `prefix` ("NN/C"), if the caller gave one. */
-  lookup(prefix: string, ordinal: number): AssetSpec | undefined;
+  /**
+   * Asset for figure K of cluster `prefix` ("NN/C"), if the caller gave one.
+   *
+   * 两种键：`"NN/C/K"`（数出来的顺序）与 `"NN/C/<配图描述>"`（byTitle）。
+   * 给了描述时先认 `"NN/C/K"`，再认描述键——后者不用数顺序，簇里增删
+   * `配图：` 也不会把后面几张全部错位。
+   */
+  lookup(prefix: string, ordinal: number, desc?: string): AssetSpec | undefined;
   warn(key: string, message: string): void;
   /** Record families that had no bold weight for state lines (warned once each). */
   textWritten(r: TextWriteResult): void;
@@ -1474,11 +1770,30 @@ export interface FigureState {
   readonly warnings: SoftWarning[];
 }
 
+/** byTitle 键的比较口径：去掉空白差异，其余按原文（描述是人写的，不做大小写折叠）。 */
+function normalizeFigureTitle(raw: string): string {
+  return raw.replace(/\s+/g, ' ').trim();
+}
+
 export function makeFigureState(assetMap: Record<string, AssetSpec> | undefined): FigureState {
   const warnings: SoftWarning[] = [];
   const boldMissing = new Set<string>();
   const state: FigureState = {
-    lookup: (prefix, ordinal) => assetMap?.[`${prefix}/${ordinal}`],
+    lookup: (prefix, ordinal, desc) => {
+      const direct = assetMap?.[`${prefix}/${ordinal}`];
+      if (direct) return direct;
+      if (!desc) return undefined;
+      const want = normalizeFigureTitle(desc);
+      if (!want) return undefined;
+      for (const [key, value] of Object.entries(assetMap ?? {})) {
+        const m = /^(\d{2}\/\d+)\/(.+)$/.exec(key);
+        if (!m || m[1] !== prefix) continue;
+        // 纯数字键是「第 K 张」，不是描述。
+        if (/^\d+$/.test(m[2]!)) continue;
+        if (normalizeFigureTitle(m[2]!) === want) return value;
+      }
+      return undefined;
+    },
     warn(key, message) {
       warnings.push({ code: SOFT_WARNING_CODES.W_FIGURE_FILL_FAILED, message, context: key });
     },
@@ -1498,8 +1813,7 @@ export function makeFigureState(assetMap: Record<string, AssetSpec> | undefined)
   return state;
 }
 
-export function boldUnavailableWarning(family: string): SoftWarning {
-  return {
+export function boldUnavailableWarning(family: string): SoftWarning {  return {
     code: SOFT_WARNING_CODES.W_STATE_BOLD_UNAVAILABLE,
     message: `字体族 ${family} 没有可用的粗体字重，状态名未加粗`,
     context: family
@@ -1545,12 +1859,28 @@ function findUnmatchedAssetKeys(
         const k = Number(m[3]);
         const figureCount = cluster ? cluster.bullets.filter(isFigureSlotBullet).length : 0;
         matched = k >= 1 && k <= figureCount;
+      } else {
+        // `"NN/C/<配图描述>"` —— byTitle 键，描述必须真的出现在该簇的 `配图：` 里。
+        const byTitle = FIGURE_TITLE_KEY_RE.exec(key);
+        if (byTitle) {
+          const section = ir.sections.find((s) => s.index === byTitle[1]);
+          const cluster = section?.clusters[Number(byTitle[2]) - 1];
+          const want = normalizeFigureTitle(byTitle[3]!);
+          matched = Boolean(
+            cluster &&
+              cluster.bullets
+                .filter(isFigureSlotBullet)
+                .some((b) => normalizeFigureTitle(b.replace(/^\s*[-·•*]+\s*/, '').replace(/^配图\s*[：:]\s*/u, '')) === want)
+          );
+        }
       }
     }
     if (!matched) {
       out.push({
         code: SOFT_WARNING_CODES.W_ASSET_KEY_UNMATCHED,
-        message: `assetMap["${key}"] does not match any section ("NN") or 配图 ("NN/C/K") in the document`,
+        message:
+          `assetMap["${key}"] does not match any section ("NN") or 配图 ` +
+          `("NN/C/K" 顺序键 / "NN/C/<配图描述>" byTitle 键) in the document`,
         context: key
       });
     }
@@ -2179,7 +2509,7 @@ async function finishBlockFigures(
   const bareSlots = new Set<string>();
   let blockWidth: number | undefined;
 
-  const needScan = p.images.some((img) => img.desc || p.figures.lookup(p.keyPrefix, img.ordinal));
+  const needScan = p.images.some((img) => img.desc || p.figures.lookup(p.keyPrefix, img.ordinal, img.desc));
   if (needScan) {
     const { nodes: scanned, truncated } = await backend.scanSubtree(p.blockId);
     const all = truncated ? await scanAllDescendants(backend, p.blockId) : scanned;
@@ -2200,7 +2530,7 @@ async function finishBlockFigures(
 
   for (const img of p.images) {
     const key = `${p.keyPrefix}/${img.ordinal}`;
-    const asset = p.figures.lookup(p.keyPrefix, img.ordinal);
+    const asset = p.figures.lookup(p.keyPrefix, img.ordinal, img.desc);
     if (asset?.type === 'figma_node') {
       toFill.push({ img, key, asset });
       continue;

@@ -2,7 +2,18 @@
 
 ## 进入条件
 
-Phase 1 已达到`信息可用`或`信息充分`。
+Phase 1 已达到`信息可用`或`信息充分`，**并且完成声明已通过机器校验**：
+
+```
+validate_phase1_signoff({ path: "<项目根>/.interaction-sop/phase1-signoff.json" })
+→ ok: true
+```
+
+- `ok: false`（含 `V2_SIGNOFF_FILE_MISSING`）→ **不准写 Markdown**。回 Phase 1 把缺口补齐、重新落盘再校验
+- 声明里的 `unresolved_conflicts` / `pending_questions` 必须为 `[]`，`dimensions` 四项必须全 `true`；改声明凑数等于把门禁作废
+- 同一份声明在 Phase 4 会作为 `phase1Signoff` 随渲染一起提交（不合格会被引擎硬拒绝）
+
+> 这一步是**硬门禁**，不是提醒：Phase 1 的自述"已经挖完了"不作数，只有工具返回 `ok: true` 才算过。
 
 ## 完成条件
 

@@ -31,16 +31,89 @@ Phase 1 第一回合开口前，Phase 0 会在内部完成项目模式库的检�
 
 ## 完成条件
 
-下列**全部 4 项**同时满足才可进入 Phase 2：
+下列**全部 5 项**同时满足才可进入 Phase 2：
 
 1. 已采用模式（若有）的"通常需要重定的参数"全部明确
 2. 已采用模式（若有）的"容易需要重新决策的地方"中，新需求触及的点已拍板
 3. 未被模式覆盖的业务专属问题：核心触发/对象/目标/输入/状态/反馈/边界都明确
 4. 会话级状态 `unresolved_conflicts` 为空（所有 ⚠️ 冲突已拍板）
+5. **完成声明已落盘并通过机器校验**（见下节「完成声明」）
 
 > **即使用户说"直接写完整 Markdown"，只要有未决冲突（`unresolved_conflicts` 非空），仍 MUST 先定冲突再推进。**
+>
+> **只有对话里的自述不算完成。** 第 5 项是唯一可被工具验证的产物；没有它，Phase 2 不得开工（见 `phase2-markdown.md` 进入条件）。
 
 不要追求完美确定。够用就推进——但冲突必须清零。
+
+---
+
+## 完成声明（Phase 2 的硬门禁）
+
+Phase 1 收尾时，**必须**把挖掘结果写成一份机器可校验的 JSON，落到
+`<项目根>/.interaction-sop/phase1-signoff.json`，然后调用
+`validate_phase1_signoff`（MCP：`figma-interaction-doc-engine`）拿到 `ok: true`。
+
+```json
+{
+  "schema_version": 1,
+  "requirement": "<需求名，与 Markdown 标题一致>",
+  "checked_at": "2026-11-03",
+  "unresolved_conflicts": [],
+  "pending_questions": [],
+  "dimensions": {
+    "params": true,
+    "diff_areas": true,
+    "business": true,
+    "conflicts": true
+  },
+  "evidence": {
+    "params": "冷却 8s / 上限 3 层（策划文档 2.1）",
+    "diff_areas": "P-003 骨架已拍板复用",
+    "business": "触发、输入、状态、反馈、边界已问清；归属见 @程序/@策划",
+    "conflicts": "1 处冲突已拍板：内嵌（用户选）"
+  }
+}
+```
+
+校验规则（引擎只认这四条，不做语义解释）：
+
+| 字段 | 必须 |
+|---|---|
+| `schema_version` | `1` |
+| `unresolved_conflicts` | `[]` |
+| `pending_questions` | `[]` |
+| `dimensions` | `params` / `diff_areas` / `business` / `conflicts` 全为 `true` |
+
+- 任一条不满足 → 工具返回 `ok: false` + 具体错误码（`V2_SIGNOFF_CONFLICTS_OPEN` / `V2_SIGNOFF_PENDING_QUESTIONS` / `V2_SIGNOFF_DIMENSIONS_INCOMPLETE` / `V2_SIGNOFF_INVALID`）。**回去继续挖，不要改声明凑数**
+- 文件不存在 → `V2_SIGNOFF_FILE_MISSING`；传 `signoff` 对象可直接校验（不落盘时引擎仍会接受，但 SOP 要求落盘，便于复盘）
+- Phase 4 渲染时把这个对象一起传给 `render_v2_markdown_to_figma` 的 `phase1Signoff`：不合格会被硬拒绝，不传则返回 `V2_W_PHASE1_SIGNOFF_MISSING`
+
+**为什么要这条**：SOP 原文「4 维度全满才可进 Phase 2」全靠 agent 自觉，没有强制产物，结果需求常常在文档写完之后才补挖。声明落盘 + 工具校验是唯一能让这条规则"有牙齿"的方式。
+
+---
+
+## 逐帧校验（需求来自 Figma / 截图时，硬规则）
+
+**只要需求材料里包含 Figma 链接 / 设计稿 / 截图，Phase 1 结束前必须逐帧截图核对，核对完才允许成文。**
+
+1. 逐帧 `figma_capture_screenshot`（或 `figma_take_screenshot`；只能截视口时先 `figma_execute` 定位节点）
+2. 每帧核对四类事实，**以图为准，不以文字推断**：
+   - 控件清单（图上有的才算有，图上没有的不许补）
+   - 文案（按钮 / 标题 / 占位符原文，逐字抄）
+   - 布局（左右分栏、消息对齐方向、dock 位置）
+   - 状态差异（同一界面的多态用气泡分别标注哪些控件变了）
+3. 产出**帧清单**并回给用户确认：
+
+```
+逐帧核对清单（N 帧）
+- 图1「登录命名」：控件 6 个（标题/输入框/骰子/确定/提示/背景按钮）；左对齐；…
+- 图2「好友申请」：3 行列表，行高一致，右侧按钮「同意」；…
+```
+
+4. 截图不可用（Bridge 断 / 工具报错）时：写明"逐帧核对未完成，按文字材料成文，偏差风险由你确认"，**不要**假装核对过
+5. 帧数 > 8 时先截前 8 帧并在清单里标 `待核对`；成文前把剩余帧补完，或明确标注哪几章基于文字
+
+> 本轮真实偏差（好友行内容、消息对齐、面板左右 dock）全部来自"按文字提取成文、没逐帧看图"。这条规则的目的是把偏差挡在 Phase 2 之前。
 
 ---
 
@@ -351,11 +424,12 @@ Agent 输出撤销确认：
 > - 采用 P-XXX（[模式名称]）
 > - 偏离待审核：N 条
 > - 业务专属决策：M 条
+> - 完成声明：已落盘 `.interaction-sop/phase1-signoff.json`，`validate_phase1_signoff` 返回 ok（冲突 0 / 待问 0 / 4 维度全 true）
 >
 > 我现在进入 Phase 2，会按 P-XXX 骨架 + 上述偏离与业务决策直接生成 v2 Markdown。"
 
 **无采用模式时**，原有措辞：
 
-> "需求已经收敛得够写一份 v2 Markdown 了。我现在进入 Phase 2，先把完整 Markdown 输出来给你审，你确认后我保存到磁盘。"
+> "需求已经收敛得够写一份 v2 Markdown 了。完成声明已落盘并通过校验（冲突 0 / 待问 0 / 4 维度全 true）。我现在进入 Phase 2，先把完整 Markdown 输出来给你审，你确认后我保存到磁盘。"
 
 然后切换到 `phase2-markdown.md`。

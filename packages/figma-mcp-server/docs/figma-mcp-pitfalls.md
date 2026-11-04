@@ -430,7 +430,24 @@ in set_layoutGrow: Property "layoutGrow" failed validation: Expected ... 0 ... 1
 
 ---
 
-## 陷阱 6：Bridge 端口的「所有权」不是靠「有人占着就算活着」判断
+## 陷阱 6：标号锚点依赖 absoluteBoundingBox，主图被替换后必须重跑
+
+### 现象（2026-11-03 真机，M1/M2/M3）
+
+`badgeAnchors` 不传时，标号全部落在模板网格 `(960,60)(960,180)(1700,280)…`，与主图控件完全脱节，而返回体 `warnings: []`——三轮都被用户打回修标号。手工用脚本按 `findAll(TEXT)` 吸附时又踩到第二层：**主图换成 `figma_instance` 后，控件的 `absoluteBoundingBox` 全变了**，之前算好的坐标作废。
+
+### 引擎硬规则
+
+- [ ] 锚点支持文本形式 `{text, offset}`：摆放前扫主图子树按 `characters` 匹配（空白折叠、大小写不敏感），读 `absoluteBoundingBox` 换算成主图归一化坐标
+- [ ] **解析必须排在主图资产落位之后**（`applyAsset` / 实例替换 → 再做锚定），否则用的是旧图坐标
+- [ ] 整表不传且簇数 > 0 → 必须报 `V2_W_BADGE_ANCHOR_DEFAULTED`，不许静默
+- [ ] 文本找不到 → 退回网格 + `V2_W_BADGE_ANCHOR_TEXT_NOT_FOUND`；同名多个 → 取第一个 + `V2_W_BADGE_ANCHOR_TEXT_AMBIGUOUS`
+- [ ] 摆完标号重读容器核对数量（`V2_W_BADGE_COUNT_MISMATCH`），并返回 `bubbles` 清单供对账
+- [ ] **标号先补齐、后清理**：旧实现先删不在 `known` 里的标号再克隆，克隆中途断连就留下「标号比簇少」且无告警
+
+---
+
+## 陷阱 7：Bridge 端口的「所有权」不是靠「有人占着就算活着」判断
 
 ### 现象（2026-11-03 真机，两次验收都中）
 
@@ -474,3 +491,22 @@ figma_execute failed: Cannot connect to Figma Desktop … ws://localhost:9223
 ## 来源
 
 本文从 `C:\Users\miaochengming\.codex\skills\_archive\game-interaction-doc.bak\SKILL.md` 抢救并整理。原 SKILL 的"Layout Safety Rules"完整章节、`trigger_undo` 警告章节、Role-tag TEXT 数组规则、Numbered Callouts 与 Default Callout positions 等技术性内容均移入本文，由引擎代码承接。
+
+---
+
+## 陷阱 8：dryRun 通过 ≠ 真跑能跑（scratch 只在真跑时渲染）
+
+### 现象（2026-11-04 真机）
+
+M1 adopt 同步：带上 `dryRun: true` 返回 `ok:true`、`changes` 6 条；去掉 dryRun 立刻 `V2_RECONCILE_SCRATCH_MISMATCH: scratch render produced no parts layout`，画布零写入。两次复现（runId `m776wq1t` / `0et7oyo2`）。
+
+### 根因
+
+计划阶段只算「要改什么」，不渲染；真跑才为需要新建的节点渲染临时文档（scratch）。parts scratch 必须有模板包，而 adopt 正是「没有包」的场景——于是计划通过、真跑必炸。
+
+### 引擎硬规则
+
+- [ ] **能否新建节点必须在计划阶段判定**（`canCreate`）：parts + 无包 → false
+- [ ] 不能建时把路径记成 `conflicts[kind=needs-new-node]` + `V2_W_RECONCILE_NO_CREATE`，其余改动照常写；SHALL NOT 留到 scratch 阶段抛错
+- [ ] `dryRun` 与真跑的 `changes` / `conflicts` 必须完全一致（这是可测的断言）
+- [ ] scratch 失败的错误消息必须带章节定位与原因（缺包 / 布局回调未触发 / 槽位对不上），不许只有一句 "no parts layout"

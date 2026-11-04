@@ -211,6 +211,20 @@ export const SOFT_WARNING_CODES = {
   W_BADGE_ANCHOR_MISSING: 'V2_W_BADGE_ANCHOR_MISSING',
   /** render — 锚点坐标不在 0–1，已夹到图内。 */
   W_BADGE_ANCHOR_OUT_OF_RANGE: 'V2_W_BADGE_ANCHOR_OUT_OF_RANGE',
+  /**
+   * render — 整份文档一个锚点都没传，所有标号落在模板网格上。
+   * 以前这条是完全静默的，调用方无从判断标号是否与主图控件对位。
+   */
+  W_BADGE_ANCHOR_DEFAULTED: 'V2_W_BADGE_ANCHOR_DEFAULTED',
+  /** render — 文本锚点 `text` 在主图里找不到（或主图里没有文本可匹配）。 */
+  W_BADGE_ANCHOR_TEXT_NOT_FOUND: 'V2_W_BADGE_ANCHOR_TEXT_NOT_FOUND',
+  /** render — 文本锚点命中多个控件，取了第一个。用 `occurrence` 指定。 */
+  W_BADGE_ANCHOR_TEXT_AMBIGUOUS: 'V2_W_BADGE_ANCHOR_TEXT_AMBIGUOUS',
+  /**
+   * render — 标号摆放后自检：容器里的标号数与簇数不符（多/少）。
+   * M3 出现过「返回 bubbleCount:16，画布上 03 章少一个」这类无声丢失。
+   */
+  W_BADGE_COUNT_MISMATCH: 'V2_W_BADGE_COUNT_MISMATCH',
   /** render — 章节部件里找不到主图槽，该章的主图资产未落图。 */
   W_MAIN_SLOT_MISSING: 'V2_W_MAIN_SLOT_MISSING',
   /**
@@ -232,7 +246,32 @@ export const SOFT_WARNING_CODES = {
    * render — 模板声明了 `roleAnnotation: 'inline-suffix'`（把职能拼进标题），
    * 引擎尚未实现。以前是静默：职能条目直接消失，文档里搜不到任何 @职能。
    */
-  W_ROLE_ANNOTATION_UNSUPPORTED: 'V2_W_ROLE_ANNOTATION_UNSUPPORTED'
+  W_ROLE_ANNOTATION_UNSUPPORTED: 'V2_W_ROLE_ANNOTATION_UNSUPPORTED',
+  /**
+   * reconcile — 模板包缺失 / 指纹变了，但调用方显式要求（或给了 componentKey）
+   * 继续增量同步。旧文档按 adopt 流程继续，指纹在成功后重打。
+   */
+  W_PACK_ADOPTED: 'V2_W_PACK_ADOPTED',
+  /**
+   * render — 没传 `phase1Signoff`。Phase 1 完成声明是 Phase 2 的硬门禁，
+   * 引擎只软提醒（老调用方不该被这条挡住）。
+   */
+  W_PHASE1_SIGNOFF_MISSING: 'V2_W_PHASE1_SIGNOFF_MISSING',
+  /**
+   * reconcile — 模板包缺失（adopt）时本轮不能新建节点：需要新增的界面/簇/条目
+   * 记在 `conflicts`（kind: `needs-new-node`）里，其余改动照常写入。
+   */
+  W_RECONCILE_NO_CREATE: 'V2_W_RECONCILE_NO_CREATE',
+  /**
+   * render/reconcile — 写操作遇到 Bridge 超时或断连后，引擎做了一次状态对账：
+   * 返回体的 changes / sideEffects 就是已经落地的部分，重跑同参数是幂等的。
+   */
+  W_WRITE_TIMEOUT_RECONCILED: 'V2_W_WRITE_TIMEOUT_RECONCILED',
+  /**
+   * render — 只给了 template.fileKey、没给 target.fileKey：已按模板所在文件写入
+   * （以前是静默写进 Figma 当前活动文件，与调用方的模板地址无关）。
+   */
+  W_TARGET_FROM_TEMPLATE: 'V2_W_TARGET_FROM_TEMPLATE'
 } as const;
 
 export type SoftWarningCode =

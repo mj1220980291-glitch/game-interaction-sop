@@ -10,6 +10,7 @@ import type { FigmaBackend, NodeInfo, ReconcileOp } from '../figma-client.js';
 import {
   applyAsset,
   boldUnavailableWarning,
+  figureSlotsFromIr,
   makeFigureState,
   renderInner,
   type AssetSpec,
@@ -28,10 +29,11 @@ import {
 } from './plan.js';
 import { buildSnapshot } from './snapshot.js';
 import { LEGACY_PROFILE, profileFor, type StructureProfile } from './structure.js';
-import { packHash } from '../template/pack-hash.js';
+import { packHash, packComponents } from '../template/pack-hash.js';
 import { loadPartsPack } from '../template-config.js';
+import { isTransientBridgeError } from '../../server/retry.js';
 import { stampPartsDoc, type PartsDocLayout } from '../render/parts/stamp-parts.js';
-import { refreshChapterGeometry, relayoutBadges } from '../render/parts/geometry.js';
+import { refreshChapterGeometry, relayoutBadges, readBadges } from '../render/parts/geometry.js';
 import { pickAnchors } from '../badge-anchor.js';
 import { SCRATCH_ROOT_NAME, type DocStamp } from './stamp.js';
 import type { TemplateRef } from '../template-config.js';
@@ -56,6 +58,7 @@ export async function reconcileV2(
   backend: FigmaBackend
 ): Promise<RenderResult> {
   const rootId = input.target!.rootId!;
+  const runId = Math.random().toString(36).slice(2, 10);
   if (!backend.readStampedTree || !backend.stampNodes || !backend.applyOps) {
     return fail('V2_RECONCILE_UNSUPPORTED', 'this backend cannot read or write stamps, so it cannot sync', parseWarnings);
   }
@@ -77,27 +80,77 @@ export async function reconcileV2(
 
   const docStamp = tree.root.parsed as DocStamp;
   const profile = profileFor(docStamp);
+  const adoptWarnings: SoftWarning[] = [];
   let partsPack: TemplatePack | undefined;
+  /** `refingerprint`：按当前包同步成功后，把文档上的 pack 指纹重打一遍。 */
+  let adopt: 'missing-pack' | 'refingerprint' | undefined;
   if (profile.id === 'parts') {
     // 部件重编会改槽位名与能力；在旧结构上按新能力同步会删错节点。
     const current = loadPartsPack()?.pack;
+    // 早期 pack 文档、现在机器上没有 pack：componentKey 在 = 隐式 adopt
+    // （这是 M1 现场唯一走得通的路），否则要显式 forceReconcile。
+    const adoptMissing = input.forceReconcile === true || Boolean(input.template?.componentKey);
     if (!current) {
-      return fail(
-        'V2_PACK_MISMATCH',
-        'this document was rendered from a template pack, but no pack is configured now — re-render it instead of syncing',
-        parseWarnings
-      );
+      if (!adoptMissing) {
+        return fail(
+          'V2_PACK_MISMATCH',
+          'this document was rendered from a template pack, but no pack is configured now. ' +
+            'Pass template.componentKey（团队库已发布组件）或 forceReconcile:true 继续在旧文档上增量同步（adopt），' +
+            '否则只能整篇重渲；重渲会丢掉设计师的手改与手贴内容。',
+          parseWarnings
+        );
+      }
+      adopt = 'missing-pack';
+      adoptWarnings.push({
+        code: SOFT_WARNING_CODES.W_PACK_ADOPTED,
+        message:
+          '模板包当前不可用，已按 adopt 模式继续同步：只改文字 / 配图，跳过标号重排与部件能力校验。' +
+          '同步成功后文档指纹保持原样；重新配好模板包后可再跑一次对齐。'
+      });
+    } else {
+      const expected = docStamp.parts?.packHash;
+      if (expected && expected !== packHash(current)) {
+        if (!(input.forceReconcile === true)) {
+          return fail(
+            'V2_PACK_MISMATCH',
+            `the template pack changed since this document was rendered (${expected} → ${packHash(current)}). ` +
+              '按新能力改旧结构可能删错节点，所以默认拒绝。确认结构没变的话传 forceReconcile:true：' +
+              '引擎会按当前包同步，并在成功后重打指纹（adopt）。',
+            parseWarnings
+          );
+        }
+        adopt = 'refingerprint';
+        adoptWarnings.push({
+          code: SOFT_WARNING_CODES.W_PACK_ADOPTED,
+          message:
+            `模板包指纹已变（${expected} → ${packHash(current)}），已按 adopt 模式继续同步，` +
+            '成功后文档指纹会重打成当前包——之后不再报 V2_PACK_MISMATCH。'
+        });
+      }
+      partsPack = current;
     }
-    const expected = docStamp.parts?.packHash;
-    if (expected && expected !== packHash(current)) {
-      return fail(
-        'V2_PACK_MISMATCH',
-        `the template pack changed since this document was rendered (${expected} → ${packHash(current)}); re-render instead of syncing`,
-        parseWarnings
-      );
-    }
-    partsPack = current;
   }
+  if (
+    !input.badgeAnchors &&
+    !parseWarnings.some((w) => w.code === SOFT_WARNING_CODES.W_BADGE_ANCHOR_DEFAULTED)
+  ) {
+    // 同步不按网格重摆标号：只重排变更章节。所以文案不能说「按网格摆放」——
+    // adopt 模式连重排都跳过，说成"摆放"会让人以为标号被移动过。
+    const clusterCount = ir.sections.reduce((n, s) => n + s.clusters.length, 0);
+    if (clusterCount > 0) {
+      parseWarnings.push({
+        code: SOFT_WARNING_CODES.W_BADGE_ANCHOR_DEFAULTED,
+        message:
+          adopt === 'missing-pack'
+            ? `本次未传 badgeAnchors，adopt 模式跳过标号重排：${clusterCount} 个标号保持画布现状（未移动）`
+            : `本次未传 badgeAnchors：同步只重排变更章节的标号（共 ${clusterCount} 簇），其余标号保持画布现状`
+      });
+    }
+  }
+
+  // adopt 且没有模板包：本轮建不了新节点（parts scratch 需要包）。计划侧把这批
+  // 改动记成 needs-new-node，这里再聚合一条可读告警。
+  const canCreate = profile.id === 'parts' ? Boolean(partsPack) : true;
 
   const snap = buildSnapshot(tree, profile);
   const planned = planReconcile(snap, ir, {
@@ -105,20 +158,66 @@ export async function reconcileV2(
     assetMap: input.assetMap,
     // `inline-suffix` 模板把职能拼在正文句尾：计划侧必须按同一份文本比对，
     // 否则每次同步都以为条目被改过，来回重写。
-    inlineRoles: partsPack?.capabilities.roleAnnotation === 'inline-suffix'
+    inlineRoles: partsPack?.capabilities.roleAnnotation === 'inline-suffix',
+    canCreate
   });
   if (!planned.ok) return fail(planned.code, planned.message, parseWarnings);
   const plan = planned.plan;
-  const warnings = [...parseWarnings, ...snap.warnings, ...plan.warnings];
+  const cannotCreate = plan.conflicts.filter((c) => c.kind === 'needs-new-node');
+  if (cannotCreate.length > 0) {
+    adoptWarnings.push({
+      code: SOFT_WARNING_CODES.W_RECONCILE_NO_CREATE,
+      message:
+        `adopt 模式下模板包不可用，本轮只改既有节点：${cannotCreate.length} 处需要新建节点，` +
+        `已列入 conflicts（kind: needs-new-node，路径 ${cannotCreate
+          .slice(0, 5)
+          .map((c) => c.path)
+          .join(' / ')}）。配回模板包后重跑可补齐。`
+    });
+  }
+  const warnings = [...parseWarnings, ...snap.warnings, ...plan.warnings, ...adoptWarnings];
   const report = { changes: plan.changes, conflicts: plan.conflicts, preserved: plan.preserved };
-  const ok = (): RenderResult => ({
-    ok: true,
-    mode: 'reconcile',
-    rootInstanceId: rootId,
-    errors: [],
-    warnings,
-    ...report
-  });
+  /** 本次同步后画布上的标号：章节 → 簇序号 + 节点 id（对账用，E5）。 */
+  const bubbles: Array<{ section: string; cluster: number; nodeId: string }> = [];
+  const chapterFor = (i: number, section: DocIR['sections'][number]) => {
+    const M = section.name.replace(/^\s*\d+\s*[.、．]\s*/, '').trim();
+    return snap.sections.find((s) => s.node && s.W === M) ?? (snap.sections[i]?.node ? snap.sections[i] : undefined);
+  };
+  /**
+   * 同步不重渲文档，标号清单只能从画布读。写完之后读才是权威结果（同步可能
+   * 重排了新增标号）；dryRun 不写，读到的仍是现状，同样有意义。
+   */
+  const readAllBadges = async (): Promise<void> => {
+    for (let i = 0; i < ir.sections.length; i += 1) {
+      const section = ir.sections[i]!;
+      const hit = chapterFor(i, section);
+      if (!hit?.node) continue;
+      const frames = await readBadges(
+        backend,
+        hit.node.id,
+        section.index,
+        section.clusters.length,
+        warnings,
+        partsPack?.capabilities.badgeSlot
+      );
+      frames.forEach((n, k) => bubbles.push({ section: section.index, cluster: k + 1, nodeId: n.id }));
+    }
+  };
+  const ok = async (): Promise<RenderResult> => {
+    await readAllBadges();
+    const figureSlots = figureSlotsFromIr(ir);
+    return {
+      ok: true,
+      mode: 'reconcile',
+      rootInstanceId: rootId,
+      runId,
+      ...(bubbles.length > 0 ? { bubbles } : {}),
+      ...(figureSlots.length > 0 ? { figureSlots } : {}),
+      errors: [],
+      warnings,
+      ...report
+    };
+  };
 
   // 只改标号锚点（md 没动）也要写画布：否则「只改标号位置」这条路径永远不生效。
   const anchorsOnly =
@@ -135,7 +234,6 @@ export async function reconcileV2(
   }
 
   const { lock: _stale, ...unlocked } = snap.stamp;
-  const runId = Math.random().toString(36).slice(2, 10);
   await backend.commitUndoCheckpoint('v2-reconcile-start');
   if (tree.strayScratchIds.length > 0) await backend.deleteNodes(tree.strayScratchIds);
   await backend.applyOps([
@@ -239,6 +337,15 @@ export async function reconcileV2(
 
     const docStamp: DocStamp = { ...plan.docStamp(resolver) };
     delete docStamp.lock;
+    // adopt：按当前包同步成功 → 重打指纹，下次不再报 V2_PACK_MISMATCH。
+    if (adopt === 'refingerprint' && partsPack) {
+      docStamp.structure = 'parts';
+      docStamp.parts = {
+        structure: 'parts',
+        packHash: packHash(partsPack),
+        components: packComponents(partsPack)
+      };
+    }
     const r = await backend.applyOps([{ op: 'stamp', nodeId: rootId, stamp: docStamp as unknown as Record<string, unknown> }]);
     if (r.failedAt !== undefined) {
       throw Object.assign(new Error(`could not write the document stamp: ${r.reason ?? 'unknown'}`), {
@@ -252,8 +359,25 @@ export async function reconcileV2(
     return ok();
   } catch (e) {
     const err = e as Error & { code?: string };
+    const appliedPaths = plan.changes
+      .filter((c) => done.has(plan.changeBatch.get(c) ?? ''))
+      .map((c) => c.path);
+    // E6：写操作超时 / 断连无法排除「执行成功但响应丢失」。同步是收敛的——
+    // 已落地的批次在这里按 changes 交账，重跑同参数不会重复插入。
+    const transient = isTransientBridgeError(err.message);
+    if (transient) {
+      warnings.push({
+        code: SOFT_WARNING_CODES.W_WRITE_TIMEOUT_RECONCILED,
+        message:
+          `写操作遇到 Bridge 超时 / 断连（runId ${runId}）。已按批次对账：` +
+          `${appliedPaths.length} 处改动确认落地（见 changes）。` +
+          '用相同参数重跑是幂等的，不要改用新建模式。'
+      });
+    }
     return fail(err.code ?? 'V2_RECONCILE_RUNTIME_ERROR', err.message, warnings, {
       rootInstanceId: rootId,
+      runId,
+      ...(transient ? { sideEffects: { appliedPaths } } : {}),
       changes: plan.changes.filter((c) => done.has(plan.changeBatch.get(c) ?? '')),
       conflicts: plan.conflicts,
       preserved: plan.preserved
@@ -439,15 +563,50 @@ async function renderScratch(
   if (profile.scratch === 'parts') {
     const pack = loadPartsPack()?.pack;
     if (!partsLayout || !pack) {
-      throw Object.assign(new Error('scratch render produced no parts layout'), {
-        code: 'V2_RECONCILE_SCRATCH_MISMATCH'
-      });
+      const where = plan.scratchSections
+        .map((s) => {
+          const sec = ir.sections[s];
+          return sec ? `${sec.index}「${sec.name}」` : `#${s}`;
+        })
+        .join(' / ');
+      const why = !pack
+        ? '当前没有可用的模板包，parts scratch 渲染不了——adopt 模式本来就不该走到这里（需要新节点的改动应记成 needs-new-node）'
+        : '部件布局回调没有触发（临时文档没走 parts 渲染路径）';
+      throw Object.assign(
+        new Error(
+          `scratch 渲染没有产出 parts 布局：需要新建节点的章节有 ${plan.scratchSections.length} 个（${where}）。` +
+            `原因：${why}。这些路径是新插入的界面/簇/条目，不是文字改动；先确认 md 是否真的新增了内容，或配置回模板包后重跑。`
+        ),
+        {
+          code: 'V2_RECONCILE_SCRATCH_MISMATCH',
+          details: {
+            sections: plan.scratchSections,
+            sectionLabels: where,
+            packAvailable: Boolean(pack),
+            profile: profile.id
+          }
+        }
+      );
     }
     const { missing, written } = await stampPartsDoc(backend, partsLayout, scratchIr, pack);
     if (missing.length > 0) {
-      throw Object.assign(new Error(`scratch render did not line up: ${missing.join('; ')}`), {
-        code: 'V2_RECONCILE_SCRATCH_MISMATCH'
-      });
+      const where = plan.scratchSections
+        .map((s) => {
+          const sec = ir.sections[s];
+          return sec ? `${sec.index}「${sec.name}」` : `#${s}`;
+        })
+        .join(' / ');
+      throw Object.assign(
+        new Error(
+          `scratch 渲染与计划对不上：${missing.join('; ')}` +
+            `（临时文档章节：${where}；pack=${pack.project ?? '未命名'}）。` +
+            '通常是模板部件的槽位名与计划侧的序号不同源（`####` 标题 / 职能条目 / 隐藏槽）。'
+        ),
+        {
+          code: 'V2_RECONCILE_SCRATCH_MISMATCH',
+          details: { missing, sections: plan.scratchSections, sectionLabels: where }
+        }
+      );
     }
     const layoutRef = partsLayout;
     const resolver: Resolver = {

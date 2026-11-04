@@ -28,10 +28,13 @@ import {
   applyAsset,
   figureSlotGeometryProblems,
   fillCluster,
+  figureSlotsFromIr,
   indexCloneByName,
   makeFigureState,
   makeImageSeed,
   type AssetSpec,
+  type BubbleRecord,
+  type FigureSlotRecord,
   type FigureState
 } from '../../render.js';
 import { retryTransient } from '../../../server/retry.js';
@@ -78,6 +81,10 @@ export interface PartsRenderResult {
   /** 打标用的节点清单：章节 / 簇 / 条目，都是渲染期就知道的 id。 */
   layout: PartsDocLayout;
   warnings: SoftWarning[];
+  /** 逐章气泡清单：章节 → 簇序号 + 标号节点 id。对账用（E5）。 */
+  bubbles: BubbleRecord[];
+  /** 配图槽清单：占位 ↔ 源画板人工映射的底表（E7）。 */
+  figureSlots: FigureSlotRecord[];
   summary: {
     sectionCount: number;
     clusterCount: number;
@@ -314,6 +321,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
   await stage('fill.top', () => fillTop(backend, top, ir, caps.overview, warnings));
 
   const sections: PartsSectionLayout[] = [];
+  const bubbles: BubbleRecord[] = [];
   let figuresPlaceholder = 0;
   for (let i = 0; i < ir.sections.length; i += 1) {
     const section = ir.sections[i];
@@ -336,6 +344,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     if (placed.image) imagesPlaced += 1;
     else placeholdersUsed += 1;
     figuresPlaceholder += placed.figuresPlaceholder;
+    bubbles.push(...placed.bubbles);
     sections.push({ nodeId: chapters[i]!.id, name: section.name, clusters: placed.clusters });
   }
 
@@ -365,6 +374,8 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     rootId: root.id,
     layout: layoutInfo,
     warnings,
+    bubbles,
+    figureSlots: figureSlotsFromLayout(ir, sections),
     summary: {
       sectionCount: ir.sections.length,
       clusterCount: ir.sections.reduce((n, s) => n + s.clusters.length, 0),
@@ -528,6 +539,32 @@ function assertCapabilityConflicts(
 
 // --- top -----------------------------------------------------------------
 
+/**
+ * 配图槽清单的 `nodeId` 只有渲染期才知道（部件里的槽是克隆出来的新 id）；
+ * 描述与路径直接来自 IR，两者按 path 合并。E7 的人工映射底表就是这么来的。
+ */
+function figureSlotsFromLayout(
+  ir: DocIR,
+  sections: PartsSectionLayout[]
+): FigureSlotRecord[] {
+  const nodeIdByPath = new Map<string, string>();
+  sections.forEach((s, si) => {
+    const section = ir.sections[si];
+    s.clusters.forEach((c, ci) => {
+      let k = 0;
+      for (const item of c.items) {
+        if (item.t !== 'figure') continue;
+        k += 1;
+        if (section) nodeIdByPath.set(`${section.index}/${ci + 1}/${k}`, item.nodeId);
+      }
+    });
+  });
+  return figureSlotsFromIr(ir).map((slot) => {
+    const nodeId = nodeIdByPath.get(slot.path);
+    return nodeId ? { ...slot, nodeId } : slot;
+  });
+}
+
 async function fillTop(
   backend: FigmaBackend,
   top: NodeInfo,
@@ -680,7 +717,12 @@ async function fillChapter(
   chapter: NodeInfo,
   section: InterfaceSection,
   ctx: FillChapterCtx
-): Promise<{ image: boolean; clusters: PartsClusterLayout[]; figuresPlaceholder: number }> {
+): Promise<{
+  image: boolean;
+  clusters: PartsClusterLayout[];
+  figuresPlaceholder: number;
+  bubbles: BubbleRecord[];
+}> {
   const named = await indexCloneByName(backend, chapter.id, [
     CHAPTER_SLOTS.sectionTitle,
     CHAPTER_SLOTS.mainImage,
@@ -810,7 +852,8 @@ async function fillChapter(
       const imageBullets = cluster.bullets.filter(isFigureSlotBullet);
       const prefix = `${section.index}/${i + 1}`;
       for (let k = 0; k < imageBullets.length; k += 1) {
-        const asset = ctx.figures.lookup(prefix, k + 1);
+        const desc = stripImageBulletPrefix(imageBullets[k]!);
+        const asset = ctx.figures.lookup(prefix, k + 1, desc);
         if (asset?.type === 'figma_node' || asset?.type === 'skip') continue;
         figuresPlaceholder += 1;
         ctx.warnings.push({
@@ -884,7 +927,16 @@ async function fillChapter(
   // 章节高度贴合内容 + 左列与说明栏等高（同步改完簇集合也要跑这一步）。
   await stage('chapter.fit', () => refreshChapterGeometry(backend, chapter.id, ctx.geometry));
 
-  return { image, clusters, figuresPlaceholder };
+  return {
+    image,
+    clusters,
+    figuresPlaceholder,
+    bubbles: bubbles.map((bubble, i) => ({
+      section: section.index,
+      cluster: i + 1,
+      nodeId: bubble.id
+    }))
+  };
 }
 
 /**

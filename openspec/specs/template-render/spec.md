@@ -148,7 +148,9 @@ TBD - created by archiving change engine-multi-part-template-render. Update Purp
 
 `badgeSlot = container` 时，渲染 SHALL 为每个簇在 `气泡` 内生成一个标号：克隆标号母版 → 写入编号 → 摆位 → 强制可见。
 
-摆放坐标 SHALL 取自模板自带网格（第 i 个簇取第 i 个网格点，按章节内序号），或调用方提供的 `badgeAnchors`。标号 SHALL 位于图区之上。
+摆放坐标 SHALL 取自模板自带网格（第 i 个簇取第 i 个网格点，按章节内序号），或调用方提供的 `badgeAnchors`。`badgeAnchors` 的文本形式（`{text, offset}`）SHALL 在主图子树内按 TEXT 的 `characters` 匹配后换算成归一化坐标，并在主图落图之后解析。标号 SHALL 位于图区之上。
+
+未提供任何锚点且簇数 > 0 时，渲染 SHALL 报 `V2_W_BADGE_ANCHOR_DEFAULTED`（位置仍是网格，不静默）。
 
 主图落图 SHALL NOT 改变模板原有层序：以 `figma_instance` 资产替换主图占位时，新实例 SHALL 插回占位节点原来的兄弟索引，并 SHALL 继承占位节点的名称。
 

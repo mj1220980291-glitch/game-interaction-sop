@@ -26,7 +26,8 @@ import {
   type OverviewKey,
   type SectionStamp,
   type SlotRole,
-  type SlotStamp
+  type SlotStamp,
+  type Stamp
 } from './stamp.js';
 
 export interface SnapItem {
@@ -166,12 +167,35 @@ export function buildSnapshot(tree: Tree, profile?: StructureProfile): DocSnapsh
     if (n.parsed?.kind === 'cluster') claim(n.parsed.cid, n.parsed.items ?? []);
   }
   const seen = new Set<string>();
+
+  /**
+   * 重复标记（外部脚本克隆产物）先选出「留哪一个」。
+   *
+   * 以前按 BFS 顺序先到先得：手贴的克隆副本若排在原位之前，**原节点**被判
+   * foreign，于是整章/整簇从快照里消失，计划把它们当成新内容 → 要新建节点 →
+   * adopt 模式（无模板包）直接炸在 scratch 阶段。真机 M1 的 4 个重复标记就是这么
+   * 让一次纯文字同步变成"要建 6 个节点"的。
+   *
+   * 判据只看结构：标记写着它属于哪个容器，就优先留挂在那个容器下的那一份；
+   * 都不满足时退回文档顺序（保持老行为）。
+   */
+  const duplicateWinners = pickDuplicateWinners(tree, owner);
+
   /**
    * May `id` live under `containerKey`? `'listed'` when that container's
    * manifest has it, `'orphan'` when no manifest does (left by an interrupted
    * sync), `false` when it belongs elsewhere or repeats an id already seen.
    */
   const accept: Accept = (id, containerKey, n) => {
+    const winner = duplicateWinners.get(id);
+    if (winner !== undefined && winner !== n.id) {
+      warnings.push({
+        code: SOFT_WARNING_CODES.W_DUPLICATE_STAMP,
+        message: `node ${n.id} repeats stamp id ${id} (copied by hand?); kept ${winner}, treated ${n.id} as foreign`,
+        context: id
+      });
+      return false;
+    }
     if (seen.has(id)) {
       warnings.push({
         code: SOFT_WARNING_CODES.W_DUPLICATE_STAMP,
@@ -234,6 +258,61 @@ export function buildSnapshot(tree: Tree, profile?: StructureProfile): DocSnapsh
 }
 
 type Accept = (id: string, containerKey: string, n: TNode) => 'listed' | 'orphan' | false;
+
+/** 标记里的身份：章节 sid / 簇 cid / 条目 iid。 */
+function stampIdentity(parsed: Stamp | undefined): string | undefined {
+  if (!parsed) return undefined;
+  if (parsed.kind === 'section') return parsed.sid;
+  if (parsed.kind === 'cluster') return parsed.cid;
+  if (parsed.kind === 'item') return parsed.iid;
+  return undefined;
+}
+
+/**
+ * 重复标记的去重：每个被复制的标记 id 只保留「挂在它该在的容器下」的那一份。
+ *
+ * 克隆一份带标记的节点会连标记一起复制；外部脚本经常这么干（复制章节做对照）。
+ * 以前按遍历顺序先到先得，原位那份可能被判 foreign，同步就会想重建整章。
+ */
+function pickDuplicateWinners(tree: Tree, owner: Map<string, string>): Map<string, string> {
+  const groups = new Map<string, TNode[]>();
+  for (const n of tree.byId.values()) {
+    const id = stampIdentity(n.parsed);
+    if (id === undefined) continue;
+    const arr = groups.get(id);
+    if (arr) arr.push(n);
+    else groups.set(id, [n]);
+  }
+
+  const belongs = (n: TNode, id: string): boolean => {
+    const kind = n.parsed?.kind;
+    const expected = owner.get(id);
+    let cur = n.parentId ? tree.get(n.parentId) : undefined;
+    while (cur) {
+      if (kind === 'section') {
+        // 章节不能嵌在章节里：拖动复制常把副本拖进别的章节，那份只是克隆。
+        if (cur.parsed?.kind === 'section') return false;
+        if (cur.id === tree.rootId) return true;
+        if (cur.parsed?.kind === 'slot' && cur.parsed.role === 'sections') return true;
+      } else if (kind === 'cluster') {
+        if (expected !== undefined && cur.parsed?.kind === 'section' && cur.parsed.sid === expected) return true;
+      } else if (kind === 'item') {
+        if (expected !== undefined && cur.parsed?.kind === 'cluster' && cur.parsed.cid === expected) return true;
+      }
+      cur = cur.parentId ? tree.get(cur.parentId) : undefined;
+    }
+    return false;
+  };
+
+  const winners = new Map<string, string>();
+  for (const [id, nodes] of groups) {
+    if (nodes.length < 2) continue;
+    const placed = nodes.find((n) => belongs(n, id));
+    // 都不在"该在的容器"下 → 退回文档顺序（老行为），至少保留一份可用节点。
+    winners.set(id, (placed ?? nodes[0]!).id);
+  }
+  return winners;
+}
 
 function snapSection(
   tree: Tree,

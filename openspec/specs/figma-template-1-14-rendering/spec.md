@@ -19,9 +19,23 @@ TBD - created by archiving change v2-add-cluster-subgroup-headings. Update Purpo
 | backend 不具备按 fileKey 寻址的能力 | `V2_TARGET_FILE_UNSUPPORTED` |
 | 目标文件读不到 `1:14`（多为插件未在该文件运行） | `V2_TARGET_FILE_UNREACHABLE` |
 | 目标文件的 `1:14` 不是容器型节点或无子节点 | `V2_TEMPLATE_NODE_MISMATCH` |
+| 显式 `template.fileKey` 指向的文件没有连接 Bridge | `V2_TEMPLATE_FILE_UNREACHABLE` |
+| 显式 `template.fileKey` 可访问但与 `target.fileKey` 不同（Figma 不能跨文件克隆） | `V2_TEMPLATE_OTHER_FILE` |
+
+`template.fileKey` / `template.nodeId` SHALL 真实生效，SHALL NOT 被丢弃后回落成「在目标
+文件里找 `1:14`」：
+
+- `template.fileKey` 与 `target.fileKey` 不同时，引擎 SHALL 先以 `withFileKey` 探测模板文件
+  里的 `template.nodeId`，并据此返回 `V2_TEMPLATE_FILE_UNREACHABLE`（插件没连）或
+  `V2_TEMPLATE_OTHER_FILE`（连上了但跨文件），message SHALL 指出 `template.componentKey`
+  是跨文件唯一可靠方式。
+- 只给 `template.fileKey`、未给 `target.fileKey` 时，引擎 SHALL 把该文件当作写入目标，并
+  报一条 `V2_W_TARGET_FROM_TEMPLATE`。
+- `template.componentKey` 生效时，返回体 SHALL NOT 包含 `packMissing` / `packCandidates`，
+  且机器上残留的坏模板包 SHALL NOT 阻止渲染（该模式不需要模板包）。
 
 引擎 SHALL NOT 在 `fileKey` 无法满足时退回活动文件。未传 `fileKey` 时 SHALL 沿用活动
-文件，且 SHALL NOT 因此产生任何额外 backend 调用。
+文件，且 SHALL NOT 因此产生任何额外 backend 调用（文本锚点除外）。
 
 #### Scenario: 写入指定模板
 

@@ -8,17 +8,33 @@
 export { parseV2 } from './parser.js';
 export {
   renderV2MarkdownToFigma,
+  figureSlotsFromIr,
   type AssetSpec,
   type RenderInput,
-  type RenderResult
+  type RenderResult,
+  type BubbleRecord,
+  type FigureSlotRecord
 } from './render.js';
 export {
   parseBadgeAnchors,
   pickAnchors,
   anchorKey,
+  badgeDefaultsWarning,
+  isTextAnchor,
   type BadgeAnchor,
-  type BadgeAnchorMap
+  type BadgeAnchorMap,
+  type CoordBadgeAnchor,
+  type TextBadgeAnchor
 } from './badge-anchor.js';
+export { resolveTextAnchors, type ImageRect } from './badge-resolve.js';
+export { ENGINE_VERSION, REQUIRED_SKILL_VERSION } from './version.js';
+export {
+  checkPhase1Signoff,
+  emptyPhase1Signoff,
+  PHASE1_DIMENSIONS,
+  type Phase1Signoff,
+  type Phase1Dimension
+} from './phase1-signoff.js';
 export type {
   DocIR,
   DocHeader,

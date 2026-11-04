@@ -50,6 +50,7 @@ describe('mcp server — tool registration', () => {
       'figma_probe_template',
       'get_skill_requirements',
       'render_v2_markdown_to_figma',
+      'validate_phase1_signoff',
       'validate_v2_markdown'
     ]);
   });

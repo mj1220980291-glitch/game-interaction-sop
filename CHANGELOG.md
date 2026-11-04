@@ -1,5 +1,85 @@
 # CHANGELOG
 
+## v2.4.1（skill）/ 0.4.2（引擎）— 2026-11-04
+
+**0.4.1 验收不通过的 B 项（唯一阻断）+ P1/P2/P3 收尾。** 现场：M1/M2/M3，enginePid 11968。
+
+### 1. B（P0）adopt 同步真跑抛 `V2_RECONCILE_SCRATCH_MISMATCH`
+
+根因：`dryRun` 不跑 scratch，真跑才跑；而 adopt（无模板包）时 parts scratch 必然渲染不出来 → 计划通过、真跑炸。修法：
+
+- `planReconcile` 新增 `canCreate`：parts + 无包时置 false。需要新建节点的路径改记 `conflicts[kind=needs-new-node]`，并报 `V2_W_RECONCILE_NO_CREATE`；文字/标号/配图照常写入 → dryRun 与真跑结论一致，二跑 `changes: []`
+- `V2_RECONCILE_SCRATCH_MISMATCH` 消息改为带定位：涉及的章节（`01「战斗界面」`）、是否缺包、槽位差异明细
+- 重复标记（外部脚本克隆）改成「按结构选赢家」：章节须在章节层、簇须在所属章节、条目须在所属簇；被拖进别的章节的副本不再顶替原位那份
+- 标号清理顺序上一版已改「先补齐、后清理」，这版补测试
+
+### 2. D（P1）同步返回体缺 `bubbles`
+
+`reconcile` 成功返回 SHALL 从画布逐章读标号（新增 `readBadges`），列出 `{section, cluster, nodeId}`；数量与簇数不符报 `V2_W_BADGE_COUNT_MISMATCH`（点名缺号）；`badgeSlot=none` 不告警。`dryRun` 也给（读到的是现状）。
+
+### 3. C（P2）旧文案与 pack 噪音
+
+- 旧 `V2_TARGET_FILE_UNREACHABLE + 回落到 legacy` 只存在于旧 dist：源码里只剩注释。为了下次能一眼判定，返回体新增 `engineVersion`（与 `get_skill_requirements` 同源，单一来源 `v2/version.ts`）
+- 同步模式不再返回 `packMissing` / `packCandidates`（命中时仍回显 `pack`）；库引用模式上一版已去掉
+
+### 4. P3 观察项
+
+- `V2_W_BADGE_ANCHOR_DEFAULTED` 在同步/adopt 下的文案改为「本次未重排标号」，不再说「按网格摆放」。create 仍是原来的网格文案
+- `V2_W_FIGURE_IMAGE_LOST`：确认新插入的空槽标记里没有 `imageHash`，下次同步不会再被判「原本有图」，只告警一次
+
+### 5. 回归
+
+- 新增 `tests/v2/reconcile-scratch-parts.spec.ts`（5 条：降级 / dryRun 一致 / 幂等 / 有包不降级 / 重复标记取舍）
+- 新增 `tests/v2/sync-bubbles-manifest.spec.ts`（6 条：清单 / 缺号 / 母版不计 / dryRun / badgeSlot=none / engineVersion）
+- 全量：79 files / 621 tests 通过（`--no-file-parallelism`）
+
+### 6. 真机验收（2026-11-04，enginePid 40712）
+
+验收方结论：B（P0）+ P1/P2/P3 全部通过，无新增缺陷，同意按 `0.4.2` / `2.4.1` 归档推送。
+
+| 项 | 观测 |
+|---|---|
+| B-M1 真跑 `knfkg9iz` | ok:true、无 `SCRATCH_MISMATCH`；5 条 `needs-new-node`（`02/1/#3`、`02/2/#6`、`02/2/#12`、`02/5/#5`、`04/1/#3`）+ `V2_W_RECONCILE_NO_CREATE` 降级；画布 949→949、标号 18→18、preserved 全在 |
+| dryRun 一致性 `y4yalzov` | changes `[]`，conflicts 7 条与真跑逐 path / kind 相同 |
+| 幂等 `lp1aor57`；M2 `72g666bt`→`9nr3vchu` | 二跑 `changes: []` |
+| P1 | reconcile 返回 `bubbles`：M1 18 / M2 9 / M3 16，40/40 nodeId 画布复核一致，无 `BADGE_COUNT_MISMATCH` |
+| P2 | 旧文案单路径；5 次同步均无 `packMissing` |
+| P3 | 锚点文案逐字命中；`02/2/#12` 三次同步无二次 `FIGURE_IMAGE_LOST` |
+
+遗留（不阻断）：M1 上述 5 处待模板包配回后重跑补齐；验收机 git/npm 不在 PATH（环境问题，构建走绝对路径）。
+
+## v2.4.0（skill）/ 0.4.1（引擎）— 2026-11-03
+
+**按《引擎与 Skill 问题回执-20261103》修 E1–E7 / S1–S5。** 目标文档：`kiroro主串联`（M1/M2/M3）。
+
+### 引擎
+
+| 项 | 修法 |
+|---|---|
+| E4 标号锚点 | `badgeAnchors` 新增文本形式 `{text, offset?, occurrence?}`：摆放前扫主图子树按 TEXT 匹配、读 bbox 换算，主图换成实例也成立。整表不传且簇数 > 0 → `V2_W_BADGE_ANCHOR_DEFAULTED`（不再静默）。找不到 → `V2_W_BADGE_ANCHOR_TEXT_NOT_FOUND`；同名多个 → `V2_W_BADGE_ANCHOR_TEXT_AMBIGUOUS` |
+| E3 同步锁死 | `forceReconcile: true` 显式 adopt；pack 缺失 + `template.componentKey` 为隐式 adopt。指纹变化时按当前包同步并在成功后**重打指纹**；两种情况都报 `V2_W_PACK_ADOPTED`。`V2_PACK_MISMATCH` 文案指出两条出路 |
+| E1 模板通路 | `template.fileKey/nodeId` 真实生效：跨文件时先探模板文件，分别报 `V2_TEMPLATE_FILE_UNREACHABLE`（没连 Bridge）/ `V2_TEMPLATE_OTHER_FILE`（连上了但跨文件）；只给 `template.fileKey` 时按模板文件定向写入并报 `V2_W_TARGET_FROM_TEMPLATE`。不再回落「在目标文件里找 1:14」 |
+| E2 pack 噪音 | 库引用模式不返回 `packMissing` / `packCandidates`，残留坏 pack 也不再挡渲染；缺包报错附 pack schema 位置 |
+| E5 气泡丢失 | 返回体新增 `bubbles`（逐章 `section/cluster/nodeId`）；摆放后重读容器核对数量，不符报 `V2_W_BADGE_COUNT_MISMATCH`；标号改「先补齐、后清理」，克隆中断不再清空整章 |
+| E6 写超时 | 渲染/同步返回 `runId`；写超时后返回 `sideEffects`（已落的 changes / 回滚未确认的根帧）+ `V2_W_WRITE_TIMEOUT_RECONCILED` |
+| E7 簇配图 | `assetMap` 支持 byTitle 键 `"NN/C/<配图描述>"`；返回体新增 `figureSlots`（path / 描述 / nodeId）作为映射底表 |
+| S4 门禁 | 新增 `validate_phase1_signoff` 工具 + `phase1Signoff` 入参（四项规则机器可校验）；传了不合格硬拒绝，不传只软提醒 |
+
+### Skill
+
+- `phase4-figma.md`：模板寻址优先级表 + **模板排查表**（`V2_TEMPLATE_FILE_UNREACHABLE` / `V2_TEMPLATE_OTHER_FILE` / `packCandidates` 三态各怎么修），写明「`componentKey` 是跨文件唯一可靠方式」
+- `phase1-analysis.md`：完成声明落盘 + 校验（Phase 2 硬门禁）；**逐帧截图核对**条款（需求来自 Figma/截图时）
+- `phase2-markdown.md`：进入条件改为「`validate_phase1_signoff → ok:true`」，不再是自述
+- `phase3-asset.md`：标号锚点首选文本形式；配图编键优先 byTitle
+- `phase4-figma.md`：新增「定点修补（同步走不通时的安全流程）」；配图审计里的标号核对升级为硬规则（条数 / 对位 / 堆叠 / 越界，逐章截图）；收尾断言加第 9/10 条（标号齐、锚点已生效）
+
+### 回归
+
+- 新增 5 个 spec 文件：`badge-anchor-text` / `reconcile-adopt` / `render-template-ref` / `phase1-signoff` / `render-manifest`
+- 全量：77 files / 609 tests 通过（串行跑法见 README「Development」）
+
+---
+
 ## v2.3.4（skill）— 2026-11-03
 
 **把联调期踩过的坑写进 skill，避免下次再犯。** 来源：主串联 M1/M2 交付 + 引擎 0.3.2→0.3.9 联调。

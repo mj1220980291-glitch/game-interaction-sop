@@ -42,7 +42,11 @@ export interface ReconcileChange {
 
 export interface ReconcileConflict {
   path: string;
-  kind: 'text' | 'figure' | 'deleted-but-changed' | 'container-not-empty';
+  /**
+   * `needs-new-node`：adopt 模式（模板包不可用）下本轮不能新建节点。
+   * 不是"冲突"的语义冲突，而是"想做但这次做不了"——照样报出来，不静默丢。
+   */
+  kind: 'text' | 'figure' | 'deleted-but-changed' | 'container-not-empty' | 'needs-new-node';
   figma?: string;
   markdown?: string;
   nodeId?: string;
@@ -124,6 +128,11 @@ export interface PlanOptions {
   assetMap?: Record<string, AssetSpec>;
   /** 模板把职能拼在正文句尾（`roleAnnotation: inline-suffix`）。 */
   inlineRoles?: boolean;
+  /**
+   * 本轮能否新建节点（默认 true）。adopt 模式下 parts 模板包不可用 → false，
+   * 需要新节点的改动会变成 `needs-new-node` 冲突而不是在 scratch 阶段炸掉。
+   */
+  canCreate?: boolean;
 }
 
 const SCOPE_RE = /^(\d{2})(?:\/(\d+))?$/;
@@ -146,7 +155,7 @@ export function planReconcile(snap: DocSnapshot, ir: DocIR, opts: PlanOptions = 
     scope = { s, c };
   }
 
-  const p = new Planner(snap, ir, opts.assetMap, opts.inlineRoles === true);
+  const p = new Planner(snap, ir, opts.assetMap, opts.inlineRoles === true, opts.canCreate !== false);
   const err = p.run(scope);
   if (err) return { ok: false, code: 'V2_SCOPE_NOT_FOUND', message: err };
   return { ok: true, plan: p.result() };
@@ -175,7 +184,17 @@ class Planner {
     private snap: DocSnapshot,
     private ir: DocIR,
     private assetMap: Record<string, AssetSpec> | undefined,
-    private inlineRoles = false
+    private inlineRoles = false,
+    /**
+     * 本轮能不能新建节点。
+     *
+     * 新建节点要靠 scratch 渲染出原型：parts 文档必须有模板包才能渲染 parts
+     * scratch。adopt 模式（pack 缺失）下 pack = undefined，scratch 必然失败；
+     * 以前是 dryRun 通过、真跑抛 `V2_RECONCILE_SCRATCH_MISMATCH`（计划里没跑
+     * scratch，看不出问题）。现在计划阶段就知道"不能建"，把这批改动记成
+     * `needs-new-node` 冲突，两种模式结论一致。
+     */
+    private canCreate = true
   ) {}
 
   result(): Plan {
@@ -209,6 +228,16 @@ class Planner {
   }
   private foreign(path: string, nodes: TNode[]): void {
     for (const n of nodes) this.keep({ path, kind: 'foreign', nodeId: n.id, detail: n.name });
+  }
+
+  /**
+   * 本轮要新建节点前调用。能建 → true；不能建 → 记一条 `needs-new-node`
+   * 冲突（带 markdown 文本，方便人知道差什么）并返回 false。
+   */
+  private mayCreate(path: string, text?: string): boolean {
+    if (this.canCreate) return true;
+    this.conflict({ path, kind: 'needs-new-node', ...(text ? { markdown: text } : {}) });
+    return false;
   }
 
   /**
@@ -310,6 +339,7 @@ class Planner {
       const path = sec.index;
       if (step.kind === 'insert') {
         if (!container) return;
+        if (!this.mayCreate(path, M)) return;
         this.scratch.add(n);
         const ref: ScratchRef = { s: n, part: 'section' };
         places.push({ op: 'place', node: ref, parentId: container.id, after: anchor });
@@ -438,6 +468,7 @@ class Planner {
       const path = `${sec.index}/${k + 1}`;
       if (step.kind === 'insert') {
         if (!old.column) return;
+        if (!this.mayCreate(path, M)) return;
         this.scratch.add(n);
         const ref: ScratchRef = { s: n, c: k, part: 'block' };
         this.currentBatch = key;
@@ -579,16 +610,19 @@ class Planner {
       const path = `${base}/@roles`;
       const F = oc.roleFrame ? roleTexts(this.snap.tree, oc.roleFrame) : undefined;
       if (F && sameRoles(F, rolesW)) {
-        this.scratch.add(n);
-        const ref: ScratchRef = { s: n, c: k, part: 'roles' };
-        roleOps.push(
-          { op: 'place', node: ref, parentId: oc.node!.id, after: oc.roleFrame!.id },
-          { op: 'delete', nodeId: oc.roleFrame!.id }
-        );
-        if (head === oc.roleFrame!.id) head = ref;
-        this.change({ path, action: 'roles', detail: cl.roles.join(' ') });
-        roles = [...cl.roles];
-        dirty = true;
+        // 角色行换不了（要新建变体实例）时保留旧行：记 needs-new-node，本轮跳过。
+        if (this.mayCreate(path, cl.roles.join(' '))) {
+          this.scratch.add(n);
+          const ref: ScratchRef = { s: n, c: k, part: 'roles' };
+          roleOps.push(
+            { op: 'place', node: ref, parentId: oc.node!.id, after: oc.roleFrame!.id },
+            { op: 'delete', nodeId: oc.roleFrame!.id }
+          );
+          if (head === oc.roleFrame!.id) head = ref;
+          this.change({ path, action: 'roles', detail: cl.roles.join(' ') });
+          roles = [...cl.roles];
+          dirty = true;
+        }
       } else if (F && sameRoles(F, cl.roles)) {
         roles = [...cl.roles];
         dirty = true;
@@ -637,6 +671,7 @@ class Planner {
       if (w.t === 'figure') ordinal++;
       const path = `${base}/#${i + 1}`;
       if (step.kind === 'insert') {
+        if (!this.mayCreate(path, w.text)) return;
         this.scratch.add(n);
         const ref: ScratchRef = { s: n, c: k, i, part: 'item' };
         seqOps.push({ op: 'place', node: ref, parentId: itemsParentId, after: anchor });

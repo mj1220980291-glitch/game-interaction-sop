@@ -19,7 +19,8 @@ import {
 } from '../../template-slots.js';
 import { bubbleOffset } from '../../render.js';
 import type { TemplateGeometry } from '../../template/schema.js';
-import { clampAnchor, isOutOfRange, type BadgeAnchor } from '../../badge-anchor.js';
+import { clampAnchor, isOutOfRange, isTextAnchor, type BadgeAnchor, type CoordBadgeAnchor } from '../../badge-anchor.js';
+import { resolveTextAnchors, type ImageRect } from '../../badge-resolve.js';
 
 export const PARTS_GEOMETRY_CODES = {
   BADGE_MASTER_MISSING: 'V2_RENDER_BADGE_MASTER_MISSING'
@@ -147,7 +148,20 @@ export async function placeBadges(
 
   // 标号要贴在主图上，而主图不一定是 1920×1080（蛋仔 1200×745）。
   // 网格本身仍按 1920×1080 的目标位置定义，这里换算到主图的实际矩形。
-  const rect = await imageRectInContainer(backend, chapterId, container);
+  const image = await imageRectInContainer(backend, chapterId, container);
+  const rect = image.rect;
+
+  // 文本锚点必须在这里解析：主图实例已经贴好了，控件坐标是最终坐标。
+  const targets = anchors
+    ? await resolveTextAnchors({
+        backend,
+        searchRootId: image.imageId ?? chapterId,
+        rect,
+        anchors,
+        sectionIndex: chapterIndex,
+        warnings
+      })
+    : undefined;
 
   // 气泡自己也得跟主图一样大：留着 1920×1080 会盖住说明栏。
   if (backend.resizeNode && (container.layoutMode ?? 'NONE') === 'NONE') {
@@ -158,10 +172,11 @@ export async function placeBadges(
   }
 
   const existing = known.length > 0 ? known : [];
-  const stale = children
-    .filter((c) => isBadgeFrame(c.name) && c.id !== master.id && !existing.some((e) => e.id === c.id))
-    .map((c) => c.id);
-  if (stale.length > 0) await backend.deleteNodes(stale);
+  // 删除时序：**先补齐、后清理**。
+  //
+  // 旧顺序是「先删所有不在 known 里的标号，再克隆」——克隆中途断连/超时就留下
+  // 一份标号比簇少的文档（M3 的 03 章少一个号只能这么解释，而且零告警）。
+  // 反过来的代价只是短暂的「多几个标号」，失败时人的直觉也更接近真相。
   if (master.visible !== false && backend.setNodeVisible) {
     await backend.setNodeVisible(master.id, false);
   }
@@ -169,10 +184,13 @@ export async function placeBadges(
   const out: NodeInfo[] = [];
   for (let i = 0; i < clusterCount; i += 1) {
     const already = existing[i];
-    const anchor = anchors?.[i];
-    if (anchors) {
+    const anchor = targets?.[i];
+    if (targets) {
       if (!anchor) {
-        if (warnMissing) {
+        // 文本锚点解析失败时已经报过 TEXT_NOT_FOUND，这里不再报第二遍。
+        const source = anchors?.[i];
+        const textAlreadyWarned = source !== undefined && isTextAnchor(source);
+        if (warnMissing && !textAlreadyWarned) {
           warnings.push({
             code: SOFT_WARNING_CODES.W_BADGE_ANCHOR_MISSING,
             message: `第 ${chapterIndex} 章第 ${i + 1} 个簇没有标号锚点（badgeAnchors["${chapterIndex}/${i + 1}"]），标号按模板网格放置`,
@@ -209,7 +227,108 @@ export async function placeBadges(
   // 多出来的标号（簇变少）删掉。
   const surplus = existing.slice(clusterCount).map((b) => b.id);
   if (surplus.length > 0) await backend.deleteNodes(surplus);
+
+  // 不在本次清单里的旧标号：补齐之后再清理，避免「删完没克隆成」。
+  const keep = new Set(out.map((b) => b.id));
+  const stale = children
+    .filter((c) => isBadgeFrame(c.name) && !isBadgeMaster(c.name) && c.id !== master.id)
+    .filter((c) => !keep.has(c.id))
+    .map((c) => c.id);
+  if (stale.length > 0) await backend.deleteNodes(stale);
+
+  await auditBadgeCount(backend, chapterId, containerId, chapterIndex, clusterCount, warnings);
   return out;
+}
+
+/**
+ * 摆放后自检：容器里可见的标号数必须等于簇数。
+ *
+ * 真机 M3：渲染返回 `bubbleCount: 16`，两轮只读/改位置脚本之后 03 章只剩 2 个
+ * 标号。引擎侧原本没有任何「摆完再数一遍」的检查，所以这种丢失只能靠人眼在
+ * 截图里发现。这里重新读一次容器，数量不符就点名缺了哪几号。
+ */
+async function auditBadgeCount(
+  backend: FigmaBackend,
+  chapterId: string,
+  containerId: string,
+  chapterIndex: string,
+  clusterCount: number,
+  warnings: SoftWarning[]
+): Promise<void> {
+  try {
+    const container = await backend.getNodeInfo(containerId);
+    const kids = container.childIds ? await backend.getNodesInfo(container.childIds) : [];
+    const frames = kids.filter((c) => isBadgeFrame(c.name) && !isBadgeMaster(c.name));
+    if (frames.length === clusterCount) return;
+    const numbers = frames.map((f) => badgeOrdinal(f.name)).sort((a, b) => a - b);
+    const missing: number[] = [];
+    for (let n = 1; n <= clusterCount; n += 1) if (!numbers.includes(n)) missing.push(n);
+    warnings.push({
+      code: SOFT_WARNING_CODES.W_BADGE_COUNT_MISMATCH,
+      message:
+        `第 ${chapterIndex} 章（章节 ${chapterId}）标号自检失败：应有 ${clusterCount} 个，容器里 ${frames.length} 个` +
+        (missing.length > 0 ? `，缺 ${missing.join(' / ')} 号` : '') +
+        `（现有编号：${numbers.join(',') || '无'}）。用气泡清单对账后重跑同步可补齐`,
+      context: chapterIndex
+    });
+  } catch {
+    /* 自检读不到不是渲染失败：画布本身可能已经写成功 */
+  }
+}
+
+/**
+ * 只读：列出一章画布上真实存在的标号（按编号排序），并核对数量。
+ *
+ * 同步模式用它出具 `bubbles` 清单——渲染期的 id 在同步里拿不到（章节可能没动），
+ * 但画布上的编号才是调用方要对账的东西。模板没有图上标号时返回空数组。
+ */
+export async function readBadges(
+  backend: FigmaBackend,
+  chapterId: string,
+  chapterIndex: string,
+  expectedCount: number,
+  warnings: SoftWarning[],
+  badgeSlot?: 'container' | 'manual' | 'none'
+): Promise<NodeInfo[]> {
+  if (badgeSlot === 'none') return [];
+  // 清单是"附加对账"，读不到不该让整轮同步失败（老后端 / 精简 fake 没有 scanSubtree）。
+  let containerId: string | undefined;
+  try {
+    containerId = await findNamed(backend, chapterId, CHAPTER_SLOTS.badgeContainer);
+  } catch {
+    return [];
+  }
+  if (!containerId) return [];
+  const container = await backend.getNodeInfo(containerId);
+  const children = container.childIds ? await backend.getNodesInfo(container.childIds) : [];
+  const frames = children
+    .filter((c) => isBadgeFrame(c.name) && !isBadgeMaster(c.name))
+    .sort((a, b) => badgeOrdinal(a.name) - badgeOrdinal(b.name));
+  // 一个都没有：可能是模板本来就没有图上标号（manual / 老模板）。不冒险告警。
+  if (frames.length === 0) {
+    if (badgeSlot === 'container' && expectedCount > 0) {
+      warnings.push({
+        code: SOFT_WARNING_CODES.W_BADGE_COUNT_MISMATCH,
+        message: `第 ${chapterIndex} 章（章节 ${chapterId}）标号自检失败：模板声明 badgeSlot=container，但容器里一个标号都没有（应有 ${expectedCount} 个）`,
+        context: chapterIndex
+      });
+    }
+    return [];
+  }
+  if (frames.length !== expectedCount) {
+    const numbers = frames.map((f) => badgeOrdinal(f.name));
+    const missing: number[] = [];
+    for (let n = 1; n <= expectedCount; n += 1) if (!numbers.includes(n)) missing.push(n);
+    warnings.push({
+      code: SOFT_WARNING_CODES.W_BADGE_COUNT_MISMATCH,
+      message:
+        `第 ${chapterIndex} 章（章节 ${chapterId}）标号自检失败：应有 ${expectedCount} 个，画布上 ${frames.length} 个` +
+        (missing.length > 0 ? `，缺 ${missing.join(' / ')} 号` : '') +
+        `（现有编号：${numbers.join(',') || '无'}）`,
+      context: chapterIndex
+    });
+  }
+  return frames;
 }
 
 /**
@@ -217,6 +336,8 @@ export async function placeBadges(
  *
  * `keepCount` 是同步前的簇数——它的标号位置是设计师的和渲染期的，不能动；
  * 之后的按网格克隆。scratch 搬过来的标号带的是临时文档的坐标，不能留。
+ *
+ * 返回摆放后的标号节点（对账用）；模板不支持图上标号时返回空数组。
  */
 export async function relayoutBadges(
   backend: FigmaBackend,
@@ -229,17 +350,17 @@ export async function relayoutBadges(
   geom?: TemplateGeometry,
   anchors?: Array<BadgeAnchor | undefined>,
   warnMissing = true
-): Promise<void> {
-  if (badges !== 'container') return;
+): Promise<NodeInfo[]> {
+  if (badges !== 'container') return [];
   const containerId = await findNamed(backend, chapterId, CHAPTER_SLOTS.badgeContainer);
-  if (!containerId) return;
+  if (!containerId) return [];
   const container = await backend.getNodeInfo(containerId);
   const children = container.childIds ? await backend.getNodesInfo(container.childIds) : [];
   const ordered = children
     .filter((c) => isBadgeFrame(c.name) && !isBadgeMaster(c.name))
     .sort((a, b) => badgeOrdinal(a.name) - badgeOrdinal(b.name));
   const kept = ordered.filter((b) => badgeOrdinal(b.name) <= keepCount).slice(0, clusterCount);
-  await placeBadges(
+  return placeBadges(
     backend,
     chapterId,
     clusterCount,
@@ -262,16 +383,16 @@ async function imageRectInContainer(
   backend: FigmaBackend,
   chapterId: string,
   container: NodeInfo
-): Promise<{ x: number; y: number; width: number; height: number }> {
+): Promise<{ rect: ImageRect; imageId?: string }> {
   const box = container.absoluteBoundingBox;
   const fallback = { x: 0, y: 0, width: MAIN_IMAGE_SIZE.width, height: MAIN_IMAGE_SIZE.height };
-  if (!box) return fallback;
+  if (!box) return { rect: fallback };
   const imageId = await findNamed(backend, chapterId, CHAPTER_SLOTS.mainImage);
-  if (!imageId) return fallback;
+  if (!imageId) return { rect: fallback };
   const image = await backend.getNodeInfo(imageId);
   const img = image.absoluteBoundingBox;
-  if (!img) return fallback;
-  return { x: img.x - box.x, y: img.y - box.y, width: img.width, height: img.height };
+  if (!img) return { rect: fallback, imageId };
+  return { rect: { x: img.x - box.x, y: img.y - box.y, width: img.width, height: img.height }, imageId };
 }
 
 /**
@@ -285,7 +406,7 @@ function badgePosition(
   rect: { x: number; y: number; width: number; height: number },
   master: NodeInfo,
   geom?: TemplateGeometry,
-  anchor?: BadgeAnchor
+  anchor?: CoordBadgeAnchor
 ): { x: number; y: number } {
   const [nx, ny] = anchor ? [clampAnchor(anchor).x, clampAnchor(anchor).y] : gridRatio(index, geom);
   const w = master.absoluteBoundingBox?.width ?? geom?.badgeSize?.width ?? 48;

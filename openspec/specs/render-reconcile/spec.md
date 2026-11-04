@@ -29,7 +29,9 @@
 
 #### Scenario: 同一 iid 出现多次
 - **WHEN** 读取时发现两个节点携带相同的 `iid`（设计师复制了节点）
-- **THEN** 引擎 SHALL 只把文档顺序中的第一个视为该条目，其余按外来节点处理，并输出 warning `V2_W_DUPLICATE_STAMP`
+- **THEN** 引擎 SHALL 只保留一份视为该条目，其余按外来节点处理，并输出 warning `V2_W_DUPLICATE_STAMP`
+
+保留哪一份 SHALL 按结构判定：优先「挂在标记所指容器下」的那份（章节必须是章节层直属、簇须在该章节下、条目须在所属簇下）；都不满足时退回文档顺序第一份。被复制的章节若被拖进另一个章节里，SHALL NOT 顶替原位那份。
 
 ### Requirement: 同步模式入口
 
@@ -39,7 +41,29 @@
 
 `rootId` 节点上没有 `doc` 标记时，引擎 SHALL 返回 `V2_NOT_STAMPED`，并且 SHALL NOT 写入画布（多部件文档同样如此，不实现无标记接管）。
 
-带 `parts` 标记、但其 `packHash` 与当前模板包不一致时，引擎 SHALL 返回 `V2_PACK_MISMATCH`，并且 SHALL NOT 写入画布。
+带 `parts` 标记、但其 `packHash` 与当前模板包不一致（或当前根本没有模板包）时，引擎 SHALL 默认返回 `V2_PACK_MISMATCH`，并且 SHALL NOT 写入画布。
+
+该拒绝 SHALL 可被显式 adopt 覆盖：
+
+- 传入 `forceReconcile: true` → 引擎 SHALL 继续同步。指纹不一致时 SHALL 按当前包同步，并在成功后把文档标记的 `parts.packHash` / `components` 重打成当前包（之后不再报 mismatch）；当前无包时 SHALL 跳过依赖模板包能力的步骤（标号重排等）。
+- 当前无包但传入了 `template.componentKey` → 视为隐式 adopt，行为同上（不重打指纹）。
+- 两种 adopt 均 SHALL 在 `warnings` 里报一条 `V2_W_PACK_ADOPTED`。
+- 未 adopt 的 `V2_PACK_MISMATCH` message SHALL 指出这两条出路。
+
+#### Scenario: 旧 pack 文档、当前无包
+
+- **WHEN** `target.rootId` 为 parts 文档，机器上没有模板包，调用带 `template.componentKey` 且 `dryRun: true`
+- **THEN** 返回 `ok:true` 与 `changes` 清单，SHALL NOT 返回 `V2_PACK_MISMATCH`
+
+#### Scenario: 指纹变化后 adopt
+
+- **WHEN** 文档 `packHash` 为旧值，当前包指纹为新值，调用带 `forceReconcile: true`
+- **THEN** 同步按当前包完成，成功后文档标记的 `parts.packHash` SHALL 等于当前包指纹
+
+#### Scenario: 未 adopt 的指纹变化
+
+- **WHEN** 指纹不一致且未传 `forceReconcile` / `componentKey`
+- **THEN** 返回 `ok:false` + `V2_PACK_MISMATCH`，message 含 `forceReconcile` 提示，画布不变
 
 同步模式下，引擎 SHALL NOT 删除 root 节点，无论成功还是失败。
 
@@ -57,6 +81,43 @@
 
 - **WHEN** 用同一份 markdown 对刚渲染出来的文档发起同步
 - **THEN** `changes` SHALL 为空，且 SHALL NOT 产生任何画布写入
+
+### Requirement: adopt 模式不能新建节点时降级
+
+模板包不可用（adopt）时，parts scratch 无法渲染。引擎 SHALL 在**计划阶段**判定本轮不能新建节点，SHALL NOT 等到 scratch 阶段抛 `V2_RECONCILE_SCRATCH_MISMATCH`：
+
+- 需要新建节点（界面 / 簇 / 条目 / 角色行）的路径 SHALL 记入 `conflicts`，`kind = "needs-new-node"`，并 SHALL 报一条 `V2_W_RECONCILE_NO_CREATE`；
+- 其余改动（文字、标号、配图）SHALL 照常写入；
+- `dryRun` 与真跑的 `changes` / `conflicts` 结论 SHALL 一致；
+- 相同参数再跑一次 SHALL 返回 `changes: []`（跳过的插入不会在第二次变成写入）。
+
+若仍走到 scratch（例如有包但部件渲染失败），错误消息 SHALL 指出涉及的章节与原因（缺包 / 布局回调未触发 / 槽位对不上），SHALL NOT 只有一句 `no parts layout`。
+
+#### Scenario: adopt 下 md 新增一条
+
+- **WHEN** 文档只有 1 条正文，md 有 2 条，且当前没有模板包（adopt）
+- **THEN** 第 1 条的文字改动照常写入；第 2 条记为 `conflicts[kind=needs-new-node]`；返回 `ok:true` 且带 `V2_W_RECONCILE_NO_CREATE`，不出 `V2_RECONCILE_SCRATCH_MISMATCH`
+
+#### Scenario: dryRun 与真跑一致
+
+- **WHEN** 同一份 md、同样 adopt 参数，先 `dryRun:true` 再真跑
+- **THEN** 两次的 `changes` 与 `conflicts` SHALL 完全相同
+
+### Requirement: 同步返回逐章标号清单
+
+`render_v2_markdown_to_figma` 的同步成功返回 SHALL 含 `bubbles`（`{ section, cluster, nodeId }` 数组），来源为**写完后从画布逐章读取标号容器**（`dryRun` 读到的是现状）。标号数量与该章簇数不符时 SHALL 报 `V2_W_BADGE_COUNT_MISMATCH`（message 含缺失编号）；模板声明 `badgeSlot: none` 时 SHALL 返回空清单且不告警。
+
+同步返回 SHALL NOT 含 `packMissing` / `packCandidates`（pack 命中时仍回显 `pack`）。返回体 SHALL 含 `engineVersion` 与 `runId`。
+
+#### Scenario: 同步成功带清单
+
+- **WHEN** 1 章 2 簇、画布上有 2 个标号的文档走同步
+- **THEN** `bubbles` 含 2 项（cluster 1/2 与画布节点 id）
+
+#### Scenario: 画布少一个标号
+
+- **WHEN** 同样文档但画布只有 1 个标号
+- **THEN** `bubbles` 只有 1 项，并报 `V2_W_BADGE_COUNT_MISMATCH`（含"缺 2 号"）
 
 ### Requirement: 按序列对齐匹配节点
 

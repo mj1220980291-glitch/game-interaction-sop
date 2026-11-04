@@ -25,8 +25,18 @@ TBD - created by archiving change parts-doc-reconcile-sync. Update Purpose after
 
 #### Scenario: 部件重编后指纹变化
 
-- **WHEN** 模板包重编，簇部件的 component key 变化，用旧文档发起同步
+- **WHEN** 模板包重编，簇部件的 component key 变化，用旧文档发起同步且未传 `forceReconcile`
 - **THEN** 返回 `ok:false`，错误码 `V2_PACK_MISMATCH`，画布不变
+
+#### Scenario: 指纹变化后强制 adopt
+
+- **WHEN** 同样的旧文档，同步时传 `forceReconcile: true`
+- **THEN** 同步 SHALL 按当前包完成，成功后重打 `parts.packHash`，并返回 `V2_W_PACK_ADOPTED`
+
+#### Scenario: 当前没有模板包
+
+- **WHEN** 旧 parts 文档发起同步，机器上没有模板包，但调用方传了 `template.componentKey`
+- **THEN** SHALL 继续增量同步（跳过标号重排等依赖包能力的步骤），并返回 `V2_W_PACK_ADOPTED`
 
 ### Requirement: 角色按结构档案解析
 
@@ -114,10 +124,12 @@ TBD - created by archiving change parts-doc-reconcile-sync. Update Purpose after
 
 多部件文档走同步（带 `rootId`）且传入 `badgeAnchors` 时，同步 SHALL 按锚点重摆标号，并遵守下列约束：
 
+- 锚点 SHALL 支持坐标 `{x,y}` 与文本 `{text, offset?, occurrence?}` 两种写法；文本锚点 SHALL 在重摆时按主图子树重新解析（主图被实例替换后仍成立）
 - 即使 markdown 没有任何改动（`changes` 为空），同步 SHALL 仍按锚点重摆标号，SHALL NOT 因「无 md 差异」提前返回
 - 已存在的标号 SHALL 在该簇给了锚点时移动到锚点位置；该簇没给锚点 SHALL 保持画布原坐标（不覆盖设计师手拖）
 - 重摆 SHALL NOT 改变文字、配图与节点顺序；`changes` 与 `preserved` 的报告语义仍只描述 markdown 差异
 - 只改动部分簇的锚点时，SHALL NOT 为未给锚点的簇逐个报 `V2_W_BADGE_ANCHOR_MISSING`
+- 新标号 SHALL 先补齐、后清理旧标号，以免克隆中断时整章标号被清空；重摆后 SHALL 核对标号数与簇数，不符时报 `V2_W_BADGE_COUNT_MISMATCH`
 
 #### Scenario: 只改锚点也能生效
 
