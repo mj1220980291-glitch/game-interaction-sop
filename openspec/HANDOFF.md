@@ -19,8 +19,9 @@
 
 **遗留（不阻断）**：
 1. M1 的 5 处 `needs-new-node` 待模板包配回后重跑补齐：`02/1/#3`、`02/2/#6`、`02/2/#12`、`02/5/#5`、`04/1/#3`
-2. 环境侧：验收机 git/npm 不在 PATH，构建走绝对路径 `node + npm-cli.js`（非引擎缺陷）
-3. 删图恢复不丢图、`####` 自动降级、worker↔bridge 解耦、parts 同步 harness —— 仍为旧遗留
+2. 环境侧：验收机 git/npm 不在 PATH，构建走绝对路径 `node + npm-cli.js`（非引擎缺陷）；同一台机器的 `PATH` 还缺 `C:\Program Files\nodejs`，裸 shell 下 worker `spawn npx` 会 ENOENT
+3. 环境侧：host 若同时配独立 `figma-console` MCP 条目，它常驻占 9223 → 引擎子进程退到 9224 → 3 次 boot 后 `fatal`，表现为「引擎 MCP 连接失败」（工具全不在列表里）。排障见 `packages/figma-mcp-server/docs/INSTALL.md`「引擎 MCP 在 host 里连接失败」
+4. 删图恢复不丢图、`####` 自动降级、worker↔bridge 解耦、parts 同步 harness —— 仍为旧遗留
 
 **代码状态**：build ✓；`npx vitest run --no-file-parallelism` 79 files / 621 tests 全绿（并行会被 Windows 临时文件锁吃掉 7 个文件，必须串行）。
 

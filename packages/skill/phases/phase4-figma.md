@@ -80,6 +80,7 @@ Phase 2 完成（Markdown 已保存、`validate_phase1_signoff` 返回 ok）+ Ph
 
 **连不上 Figma 时，按这个顺序处理**（读取与写入都适用）：
 
+0. **先确认引擎工具在不在**：工具列表里没有 `get_skill_requirements` / `render_v2_markdown_to_figma`，连代理的 `figma_*` 也没有 → 这是 **MCP 进程级失败**，不是插件、不是模板、不是 Markdown。别让用户重开插件，直接按 `packages/figma-mcp-server/docs/INSTALL.md` 的「引擎 MCP 在 host 里连接失败」定位（两种典型：`spawn npx ENOENT` / 9223 被独立 `figma-console` 条目占着）。工具在、只是调用报错，才继续下一步
 1. 先跑 `figma_list_open_files`。返回 `No files connected`、目标文件不在列表里，或渲染返回 `V2_BACKEND_UNAVAILABLE` / `V2_TARGET_FILE_UNREACHABLE`，都算连不上
 2. **优先让用户在目标文件里启动这个社区插件**，一次给全链接，不要只描述：
 

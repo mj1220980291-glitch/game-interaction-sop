@@ -163,6 +163,7 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 
 ### Figma 连接失败
 
+- **先分清层级**：工具列表里连 `render_v2_markdown_to_figma` 都没有 = MCP 进程没连上（引擎已退出），不要排插件——按 `packages/figma-mcp-server/docs/INSTALL.md`「引擎 MCP 在 host 里连接失败」查，典型是 `spawn npx ENOENT`（PATH 无 node）或 9223 被独立的 `figma-console` 条目占着
 - 读不到文件 / 渲染报 `V2_BACKEND_UNAVAILABLE`、`V2_TARGET_FILE_UNREACHABLE` 时，**优先**让用户在目标文件里启动社区插件 `https://www.figma.com/community/plugin/1695400514520991057`（**网页端即可启动，不需要客户端**）
 - 起不来才回退本地 Desktop Bridge；两条都不通就停下等用户，不改 Markdown、不降级贴图
 

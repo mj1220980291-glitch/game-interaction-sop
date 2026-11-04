@@ -85,6 +85,52 @@ stderr 会打印一行 banner：
 
 ## 常见问题
 
+### 引擎 MCP 在 host 里「连接失败」（工具根本不在列表里）
+
+先分清两种失败：**工具都不存在**（进程级）vs **工具在、调用报错**（业务级）。
+本节只讲前者——此时排插件、排模板、排 Markdown 全是白费。
+
+症状（2026-11-04 实测现场）：
+
+| 位置 | 观测 |
+|---|---|
+| host 的 MCP 面板 | `figma-interaction-doc-engine` 显示连接失败/断开 |
+| host 的 MCP 日志（CodeMaker：`~/.codemaker/codemaker-language-server/logs/<日期>/`） | `Connecting to MCP server: figma-interaction-doc-engine` → 约 17s 后 `connection closed` + `Failed to connect … McpError: MCP error -32000: Connection closed` |
+| 可用工具列表 | 没有 `get_skill_requirements` / `render_v2_markdown_to_figma`，也没有代理来的 `figma_*` |
+
+**为什么是 17 秒**：engine 进程本身起来了，supervisor 拉 worker，worker 拉
+`figma-console-mcp` 子进程失败 → 重试 3 次（间隔约 4.8s）→ `fatal: McpError` →
+整个进程退出 → host 只能报「连接失败」。**引擎自己退出了，不是端口、不是插件。**
+
+30 秒定位（手动跑一遍，直接看 stderr）：
+
+```bat
+cd packages\figma-mcp-server
+set "PATH=C:\Program Files\nodejs;%PATH%"
+set "FIGMA_BACKEND=figma-console"
+set "FIGMA_ACCESS_TOKEN=<你的 token>"
+node dist/server/index.js
+```
+
+进程停在 stdin 等待是正常的，Ctrl+C 退出。
+
+正常应看到 `worker ready … proxy: 134` / `supervisor ready — 140 tool(s)`。两条典型异常：
+
+| stderr | 根因 | 修法 |
+|---|---|---|
+| `child figma-console-mcp transport error: spawn npx ENOENT` | 引擎进程的 `PATH` 里没有 node 安装目录，`npx` 根本找不到（本机 PATH 事实见 `AGENTS.md`） | 把 `C:\Program Files\nodejs` 加进用户级 `PATH`，重启 host。CodeMaker 首次 ENOENT 会自己刷新 PATH 重试一次，裸 shell 不会 |
+| `WARNING: bridge child on port 9224 (preferred 9223); renders will fail … Recovering…` 连刷 3 次后 `fatal` | 9223 被**活着的另一个** `figma-console-mcp` 占着（最常见：host 里同时配了独立的 `figma-console` MCP 条目）。它不是孤儿，引擎的自动回收不会杀它，只能退到 9224 | 删掉/禁用 host 里独立的 `figma-console` 条目——`figma-console-mcp` 由引擎内置托管（见 `SETUP.md` 步骤 2），然后清掉残留监听进程再重启 MCP |
+
+判定「谁占着 9223」：第一条看 `LISTENING` 的 PID，第二条读公告文件里的 `pid` / `startedAt`。
+
+```bat
+netstat -ano | findstr "922"
+dir "%TEMP%\figma-console-mcp-*.json"
+```
+
+两者都排除后仍失败，才回到下面 `V2_BACKEND_UNAVAILABLE` 的排查（那是进程活着、
+后端没接上的情形，banner 里 `proxy:` 为 0）。
+
 ### `V2_BACKEND_UNAVAILABLE`
 
 `render_v2_markdown_to_figma` 返回此错误码，说明引擎启动时没接上 Figma 后端。

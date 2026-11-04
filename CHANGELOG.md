@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## 未发布（文档补充，无版本变更）— 2026-11-04
+
+**新增排障路径：引擎 MCP 在 host 里「连接失败」≠ 插件/模板问题。** 现场：CodeMaker 里
+`figma-interaction-doc-engine` 连接建立约 17s 后 `McpError -32000: Connection closed`，
+工具列表里既没有 native 工具也没有代理的 `figma_*`。
+
+根因（两层，均已复现）：
+
+1. host 里同时配了独立的 `figma-console` MCP 条目，它常驻占用 bridge 首选端口 9223；
+   引擎内置的 `figma-console-mcp` 只能退到 9224 → worker 自检判「renders will fail」→
+   关子进程重拉，3 次都退到 9224 → `fatal` → 进程退出 → host 报连接失败。该实例父进程
+   还活着，**不属于孤儿，自动回收不会杀它**。禁用独立条目后实测 `port 9223` +
+   `proxy: 134` + `supervisor ready — 140 tool(s)` 正常。
+2. 本机 `PATH` 无 `C:\Program Files\nodejs` 时，worker 的 `spawn npx` 直接 ENOENT
+   （`cross-spawn` 找不到 `npx.cmd`）；host 有「首次 ENOENT 刷新 PATH 重试」兜底，裸
+   shell 没有。
+
+文档：`packages/figma-mcp-server/docs/INSTALL.md` 新增「引擎 MCP 在 host 里连接失败」
+（症状表 / 17s 的由来 / 手动跑 stderr 的 30 秒定位 / 两条 stderr → 修法映射 / 谁占着
+9223 的判定命令）；`packages/skill/phases/phase4-figma.md` 排查顺序加第 0 步「先确认引擎
+工具在不在」；`packages/skill/SKILL.md`「Figma 连接失败」加同款分层判定。
+
+
 ## v2.4.1（skill）/ 0.4.2（引擎）— 2026-11-04
 
 **0.4.1 验收不通过的 B 项（唯一阻断）+ P1/P2/P3 收尾。** 现场：M1/M2/M3，enginePid 11968。
