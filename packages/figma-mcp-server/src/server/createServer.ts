@@ -33,10 +33,13 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
+  auditPackFields,
   compileTemplate,
   parseV2,
   probeTemplate,
   renderV2MarkdownToFigma,
+  resolvePackWithTrace,
+  parseTemplatePack,
   type AssetSpec,
   type FigmaBackend as V2FigmaBackend
 } from '../v2/index.js';
@@ -780,13 +783,125 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
     }
   };
 
+  const auditTemplatePackTool: NativeToolDef = {
+    tool: {
+      name: 'audit_template_pack',
+      description:
+        '【只读，不写画布】体检一份模板包：缺哪些观感字段、各自影响什么、用的是哪一份包。' +
+        '不传 path 时按渲染同一套顺序查找（项目包 → 用户包 → 引擎包内基线包），所以「渲染没命中我配的包」也可以用它对账。' +
+        '缺字段不算错——不同模板结构可能确实用不到；这里只说明后果。' +
+        'deep:true 额外对 4 个库组件 key 做一次 import 冒烟（失败即 key 已失效，对应 V2_TEMPLATE_KEY_STALE），需要 Figma 后端。' +
+        '返回：{ ok, pack:{path,origin,project,components,capabilities,geometryPresent[]}, findings[], skipped[], keys? }。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '模板包绝对路径；不给则按渲染查找顺序定位' },
+          project: {
+            type: 'string',
+            description: '项目名（等价于 GISOP_PROJECT），用于命中 <project>.json 候选'
+          },
+          deep: { type: 'boolean', description: 'true = 额外做 key import 冒烟（需要 Figma 后端）' }
+        }
+      } as unknown as Tool['inputSchema']
+    },
+    handler: async (args) => {
+      try {
+        const pathArg = typeof args?.path === 'string' ? args.path : undefined;
+        const project = typeof args?.project === 'string' ? args.project : undefined;
+        const deep = args?.deep === true;
+
+        let pack;
+        let located: { path: string; origin: string };
+        if (pathArg) {
+          const raw = readFileSync(pathArg, 'utf-8');
+          const parsed = parseTemplatePack(JSON.parse(raw));
+          if (!parsed.ok) {
+            return jsonResult({
+              ok: false,
+              code: 'V2_TEMPLATE_PACK_INVALID',
+              path: pathArg,
+              errors: parsed.errors
+            });
+          }
+          pack = parsed.pack;
+          located = { path: pathArg, origin: 'explicit' };
+        } else {
+          const env = project ? { ...process.env, GISOP_PROJECT: project } : process.env;
+          const resolution = resolvePackWithTrace({ env });
+          if (!resolution.hit) {
+            return jsonResult({
+              ok: false,
+              code: 'V2_TEMPLATE_PACK_MISSING',
+              candidates: resolution.candidates,
+              ...(resolution.disabledByEnv ? { disabledByEnv: true } : {})
+            });
+          }
+          pack = resolution.hit.pack;
+          located = { path: resolution.hit.path, origin: resolution.hit.origin };
+        }
+
+        const findings = auditPackFields(pack);
+        const geometryPresent = Object.keys(pack.geometry ?? {});
+
+        const keys: Array<{ part: string; key: string; ok: boolean; error?: string }> = [];
+        if (deep) {
+          const backend = opts.v2Backend;
+          if (!backend?.instantiateByKey || !backend.deleteNodes) {
+            return errorResult(
+              ServerErrorCodes.V2_BACKEND_UNAVAILABLE,
+              'deep 体检需要 Figma 后端（instantiateByKey + deleteNodes）；去掉 deep 只做字段体检。'
+            );
+          }
+          for (const part of ['top', 'chapter', 'cluster', 'footer'] as const) {
+            const key = pack.components[part];
+            if (!key) continue;
+            try {
+              const inst = await backend.instantiateByKey({ componentKey: key, name: '__pack_audit__' });
+              keys.push({ part, key, ok: true });
+              try {
+                await backend.deleteNodes([inst.id]);
+              } catch {
+                /* 删不掉只是留一个临时实例 */
+              }
+            } catch (e) {
+              keys.push({ part, key, ok: false, error: (e as Error).message });
+            }
+          }
+        }
+
+        return jsonResult({
+          ok: true,
+          pack: {
+            path: located.path,
+            origin: located.origin,
+            ...(pack.project ? { project: pack.project } : {}),
+            components: pack.components,
+            capabilities: pack.capabilities,
+            geometryPresent
+          },
+          findings,
+          skipped: [
+            ...(geometryPresent.length === 0
+              ? ['pack 没有任何 geometry：底色/外框/占位色全部走默认值']
+              : []),
+            ...(deep ? [] : ['未做 key 冒烟（deep:true 才跑）'])
+          ],
+          ...(deep ? { keys } : {})
+        });
+      } catch (e) {
+        return errorResult(ServerErrorCodes.INTERNAL_ERROR, (e as Error).message);
+      }
+    }
+  };
+
   return [
     validateV2Markdown,
     renderV2MarkdownTool,
     validatePhase1SignoffTool,
     probeTemplateTool,
     compileTemplateTool,
-    getSkillRequirementsTool
+    getSkillRequirementsTool,
+    auditTemplatePackTool
   ];
 }
 

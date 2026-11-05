@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "project": "官方1.14",
+  "components": {
+    "top": "105c8a759e7cdcd5a307d3643a99fc6b54e59d37",
+    "chapter": "961732772f617d5c934c1465041e6b08dcc3b0bc",
+    "cluster": "76c4ed9125fe85072880103969377d7177d404e2"
+  },
+  "capabilities": {
+    "overview": "two-frames",
+    "clusterGroups": "slot-run",
+    "badgeSlot": "container",
+    "numberBadge": "text",
+    "roleAnnotation": "component-variant",
+    "figure": "named-group",
+    "hiddenPool": "ignore",
+    "column": "right"
+  },
+  "docBackground": "#1E1E1E",
+  "geometry": {
+    "docBackground": "#1E1E1E",
+    "chapterWidth": 3382,
+    "mainImage": { "width": 1920, "height": 1080 },
+    "sectionShell": [
+      { "padding": { "top": 64, "right": 64, "bottom": 64, "left": 64 }, "fill": "#000000" },
+      { "padding": { "top": 64, "right": 64, "bottom": 64, "left": 64 }, "fill": "#161616" }
+    ]
+  }
+}

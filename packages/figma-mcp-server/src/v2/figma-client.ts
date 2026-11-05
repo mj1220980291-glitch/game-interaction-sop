@@ -417,6 +417,32 @@ export interface FigmaBackend {
   healthCheck?(): Promise<void>;
 
   /**
+   * 正文对比度体检（只要结果，不改画布）。
+   *
+   * 为什么要放到插件侧做：判断「这段字压在什么底色上」需要祖先链，把整棵树搬回
+   * 主进程既慢又容易漏。一次往返拿聚合结果即可。
+   *
+   * 规则：只算「TEXT 有纯色填充」+「最近一个有 SOLID 填充的祖先」；跳过
+   * `INSTANCE` 内部（组件内部不归我们管）、渐变 / 图片填充、以及找不到实心祖先的文本。
+   */
+  auditTextContrast?(p: {
+    rootIds: string[];
+    minRatio?: number;
+  }): Promise<
+    Array<{
+      rootId: string;
+      rootName?: string;
+      /** 参与比对的文本条数。 */
+      checked: number;
+      /** 低于阈值的条数。 */
+      lowContrast: number;
+      skipped: number;
+      skipReasons?: string[];
+      samples?: Array<{ textId: string; textFill: string; bgFill: string; ratio: number }>;
+    }>
+  >;
+
+  /**
    * 设置文本的对齐方式。
    *
    * 占位文案要压在灰板正中：模板给的是靠左靠下的定宽单行，只挪坐标不居中，

@@ -271,7 +271,19 @@ export const SOFT_WARNING_CODES = {
    * render — 只给了 template.fileKey、没给 target.fileKey：已按模板所在文件写入
    * （以前是静默写进 Figma 当前活动文件，与调用方的模板地址无关）。
    */
-  W_TARGET_FROM_TEMPLATE: 'V2_W_TARGET_FROM_TEMPLATE'
+  W_TARGET_FROM_TEMPLATE: 'V2_W_TARGET_FROM_TEMPLATE',
+  /**
+   * render — 正文文字与它下面那层实心背景的对比度低于阈值，字压字看不清。
+   * 真机（2026-11-04）：模板正文是 `#EEEEEE`，pack 丢了底色 → 白底浅字，整章不可读。
+   * 只告警不判错：低对比也可能是设计有意为之（水印、装饰文本）。
+   */
+  W_TEXT_CONTRAST_LOW: 'V2_W_TEXT_CONTRAST_LOW',
+  /**
+   * render — 本次用的 pack 缺观感字段（`docBackground` / `sectionShell`），
+   * 走了默认值。缺字段不算错（不同模板结构可以不同），但使用者要知道「为什么
+   * 这次底色/外框跟以前不一样」。
+   */
+  W_PACK_GEOMETRY_DEFAULTED: 'V2_W_PACK_GEOMETRY_DEFAULTED'
 } as const;
 
 export type SoftWarningCode =

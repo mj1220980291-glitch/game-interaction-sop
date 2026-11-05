@@ -34,6 +34,10 @@ import type {
   StampedTree
 } from '../../src/v2/figma-client.js';
 
+// 这些用例靠「机器上没有模板包」进入 adopt 分支：引擎包内基线包（0.4.4 起随包
+// 分发）必须关掉，否则会先命中基线包，走不到 adopt。
+process.env.GISOP_BUNDLED_PACKS = 'off';
+
 const MD = (bullet: string[]) => `# 主串联 M1 复刻
 
 跟进UI：测试

@@ -90,6 +90,13 @@ export {
   type TemplatePack
 } from './template/schema.js';
 export { probeTemplate, probeFromTree, type ProbeReport, type ProbeVerdict } from './probe/index.js';
+export {
+  auditPackFields,
+  auditRenderedContrast,
+  auditTemplatePack,
+  contrastMinFromEnv,
+  DEFAULT_CONTRAST_MIN
+} from './pack-audit.js';
 export { compileTemplate, type CompileReport, type CompileInput } from './compile/index.js';
 export { structuralFingerprint } from './probe/fingerprint.js';
 export { parseRoleBullet, type RoleBullet } from './role-block.js';

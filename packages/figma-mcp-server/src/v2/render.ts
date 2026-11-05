@@ -103,6 +103,7 @@ import {
 } from './reconcile/index.js';
 import { isTransientBridgeError, retryTransient } from '../server/retry.js';
 import { getBridgeState } from '../server/bridgeState.js';
+import { auditPackFields, auditRenderedContrast } from './pack-audit.js';
 import {
   anchorKey,
   badgeDefaultsWarning,
@@ -363,7 +364,7 @@ export interface RenderResult {
    */
   pack?: {
     path: string;
-    origin: 'env' | 'cwd' | 'project' | 'default';
+    origin: 'env' | 'cwd' | 'project' | 'default' | 'bundled-project' | 'bundled-default';
     project?: string;
     components: {
       top?: string | null;
@@ -604,7 +605,12 @@ export async function renderV2MarkdownToFigma(
       // More reliable than triggerUndo(1) which only undoes the last figma_execute
       // entry and leaves the rest of the partial render on canvas.
     let leakedRootId: string | undefined;
-    const failureWarnings = [...parsed.warnings];
+    // 失败路径也带上「观感缺省」那条：它零成本（不碰 Figma），而且失败现场最需要
+    // 知道「我配的包是不是根本没带 geometry」。对比度检查要读画布，失败时不做。
+    const failureWarnings = [
+      ...parsed.warnings,
+      ...auditPackFields(packResolution.hit?.pack)
+    ];
     if (rootInstanceId) {
       try {
         await targetBackend.deleteNodes([rootInstanceId]);
@@ -679,6 +685,30 @@ export async function renderV2MarkdownToFigma(
     });
   }
 
+  // Phase D — 观感后果自检（只读、只告警、绝不改变结论）。
+  //
+  // 真机（2026-11-04）：pack 丢了 `docBackground` / `sectionShell`，模板的 `#EEEEEE`
+  // 正文压在默认白底上，`ok: true` + `errors: []`，没人知道出了问题。这一层不判错——
+  // 缺字段可能是模板本来用不到——只把「看不看得清」和「这次用了默认观感」说出来。
+  const auditWarnings: SoftWarning[] = [];
+  try {
+    const usedPack = partsLayout && partsPack ? partsPack : packResolution.hit?.pack;
+    auditWarnings.push(...auditPackFields(usedPack));
+    const contrastTargets = partsLayout
+      ? partsLayout.sections.map((s) => ({ id: s.nodeId, name: s.name }))
+      : [{ id: rootInstanceId, name: ir.header.title }];
+    auditWarnings.push(
+      ...(await auditRenderedContrast(targetBackend, contrastTargets, {
+        log: (m) => process.stderr.write(`[figma-interaction-doc-engine] ${m}\n`)
+      }))
+    );
+  } catch (e) {
+    // 自检自己坏了不能拖累渲染。
+    process.stderr.write(
+      `[figma-interaction-doc-engine] pack audit skipped: ${(e as Error).message}\n`
+    );
+  }
+
     return {
       ok: true,
       mode: 'create',
@@ -696,7 +726,8 @@ export async function renderV2MarkdownToFigma(
         ...stampWarnings,
         ...roleWarnings,
         ...placement.warnings,
-        ...alignWarnings(figures.alignNormalized)
+        ...alignWarnings(figures.alignNormalized),
+        ...auditWarnings
       ],
       summary: partsSummary
         ? {

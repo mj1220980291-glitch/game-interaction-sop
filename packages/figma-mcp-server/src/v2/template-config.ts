@@ -21,7 +21,8 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { TEMPLATE_FILE_KEY, TEMPLATE_NODE_ID } from './template-map.js';
 import { parseTemplatePack, type TemplatePack } from './template/schema.js';
 
@@ -122,10 +123,34 @@ export interface TemplatePackLookupOptions {
   env?: NodeJS.ProcessEnv;
   /** Home directory override — tests need a hermetic `~`. Defaults to `os.homedir()`. */
   home?: string;
+  /** 引擎包内基线包目录覆盖（测试用）。默认 `<pkg>/assets/packs`。 */
+  bundledDir?: string;
 }
 
 /** Where a candidate path came from — mirror of the lookup order. */
-export type PackCandidateOrigin = 'env' | 'cwd' | 'project' | 'default';
+export type PackCandidateOrigin =
+  | 'env'
+  | 'cwd'
+  | 'project'
+  | 'default'
+  /** 引擎包内的基线包（随 npm 分发，只读）——按项目名。 */
+  | 'bundled-project'
+  /** 引擎包内的基线包——全局默认（官方 1.14）。 */
+  | 'bundled-default';
+
+/**
+ * 引擎包内基线包的目录。
+ *
+ * 为什么随包分发：项目包被 `.gitignore` 忽略、用户包在仓库外，换机器 / 换同事必然
+ * 重新造包。基线包保证「装完就能渲染」，用户包永远覆盖它。
+ */
+const BUNDLED_PACKS_DIR = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  'assets',
+  'packs'
+);
 
 /**
  * `hit` 命中；`missing` 文件不存在；`invalid` JSON 或协议不合法；
@@ -186,6 +211,25 @@ export function resolvePackWithTrace(opts: TemplatePackLookupOptions = {}): Pack
     path: join(home, '.game-interaction-sop', 'templates', 'default.json'),
     origin: 'default'
   });
+
+  // 引擎包内的基线包排最后：任何一层用户/项目配置都能盖掉它，但「刚装完 / 换了
+  // 机器 / 新同事」时它保证有得用。没有它，模板包缺失会静默落回 legacy `1:14`。
+  //
+  // `GISOP_BUNDLED_PACKS=off` 才关：用于「我必须确认机器上真的没有包」的排查场景
+  // （以及模拟缺包的回归测试），默认开。
+  const bundledDir = opts.bundledDir ?? BUNDLED_PACKS_DIR;
+  if (env.GISOP_BUNDLED_PACKS !== 'off') {
+    if (project) {
+      candidates.push({
+        path: join(bundledDir, `${project}.json`),
+        origin: 'bundled-project'
+      });
+    }
+    candidates.push({
+      path: join(bundledDir, 'default.json'),
+      origin: 'bundled-default'
+    });
+  }
 
   const trace: PackCandidate[] = [];
   for (const candidate of candidates) {

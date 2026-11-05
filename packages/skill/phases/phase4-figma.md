@@ -243,6 +243,8 @@ Phase 4 只用得到三个工具：
 - `V2_W_FIGURE_ASSET_MISSING` — md 写了 `配图：` 但 `assetMap` 没有对应键，图位留灰板。问用户：补图，还是删掉这条 `配图：`
 - `V2_W_ASSET_KEY_UNMATCHED` — `asset_map` 里某个键在文档里找不到对应章节/配图，多半是编键时数错了 C 或 K。回 `phase3-asset.md` 核对编键
 - `V2_W_RENDER_RETRIED` — 首轮撞上瞬时连接错误，引擎整轮重试后成功。告知用户即可，不用重跑
+- `V2_W_PACK_GEOMETRY_DEFAULTED` — 模板包缺观感字段（`docBackground` / `sectionShell`），本次走默认白底 / 无外框。**不是错误**：先确认用户是不是换机器后重造了包（缺 geometry），再决定补包
+- `V2_W_TEXT_CONTRAST_LOW` — 正文与最近实心背景对比度低于阈值（默认 3.0）。按顺序查：① 包有没有 geometry；② 模板本身是不是低对比设计。**若出现这条，先别交付，让用户确认可读性**
 - `V2_W_TEMPLATE_ARG_IGNORED` — 传了 `template.fileKey/nodeId` 但模板包已命中，这两个字段没参与决策。下次别传
 - `V2_W_PHASE1_SIGNOFF_MISSING` — 没传 `phase1Signoff`。回 Phase 1 落盘声明并校验后补传，不要忽略
 - `V2_W_BADGE_ANCHOR_DEFAULTED` / `V2_W_BADGE_ANCHOR_TEXT_NOT_FOUND` / `V2_W_BADGE_ANCHOR_TEXT_AMBIGUOUS` — 标号没吸附到控件（见上方对账字段）

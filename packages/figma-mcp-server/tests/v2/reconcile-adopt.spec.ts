@@ -12,8 +12,7 @@
  *   - 都没给 → 仍是 V2_PACK_MISMATCH，但报错里直说两条出路。
  */
 
-import { afterAll, beforeAll, describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderV2MarkdownToFigma } from '../../src/v2/render.js';
@@ -28,6 +27,10 @@ import type {
   StampedNodeRaw,
   StampedTree
 } from '../../src/v2/figma-client.js';
+
+// 这些用例模拟「机器上没有模板包」：引擎包内基线包（0.4.4 起随包分发）必须关掉，
+// 否则 adopt / legacy 分支根本走不到。
+process.env.GISOP_BUNDLED_PACKS = 'off';
 
 const MD = `# adopt 同步
 

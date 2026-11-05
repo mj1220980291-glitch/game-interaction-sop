@@ -46,6 +46,7 @@ describe('mcp server — tool registration', () => {
     const defs = buildNativeTools();
     const names = defs.map((d) => d.tool.name).sort();
     expect(names).toEqual([
+      'audit_template_pack',
       'figma_compile_template',
       'figma_probe_template',
       'get_skill_requirements',

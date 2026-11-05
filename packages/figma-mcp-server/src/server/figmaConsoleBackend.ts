@@ -517,6 +517,72 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       }
     },
 
+    async auditTextContrast({ rootIds, minRatio }) {
+      const rows = await run(`
+        const toHex = (c) => '#' + [c.r, c.g, c.b]
+          .map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
+        const lin = (v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+        const lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+        const ratio = (a, b) => {
+          const l1 = lum(a), l2 = lum(b);
+          const hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+          return (hi + 0.05) / (lo + 0.05);
+        };
+        // 只认不透明的 SOLID 填充：渐变 / 图片 / 半透明都不做判断，宁可不报也不误报。
+        const solid = (n) => {
+          const fills = n.fills;
+          if (!Array.isArray(fills) || fills.length === 0) return null;
+          for (const f of fills) {
+            if (f.type !== 'SOLID' || f.visible === false) continue;
+            if ((f.opacity ?? 1) < 0.5) continue;
+            return { color: f.color, hex: toHex(f.color) };
+          }
+          return null;
+        };
+
+        const min = ${JSON.stringify(minRatio ?? 3)};
+        const out = [];
+        for (const rootId of ${JSON.stringify(rootIds)}) {
+          const root = await figma.getNodeByIdAsync(rootId);
+          if (!root) { out.push({ rootId, checked: 0, lowContrast: 0, skipped: 0 }); continue; }
+          const row = { rootId, rootName: root.name, checked: 0, lowContrast: 0, skipped: 0, skipReasons: [], samples: [] };
+          const mark = (why) => { if (row.skipReasons.indexOf(why) < 0) row.skipReasons.push(why); };
+          const walk = (n, bg) => {
+            if (n.visible === false) { row.skipped++; mark('hidden'); return; }
+            if (n.type === 'INSTANCE') { row.skipped++; mark('instance-internal'); return; }
+            const own = solid(n);
+            const nextBg = own ?? bg;
+            if (n.type === 'TEXT') {
+              const fill = solid(n);
+              if (!fill) { row.skipped++; mark('text-without-solid-fill'); }
+              else if (!nextBg) { row.skipped++; mark('no-solid-ancestor'); }
+              else {
+                row.checked++;
+                const r = ratio(fill.color, nextBg.color);
+                if (r < min) {
+                  row.lowContrast++;
+                  if (row.samples.length < 3) row.samples.push({ textId: n.id, textFill: fill.hex, bgFill: nextBg.hex, ratio: r });
+                }
+              }
+            }
+            if ('children' in n) { for (const c of n.children) walk(c, nextBg); }
+          };
+          walk(root, null);
+          out.push(row);
+        }
+        return out;
+      `, 45000) as Array<{
+        rootId: string;
+        rootName?: string;
+        checked: number;
+        lowContrast: number;
+        skipped: number;
+        skipReasons?: string[];
+        samples?: Array<{ textId: string; textFill: string; bgFill: string; ratio: number }>;
+      }> | null;
+      return rows ?? [];
+    },
+
     // --- Read ops --------------------------------------------------------
 
     async getNodeInfo(nodeId) {
@@ -1258,8 +1324,10 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     },
 
     async instantiateByKey({ componentKey, parentId, name }) {
-      const r = await retryTransient(() =>
-        run(`
+      let r: Record<string, unknown>;
+      try {
+        r = (await retryTransient(() =>
+          run(`
         ${SERIALIZE_NODE_FN}
         const comp = await figma.importComponentByKeyAsync(${JSON.stringify(componentKey)});
         if (!comp) throw new Error('instantiateByKey: component not found for key ' + ${JSON.stringify(componentKey)});
@@ -1272,7 +1340,20 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         ` : ''}
         return serNode(inst);
       `, 30000)
-      ) as Record<string, unknown>;
+        )) as Record<string, unknown>;
+      } catch (err) {
+        // 库重新发布会换 key：旧包里的 key 会 import 失败。这条以前和「没连上插件」
+        // 「节点找不到」混在一起，看到的人根本不知道去重取 key。
+        const original = (err as Error).message ?? String(err);
+        throw Object.assign(
+          new Error(
+            `模板包的库组件 key 已失效（key=${componentKey}${name ? `，用途=${name}` : ''}）。` +
+              '组件库重新发布后 key 会变：用 figma_compile_template(phase="verify") 重新取 key 并更新模板包。\n' +
+              `原始报错：${original}`
+          ),
+          { code: 'V2_TEMPLATE_KEY_STALE', details: { componentKey } }
+        );
+      }
       return mapNode(r);
     },
 

@@ -78,6 +78,12 @@ node dist/server/index.js
 > 两个可选 env 只在排障时动：`GISOP_PREFLIGHT` 控制渲染前是否探活（0.4.3 起默认开，
 > 失败返回 `V2_BRIDGE_DOWN`）；`GISOP_EXEC_TIMEOUT_MS` 控制单次 `figma_execute`
 > 的客户端上限（超时返回 `V2_BRIDGE_NO_REPLY`，不再挂到宿主 60s 超时）。
+>
+> 模板包：引擎自带基线包（`assets/packs/default.json` = 官方 1.14），**装完即可渲染**。
+> 要切项目就在 `<项目>/.interaction-sop/template.json` 或
+> `~/.game-interaction-sop/templates/<project>.json` 放一份覆盖它，并用
+> `GISOP_PROJECT=<项目名>` 命中。切换的交互体验待做；`GISOP_BUNDLED_PACKS=off`
+> 可关掉基线（排查「机器上到底有没有包」）。
 
 #### Claude Desktop / Cursor / Cline（JSON 格式）
 

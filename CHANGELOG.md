@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## v2.4.3（skill）/ 0.4.4（引擎）— 2026-11-05
+
+**模板包不再「本机私有」：基线包随引擎分发，缺了观感会自己说出来。** 现场：换电脑后模板包丢失，
+照着组件库重造了一份，结果少了 `geometry`（`docBackground` / `sectionShell`）→ 文档根落默认
+`#FFFFFF`，模板的 `#EEEEEE` 浅字压白底，整章不可读，而渲染返回 `ok:true`、`errors:[]`。
+
+### 1. 查到的三条事实
+
+- 模板包**不随仓库分发**：项目级 `<项目>/.interaction-sop/template.json` 被 `.gitignore` 忽略，
+  用户级 `~/.game-interaction-sop/templates/*.json` 在仓库外，`git log --diff-filter=A -- "*templates/*.json"` 零条
+- 「库已发布 → 生成包」这条路**采不到章节外壳**：`compile/geometry.ts` 的 `captureGeometryFromKeys`
+  调 `captureGeometry` 时没传 `sectionSourceId` / `sourceRootId` / `badgeSourceId`（`sourceBackend` 是死参数）
+- 缺了**不吭声**：`incomplete` 只检三个 components key；`capabilities` 缺省静默填默认；
+  返回体不回显 `geometry`，也没有任何 warning
+
+### 2. 改动
+
+- **六級查找**：`env` → 项目包 → 用户 `<project>` → 用户 `default` → **引擎包内 `<project>`** → **引擎包内 `default`**；
+  `assets/packs/default.json` 随包提供官方 1.14 基线（含 capabilities + `docBackground` + 两层 `sectionShell`）
+- **`GISOP_BUNDLED_PACKS=off`**：排查「机器上到底有没有包」时关掉基线
+- **`V2_TEMPLATE_KEY_STALE`**：库重发后旧 key import 失败，明确报 part / key / pack 路径 + 重取路径
+- **观感自检（软告警，不判错）**：`W_PACK_GEOMETRY_DEFAULTED`（缺 docBackground / sectionShell，点名后果）、
+  `W_TEXT_CONTRAST_LOW`（正文 vs 最近实心祖先的对比度 < 3.0，`GISOP_CONTRAST_MIN` 可调；跳过实例内部 /
+  渐变 / 图片底）；插件侧一次往返算完，失败路径也带字段告警
+- **只读工具 `audit_template_pack`**：按渲染同一顺序定位包，输出 pack 摘要 + findings；`deep:true` 加 key 冒烟
+- 解析顺序与字段契约写进 `template-contract.md`（geometry 明确为「非必填、缺了掉观感」）
+
+### 3. 回归
+
+- 新增 `tests/v2/template-pack-bundled.spec.ts`（7）、`tests/v2/pack-audit.spec.ts`（9）、
+  `tests/server/pack-audit-backend.spec.ts`（3）；`render-pack-observability` 增加失败路径断言
+- 全量：83 files / 650 tests 通过（`--no-file-parallelism`）
+- 既有 adopt / legacy 用例改为显式 `GISOP_BUNDLED_PACKS=off`（它们模拟「机器上没有包」）
+
+### 4. 未完成
+
+- 基线包缺 `placeholder` / `bubbleGrid` / `docPadding` / `footerGap` 原值（需重编）；蛋仔基线包尚未产出
+- `captureGeometryFromKeys` 的 `sectionSourceId` 透传未做（下次重编时一并补）
+
 ## v2.4.2（skill）/ 0.4.3（引擎）— 2026-11-04
 
 **桥不再「假活」：活链判定改成插件回环往返，渲染不再把 60s 交给宿主自愈。** 现场：变色龙项目

@@ -149,17 +149,37 @@
 - `capabilities` 缺省即取上表缺省值；**未知键或越界取值直接报错**，不静默回落
 - `anchors` 只在**非缺省命名**时出现；缺省命名的项目不要写
 - `components` 为 `null` 表示「编译发布前」，渲染前必须回填
+- `geometry` 与 `docBackground` **不是必填**：不同项目的模板结构可以不同，确实可能用不到。
+  缺了会掉观感，引擎会给软告警 `V2_W_PACK_GEOMETRY_DEFAULTED`（点名缺哪项、后果是什么），
+  **不算错误**。`geometry` 可含：`docBackground` / `chapterWidth` / `mainImage` /
+  `placeholder{fill,stroke}` / `bubbleGrid` / `badgeSize` / `rootGap` / `docPadding` /
+  `footerGap` / `sectionShell[]`
 
 ---
 
-## 五、四级查找（用户零手编）
+## 五、六级查找（用户零手编）
 
 ```
-1  <项目根>/.interaction-sop/template.json
-2  ~/.game-interaction-sop/templates/<项目名>.json      （$GISOP_PROJECT）
-3  ~/.game-interaction-sop/templates/default.json
-4  官方 1:14
+1  $GISOP_TEMPLATE_PACK                                  （显式路径，off = 全关）
+2  <项目根>/.interaction-sop/template.json
+3  ~/.game-interaction-sop/templates/<项目名>.json        （$GISOP_PROJECT）
+4  ~/.game-interaction-sop/templates/default.json
+5  <引擎包>/assets/packs/<项目名>.json                    ← 随引擎分发的基线包
+6  <引擎包>/assets/packs/default.json                     ← 随引擎分发的基线包（默认）
 ```
+
+第 5、6 级**随引擎一起装好**，用于「换机器 / 新同事 / 刚装完」：前 4 级任何一份命中都覆盖它。
+`$GISOP_BUNDLED_PACKS=off` 可关掉基线包（当作「机器上真的没有包」）。
+
+基线包里的 `components.*` 是发布快照的 key，库重新发布后会失效，此时渲染返回
+`V2_TEMPLATE_KEY_STALE`（含 part / key / pack 路径）；用 `figma_compile_template(phase="verify")`
+重取 key 即可，不要手改 key。
+
+### 模板包体检
+
+`audit_template_pack`（只读）按渲染同一套顺序定位包，回答：用的是哪份包、缺哪些观感字段、
+各有什么影响；`deep:true` 额外对 4 个 key 做 import 冒烟。渲染时同一套判据也会跑（见
+`template-render` 的 `W_PACK_GEOMETRY_DEFAULTED` / `W_TEXT_CONTRAST_LOW`）。
 
 另有 `$GISOP_TEMPLATE_PACK` 可指定绝对路径；`$GISOP_TEMPLATE_PACK=off` 关闭整个查找（测试用）。
 

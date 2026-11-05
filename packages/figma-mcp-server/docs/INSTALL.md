@@ -171,6 +171,32 @@ Figma Desktop`，端口监听方也在变。
 若日志里仍看到 `self-heal triggered`，说明跑的是旧 build：确认 `engineVersion`
 是 `0.4.3` 以上，`npm run build` 后重启该窗口的 MCP。
 
+### 换机器 / 新同事：模板包不用重造
+
+引擎包内自带基线模板包（`assets/packs/default.json`，官方 1.14），查找顺序里排在最后：
+
+```
+4  ~/.game-interaction-sop/templates/default.json
+5  <引擎包>/assets/packs/<项目名>.json
+6  <引擎包>/assets/packs/default.json
+```
+
+所以「装完就能渲染」；要切项目就在前 4 级放一份覆盖它（项目目录或用户目录）。想确认
+「机器上到底有没有包」用 `$GISOP_BUNDLED_PACKS=off`。
+
+基线包里的 key 是发布快照，库重新发布会失效 → 渲染返回 `V2_TEMPLATE_KEY_STALE`
+（含 part / key / pack 路径），用 `figma_compile_template(phase="verify")` 重取。
+
+排查用 `audit_template_pack`（只读）：不传 path 时按渲染同一顺序定位，回答「用的哪份包、
+缺哪些观感字段、影响什么」；`deep:true` 加 key import 冒烟。
+
+### 渲染结果里的两条观感告警
+
+| 告警 | 含义 | 怎么办 |
+|---|---|---|
+| `V2_W_PACK_GEOMETRY_DEFAULTED` | 本次用了默认观感（缺 `docBackground` / `sectionShell`） | 不是错误；要恢复原稿观感就重编模板包 |
+| `V2_W_TEXT_CONTRAST_LOW` | 正文与最近实心背景的对比度低于阈值（默认 3.0，`GISOP_CONTRAST_MIN` 可调） | 先查 pack 的 geometry，再查模板本身是不是低对比设计 |
+
 ### `V2_BACKEND_UNAVAILABLE`
 
 `render_v2_markdown_to_figma` 返回此错误码，说明引擎启动时没接上 Figma 后端。

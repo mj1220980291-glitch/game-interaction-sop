@@ -99,6 +99,9 @@ describe('返回值暴露模板包摘要', () => {
 
     expect(result.pack?.origin).toBe('env');
     expect(result.warnings.some((w) => w.code === 'V2_W_TEMPLATE_ARG_IGNORED')).toBe(true);
+    // 这份夹具包没有 geometry：必须说出来「本次观感走默认值」，否则浅底浅字的事故
+    // （2026-11-04）又会以 ok:true / 只有一句无关告警的方式静默通过。
+    expect(result.warnings.some((w) => w.code === 'V2_W_PACK_GEOMETRY_DEFAULTED')).toBe(true);
   });
 });
 
