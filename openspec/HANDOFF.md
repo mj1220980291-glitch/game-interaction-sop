@@ -2,9 +2,11 @@
 
 ## 当前状态快照（2026-11-04 10:57，换对话先读这一节）
 
-**一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.4`、skill `2.4.3`、`requiredSkillVersion 2.4.0`。
+**一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.5`、skill `2.4.3`、`requiredSkillVersion 2.4.0`。
 
-**0.4.4 / skill 2.4.3（2026-11-05，已实施待重编基线包）**：`template-pack-baseline-and-audit` 的代码线全部落地。现场：换电脑后模板包丢失，照组件库重造时丢了 `geometry` → 默认白底 + 模板浅字 `#EEEEEE` = 整章不可读，而 `ok:true`。修法：六級查找（第 5/6 级为随引擎分发的基线包，`assets/packs/default.json`）、`V2_TEMPLATE_KEY_STALE`、观感自检两条软告警（`W_PACK_GEOMETRY_DEFAULTED` / `W_TEXT_CONTRAST_LOW`）、只读工具 `audit_template_pack`。回归 83 files / 650 tests。**待办**：两套基线包重编（官方1.14 补 placeholder/bubbleGrid/docPadding/footerGap；蛋仔缺包）+ `captureGeometryFromKeys` 透传 `sectionSourceId`。
+**0.4.5（2026-11-06，验收返工）**：0.4.4 验收打出**假阳性** — 正常配置下 3 章 98 条 `W_TEXT_CONTRAST_LOW`，数据恒为「文字 #FFFFFF / 背景 #FFFFFF / 1.00:1」。根因：`buildContrastAuditScript` 把 TEXT 自己的填充当成背景传下去，`ratio(fill, fill)` 恒等于 1；与 `geometry` 在不在无关，正好解释「缺不缺数值一样」。修法：`nextBg` 只由非 TEXT 节点决定、比值一律用祖先 `bg`、无实心祖先计 skipped；脚本提成可单测的 `buildContrastAuditScript` + 7 条真脚本回归（假 figma 树）。回归 84 files / 657 tests。**待验收**：0.4.5 重跑，正常配置应为 0 条对比度告警，缺 geometry 时应报「`#EEEEEE` / `#FFFFFF` / 约 1.1:1」。遗留：9.5.1 bridge 快照缓存、9.5.2 截图 10s 连接超时（`V2_W_SCREENSHOT_FAILED`，非渲染失败）。
+
+**0.4.4 / skill 2.4.3（2026-11-05）**：`template-pack-baseline-and-audit` 代码线落地 — 六級查找（第 5/6 级为随引擎分发的基线包 `assets/packs/default.json`，官方 1.14）、`V2_TEMPLATE_KEY_STALE`、观感自检（`W_PACK_GEOMETRY_DEFAULTED` / `W_TEXT_CONTRAST_LOW`）、只读工具 `audit_template_pack`。0.4.4 验收：用例 1/3/5/6 通过，用例 2/4 因对比度假阳性阻塞 → 0.4.5 修掉。**仍待办**：两套基线包重编（官方1.14 补 placeholder/bubbleGrid/docPadding/footerGap；蛋仔缺包）+ `captureGeometryFromKeys` 透传 `sectionSourceId` + `deep` 的 fingerprint 比对。
 
 **0.4.3 / skill 2.4.2（2026-11-04，已实施待真机）**：`fail-fast-bridge-liveness` 的 P0 全部落地。现场：变色龙项目渲染恒报 `V2_RENDER_RUNTIME_ERROR / Cannot connect`、`enginePid` 每调都变。日志真相是宿主 60.000s 请求超时 → `self-heal triggered … -32001` → 重启整个 MCP；触发原因是「插件 socket 在、sandbox 假死」。修法：活链判定改为插件回环往返（`pluginConnected` / `lastRoundtripMs`）、渲染探活默认开（`GISOP_PREFLIGHT=0` 才关）、单次 exec 客户端上限 `插件 timeout + 5s` 返回 `V2_BRIDGE_NO_REPLY`、诊断补第三态、返回体带 `bridge` 快照、worker boot 探活不阻塞。回归 80 files / 631 tests 全绿。**待真机**：假死机上确认 20s 内拿到 `V2_BRIDGE_NO_REPLY` 且宿主日志无 `self-heal triggered`。
 

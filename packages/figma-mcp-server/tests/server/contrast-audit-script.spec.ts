@@ -1,0 +1,210 @@
+/**
+ * 对比度体检脚本的真机回归（用假 figma 树跑**真脚本**）。
+ *
+ * 2026-11-06 验收打出的假阳性：正常配置下报 3 条 `V2_W_TEXT_CONTRAST_LOW`，
+ * 数据一律是 `文字 #FFFFFF / 背景 #FFFFFF / 1.00:1`。根因是脚本把 TEXT 自己的
+ * 填充当成了它的背景（自己比自己恒等于 1.00:1），与 geometry 在不在无关——
+ * 这正好解释了「缺不缺 geometry 数值完全一样」。
+ *
+ * 这里不测封装，直接 `new Function('figma', …)` 执行插件脚本，避免同类错误再靠肉眼发现。
+ */
+
+import { describe, it, expect } from 'vitest';
+import { buildContrastAuditScript } from '../../src/server/figmaConsoleBackend.js';
+
+type FakeNode = {
+  id: string;
+  name: string;
+  type: string;
+  visible?: boolean;
+  fills?: Array<{ type: string; color: { r: number; g: number; b: number }; opacity?: number; visible?: boolean }>;
+  children?: FakeNode[];
+};
+
+const hexColor = (hex: string) => ({
+  r: parseInt(hex.slice(1, 3), 16) / 255,
+  g: parseInt(hex.slice(3, 5), 16) / 255,
+  b: parseInt(hex.slice(5, 7), 16) / 255
+});
+
+const solid = (hex: string, opacity = 1) => [
+  { type: 'SOLID', color: hexColor(hex), opacity, visible: true }
+];
+
+function runScript(roots: FakeNode[], rootIds: string[], min = 3) {
+  const byId = new Map<string, FakeNode>();
+  const index = (n: FakeNode) => {
+    byId.set(n.id, n);
+    (n.children ?? []).forEach(index);
+  };
+  roots.forEach(index);
+  const figma = { getNodeByIdAsync: async (id: string) => byId.get(id) ?? null };
+  const code = buildContrastAuditScript(rootIds, min);
+  // 插件脚本是函数体：末尾 `return out;`，用 async IIFE 包一层即可。
+  const fn = new Function('figma', `return (async () => {${code}})();`);
+  return fn(figma) as Promise<
+    Array<{
+      rootId: string;
+      checked: number;
+      lowContrast: number;
+      skipped: number;
+      skipReasons?: string[];
+      samples?: Array<{ textId: string; textFill: string; bgFill: string; ratio: number }>;
+    }>
+  >;
+}
+
+/** 真机结构：文档 #1E1E1E → 章节外框 #000000 → 章节外框 #161616 → 章节(无填充) → 正文 */
+function realDoc(textHex: string): FakeNode[] {
+  return [
+    {
+      id: 'doc',
+      name: '文档',
+      type: 'FRAME',
+      fills: solid('#1E1E1E'),
+      children: [
+        {
+          id: 'shell0',
+          name: '章节外框',
+          type: 'FRAME',
+          fills: solid('#000000'),
+          children: [
+            {
+              id: 'shell1',
+              name: '章节外框',
+              type: 'FRAME',
+              fills: solid('#161616'),
+              children: [
+                {
+                  id: 'chapter',
+                  name: '界面说明1',
+                  type: 'FRAME',
+                  fills: [],
+                  children: [
+                    { id: 'body1', name: '正文/规则', type: 'TEXT', fills: solid(textHex) },
+                    { id: 'body2', name: '正文/规则', type: 'TEXT', fills: solid(textHex) }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ];
+}
+
+describe('对比度体检脚本', () => {
+  it('深底白字不误报（2026-11-06 假阳性的回归）', async () => {
+    const [row] = await runScript(realDoc('#FFFFFF'), ['doc']);
+    expect(row.checked).toBe(2);
+    expect(row.lowContrast).toBe(0);
+    expect(row.samples).toEqual([]);
+  });
+
+  it('浅底浅字才报，且取的是祖先背景而不是文字自己的颜色', async () => {
+    const doc = realDoc('#EEEEEE');
+    // 把两层壳与根都改成白：模拟「pack 缺 geometry → 全程默认白」
+    doc[0].fills = solid('#FFFFFF');
+    doc[0].children![0].fills = solid('#FFFFFF');
+    doc[0].children![0].children![0].fills = solid('#FFFFFF');
+
+    const [row] = await runScript(doc, ['doc']);
+    expect(row.checked).toBe(2);
+    expect(row.lowContrast).toBe(2);
+    expect(row.samples?.[0].textFill).toBe('#EEEEEE');
+    expect(row.samples?.[0].bgFill).toBe('#FFFFFF');
+    expect(row.samples?.[0].ratio).toBeLessThan(3);
+    // 关键：不再是「自己比自己」
+    expect(row.samples?.[0].textFill).not.toBe(row.samples?.[0].bgFill);
+  });
+
+  it('文字自己的填充不会被当成子节点背景', async () => {
+    const roots: FakeNode[] = [
+      {
+        id: 'root',
+        name: 'root',
+        type: 'FRAME',
+        fills: solid('#000000'),
+        children: [
+          {
+            id: 'wrap',
+            name: 'wrap',
+            type: 'FRAME',
+            fills: [],
+            children: [{ id: 't', name: '正文', type: 'TEXT', fills: solid('#FFFFFF') }]
+          }
+        ]
+      }
+    ];
+    const [row] = await runScript(roots, ['root']);
+    expect(row.lowContrast).toBe(0);
+    expect(row.checked).toBe(1);
+  });
+
+  it('没有实心祖先时计入 skipped，不算低对比', async () => {
+    const roots: FakeNode[] = [
+      {
+        id: 'root',
+        name: 'root',
+        type: 'FRAME',
+        fills: [],
+        children: [{ id: 't', name: '正文', type: 'TEXT', fills: solid('#EEEEEE') }]
+      }
+    ];
+    const [row] = await runScript(roots, ['root']);
+    expect(row.lowContrast).toBe(0);
+    expect(row.checked).toBe(0);
+    expect(row.skipReasons).toContain('no-solid-ancestor');
+  });
+
+  it('INSTANCE 内部与隐藏节点跳过', async () => {
+    const roots: FakeNode[] = [
+      {
+        id: 'root',
+        name: 'root',
+        type: 'FRAME',
+        fills: solid('#FFFFFF'),
+        children: [
+          {
+            id: 'inst',
+            name: '组件实例',
+            type: 'INSTANCE',
+            children: [{ id: 'inner', name: '正文', type: 'TEXT', fills: solid('#FFFFFF') }]
+          },
+          { id: 'hidden', name: '正文', type: 'TEXT', visible: false, fills: solid('#FFFFFF') }
+        ]
+      }
+    ];
+    const [row] = await runScript(roots, ['root']);
+    expect(row.lowContrast).toBe(0);
+    expect(row.checked).toBe(0);
+    expect(row.skipReasons).toEqual(expect.arrayContaining(['instance-internal', 'hidden']));
+  });
+
+  it('半透明 / 渐变填充不算背景', async () => {
+    const roots: FakeNode[] = [
+      {
+        id: 'root',
+        name: 'root',
+        type: 'FRAME',
+        fills: [
+          { type: 'GRADIENT_LINEAR', color: hexColor('#000000'), visible: true },
+          { type: 'SOLID', color: hexColor('#000000'), opacity: 0.2, visible: true }
+        ],
+        children: [{ id: 't', name: '正文', type: 'TEXT', fills: solid('#EEEEEE') }]
+      }
+    ];
+    const [row] = await runScript(roots, ['root']);
+    expect(row.checked).toBe(0);
+    expect(row.skipReasons).toContain('no-solid-ancestor');
+  });
+
+  it('阈值可调', async () => {
+    const doc = realDoc('#FFFFFF'); // 白字压 #161616，ratio ≈ 18
+    const [rowHigh] = await runScript(doc, ['doc'], 21);
+    expect(rowHigh.lowContrast).toBe(2);
+    const [rowLow] = await runScript(doc, ['doc'], 3);
+    expect(rowLow.lowContrast).toBe(0);
+  });
+});

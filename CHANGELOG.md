@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## 0.4.5（引擎，skill 仍 2.4.3）— 2026-11-06
+
+**对比度自检假阳性：TEXT 拿自己的填充当背景，恒等于 `1.00:1`。** 现场（变色龙 0.4.4 验收，
+enginePid 1552）：正常配置下 3 章共 98 条 `V2_W_TEXT_CONTRAST_LOW`，数据一律
+`文字 #FFFFFF / 背景 #FFFFFF / 1.00:1`；缺不缺 `geometry` 数值完全相同，画布实际是
+`#161616` 底 + 白字，可读正常。
+
+### 根因
+
+`buildContrastAuditScript` 里：
+
+```js
+const own = solid(n);          // TEXT 自己的文字色
+const nextBg = own ?? bg;      // ❌ 被当成了「子节点的背景」
+ratio(fill.color, nextBg.color) // → 自己比自己，恒 1.00:1
+```
+
+文字节点没有子节点，`nextBg` 只影响它自己的比值计算 → 必然误报，且与背景实际颜色无关，
+所以「有没有 geometry 数值一样」。**采样时机没问题**（渲染收尾后读画布），错的是背景回溯。
+
+### 修法
+
+- `nextBg` 只由**非 TEXT** 节点的填充决定；比值一律用祖先背景 `bg`
+- 找不到实心祖先 → 计 `skipped: no-solid-ancestor`，不算低对比
+- 脚本提到模块级 `buildContrastAuditScript(rootIds, minRatio)` 导出，**可被单测直接执行**
+- 新增 `tests/server/contrast-audit-script.spec.ts`（7 条）：用假 figma 树 + `new Function`
+  跑真脚本，覆盖「深底白字不误报」「浅底浅字才报且取祖先色」「TEXT 填充不当背景」
+  「无实心祖先跳过」「INSTANCE / 隐藏跳过」「半透明 / 渐变不算背景」「阈值可调」
+
+### 回归
+
+- 84 files / 657 tests 通过（`--no-file-parallelism`）
+- 版本 bump 到 `0.4.5`（0.4.4 已被验收方用于「版本可辨识」判据，必须换号才能区分 build）
+
 ## v2.4.3（skill）/ 0.4.4（引擎）— 2026-11-05
 
 **模板包不再「本机私有」：基线包随引擎分发，缺了观感会自己说出来。** 现场：换电脑后模板包丢失，

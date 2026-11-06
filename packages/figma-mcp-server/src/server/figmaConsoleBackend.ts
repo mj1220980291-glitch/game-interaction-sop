@@ -489,6 +489,84 @@ function toFigureSlotGeometry(row: Record<string, unknown>): FigureSlotGeometry 
   };
 }
 
+/**
+ * 正文对比度体检的插件脚本。
+ *
+ * 注意这条曾经写错过一次（2026-11-06 真机验收打出 3 条假阳性）：
+ *
+ * ```
+ * const own = solid(n);        // TEXT 自己的文字色
+ * const nextBg = own ?? bg;    // ❌ 把它当成了「子节点的背景」
+ * ratio(fill.color, nextBg.color)   // → 永远是自己比自己，恒等于 1.00:1
+ * ```
+ *
+ * 现在：`nextBg` 只由**非 TEXT** 节点的填充决定（TEXT 不构成它自己的背景），
+ * 比值一律用祖先背景 `bg`。这条靠 `tests/server/contrast-audit-script.spec.ts`
+ * 用假 figma 树回归，别再凭肉眼改。
+ *
+ * 规则：
+ *   - 只认不透明 SOLID 填充（渐变 / 图片 / 半透明一律不判，宁可不报也不误报）
+ *   - `INSTANCE` 内部跳过（组件内部不归我们管），隐藏节点跳过
+ *   - 找不到实心祖先 → 计入 skipped 的 `no-solid-ancestor`，不算低对比
+ */
+export function buildContrastAuditScript(rootIds: string[], minRatio = 3): string {
+  return `
+        const toHex = (c) => '#' + [c.r, c.g, c.b]
+          .map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
+        const lin = (v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+        const lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+        const ratio = (a, b) => {
+          const l1 = lum(a), l2 = lum(b);
+          const hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+          return (hi + 0.05) / (lo + 0.05);
+        };
+        const solid = (n) => {
+          const fills = n.fills;
+          if (!Array.isArray(fills) || fills.length === 0) return null;
+          for (const f of fills) {
+            if (f.type !== 'SOLID' || f.visible === false) continue;
+            if ((f.opacity ?? 1) < 0.5) continue;
+            return { color: f.color, hex: toHex(f.color) };
+          }
+          return null;
+        };
+
+        const min = ${JSON.stringify(minRatio)};
+        const out = [];
+        for (const rootId of ${JSON.stringify(rootIds)}) {
+          const root = await figma.getNodeByIdAsync(rootId);
+          if (!root) { out.push({ rootId, checked: 0, lowContrast: 0, skipped: 1, skipReasons: ['root-missing'] }); continue; }
+          const row = { rootId, rootName: root.name, checked: 0, lowContrast: 0, skipped: 0, skipReasons: [], samples: [] };
+          const mark = (why) => { if (row.skipReasons.indexOf(why) < 0) row.skipReasons.push(why); };
+          const walk = (n, bg) => {
+            if (n.visible === false) { row.skipped++; mark('hidden'); return; }
+            if (n.type === 'INSTANCE') { row.skipped++; mark('instance-internal'); return; }
+            const isText = n.type === 'TEXT';
+            const fill = isText ? solid(n) : null;
+            // TEXT 的填充是「前景」，不能当成自己或子节点的背景。
+            const own = isText ? null : solid(n);
+            const nextBg = own ?? bg;
+            if (isText) {
+              if (!fill) { row.skipped++; mark('text-without-solid-fill'); }
+              else if (!bg) { row.skipped++; mark('no-solid-ancestor'); }
+              else {
+                row.checked++;
+                const r = ratio(fill.color, bg.color);
+                if (r < min) {
+                  row.lowContrast++;
+                  if (row.samples.length < 3) row.samples.push({ textId: n.id, textFill: fill.hex, bgFill: bg.hex, ratio: r });
+                }
+              }
+            }
+            if ('children' in n) { for (const c of n.children) walk(c, nextBg); }
+          };
+          walk(root, null);
+          out.push(row);
+        }
+        return out;
+      `;
+}
+
 export function buildFigmaConsoleBackend(client: Client, fileKey?: string): FigmaBackend {
   // Single choke point: every op below goes through `run`, so binding the file
   // here is all it takes to target a file end to end.
@@ -518,60 +596,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     },
 
     async auditTextContrast({ rootIds, minRatio }) {
-      const rows = await run(`
-        const toHex = (c) => '#' + [c.r, c.g, c.b]
-          .map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
-        const lin = (v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
-        const lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
-        const ratio = (a, b) => {
-          const l1 = lum(a), l2 = lum(b);
-          const hi = Math.max(l1, l2), lo = Math.min(l1, l2);
-          return (hi + 0.05) / (lo + 0.05);
-        };
-        // 只认不透明的 SOLID 填充：渐变 / 图片 / 半透明都不做判断，宁可不报也不误报。
-        const solid = (n) => {
-          const fills = n.fills;
-          if (!Array.isArray(fills) || fills.length === 0) return null;
-          for (const f of fills) {
-            if (f.type !== 'SOLID' || f.visible === false) continue;
-            if ((f.opacity ?? 1) < 0.5) continue;
-            return { color: f.color, hex: toHex(f.color) };
-          }
-          return null;
-        };
-
-        const min = ${JSON.stringify(minRatio ?? 3)};
-        const out = [];
-        for (const rootId of ${JSON.stringify(rootIds)}) {
-          const root = await figma.getNodeByIdAsync(rootId);
-          if (!root) { out.push({ rootId, checked: 0, lowContrast: 0, skipped: 0 }); continue; }
-          const row = { rootId, rootName: root.name, checked: 0, lowContrast: 0, skipped: 0, skipReasons: [], samples: [] };
-          const mark = (why) => { if (row.skipReasons.indexOf(why) < 0) row.skipReasons.push(why); };
-          const walk = (n, bg) => {
-            if (n.visible === false) { row.skipped++; mark('hidden'); return; }
-            if (n.type === 'INSTANCE') { row.skipped++; mark('instance-internal'); return; }
-            const own = solid(n);
-            const nextBg = own ?? bg;
-            if (n.type === 'TEXT') {
-              const fill = solid(n);
-              if (!fill) { row.skipped++; mark('text-without-solid-fill'); }
-              else if (!nextBg) { row.skipped++; mark('no-solid-ancestor'); }
-              else {
-                row.checked++;
-                const r = ratio(fill.color, nextBg.color);
-                if (r < min) {
-                  row.lowContrast++;
-                  if (row.samples.length < 3) row.samples.push({ textId: n.id, textFill: fill.hex, bgFill: nextBg.hex, ratio: r });
-                }
-              }
-            }
-            if ('children' in n) { for (const c of n.children) walk(c, nextBg); }
-          };
-          walk(root, null);
-          out.push(row);
-        }
-        return out;
-      `, 45000) as Array<{
+      const rows = await run(buildContrastAuditScript(rootIds, minRatio ?? 3), 45000) as Array<{
         rootId: string;
         rootName?: string;
         checked: number;

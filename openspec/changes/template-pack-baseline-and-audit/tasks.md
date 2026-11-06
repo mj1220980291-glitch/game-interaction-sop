@@ -29,6 +29,7 @@
 - [x] 4.5 渲染收尾接入（parts 与 legacy 共用同一处）；**失败路径也带 `auditPackFields`**（零 RPC）
 - [x] 4.6 单测：`tests/v2/pack-audit.spec.ts` 9 条（深浅底 / 聚合文案 / 阈值覆盖 / 跳过 / 自检失败不拖累）
 - [x] 4.7 单测：完整包不告警、缺字段才告警（同文件）
+- [x] 4.8 **0.4.5 返工**：对比度脚本把 TEXT 自身填充当背景 → 恒 `1.00:1` 假阳性（0.4.4 验收打出 98 条）。修 `nextBg` 只由非 TEXT 决定、比值用祖先 `bg`；脚本提成 `buildContrastAuditScript` 并加 `tests/server/contrast-audit-script.spec.ts`（7 条，用假 figma 树跑真脚本）
 
 ## 5. 排查工具
 
