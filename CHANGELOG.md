@@ -1,5 +1,52 @@
 # CHANGELOG
 
+## 产品介绍材料 — 2026-11-06
+
+- 新增 `docs/architecture/leadership.html`：面向管理者的 16:9 产品全景图，用大众产品语言呈现需求到交付的六步流程、三个后台协作能力和项目经验复用闭环。
+- 单文件离线打开，支持全屏展示、高清图片导出与展开讲解备注；配套 `leadership-preview.png`、`leadership-4k.png` 可用于汇报。
+- 本次仅新增介绍材料，不改变引擎、skill 或版本契约。
+
+## 0.4.6（引擎，skill 仍 2.4.3）— 2026-11-06
+
+**对比度自检把「没有底色」也一起跳过了——恰好屏蔽掉最该响的那种火。** 0.4.5 验收用例 B
+（删掉 `geometry`）第二条判据不可达：`V2_W_PACK_GEOMETRY_DEFAULTED` 正常出现，但没有
+`V2_W_TEXT_CONTRAST_LOW`；告警全集只有 BADGE_ANCHOR / ASSET_KEY_UNMATCHED / PACK_GEOMETRY /
+SCREENSHOT_FAILED。
+
+### 根因（比验收判断更靠前一层）
+
+审计从**章节节点**开始走，`walk(chapter, null)`：
+
+- 章节上方的根帧（默认 `#FFFFFF`）与章节外框（`#161616`）**都不在子树里**
+- 章节本身 `fills = []`（编译期造壳时清空）
+- 于是「找不到实心祖先」→ 整章计 `skipped`，一条不判
+
+所以不只是「无实心祖先被跳过」，而是**起点选错**：引擎明明知道章节上方刷了什么颜色
+（章节外框内层 fill → `docBackground` → 默认白），却没传进去。
+
+### 修法（采用验收建议 1）
+
+- `auditTextContrast({ rootIds, minRatio, inheritedBackground })` 新增继承背景；脚本
+  `walk(root, inherited)` 以它为起始背景，章节内部的实心容器仍优先覆盖
+- 渲染侧按实际刷的颜色算：`sectionShell` 内层 `fill` → `docBackground` → `#FFFFFF`
+- 用例 B 现在成立：缺 geometry → 继承背景 `#FFFFFF`，正文 `#EEEEEE` → 报
+  `#EEEEEE` / `#FFFFFF` / 约 1.17:1
+- 用例 A 不变：继承背景 `#161616`，正常配置仍 0 条
+
+### 顺带
+
+- **截图重试**：`exportNodeImage` 套 `retryTransient`（3 次 × 3s）。真机连续两次的
+  `Unable to establish connection to Figma after 10 seconds` 属「渲染刚结束、连接抖一下」，
+  重试一次基本就回来；仍失败才降级成 `V2_W_SCREENSHOT_FAILED`
+- **文档**：`V2_W_RENDER_RETRIED` 明确写「已自动重试成功、无需人工干预、不要因此重跑」；
+  `V2_W_SCREENSHOT_FAILED` 写明「画布是好的，别重渲染」
+
+### 回归
+
+- `tests/server/contrast-audit-script.spec.ts` 扩到 9 条：新增「缺 geometry 现场靠继承背景
+  报出真实颜色」「章节内实心底覆盖继承背景」
+- 84 files / 659 tests 通过；版本 bump `0.4.6`
+
 ## 0.4.5（引擎，skill 仍 2.4.3）— 2026-11-06
 
 **对比度自检假阳性：TEXT 拿自己的填充当背景，恒等于 `1.00:1`。** 现场（变色龙 0.4.4 验收，

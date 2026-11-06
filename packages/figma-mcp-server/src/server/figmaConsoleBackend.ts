@@ -507,12 +507,23 @@ function toFigureSlotGeometry(row: Record<string, unknown>): FigureSlotGeometry 
  * 规则：
  *   - 只认不透明 SOLID 填充（渐变 / 图片 / 半透明一律不判，宁可不报也不误报）
  *   - `INSTANCE` 内部跳过（组件内部不归我们管），隐藏节点跳过
- *   - 找不到实心祖先 → 计入 skipped 的 `no-solid-ancestor`，不算低对比
+ *   - **起点背景由调用方给**（`inheritedBackground`）：审计从章节节点开始走，章节
+ *     上方的根帧 / 章节外框不在子树里，靠这条把「章节实际压在什么颜色上」补上。
+ *     没有它时，缺 geometry 的现场（白底）会整章被跳过，正好屏蔽掉 11-04 那类事故。
+ *   - 只有既无实心祖先、调用方也没给继承背景时，才计 skipped 的 `no-solid-ancestor`
  */
-export function buildContrastAuditScript(rootIds: string[], minRatio = 3): string {
+export function buildContrastAuditScript(
+  rootIds: string[],
+  minRatio = 3,
+  inheritedBackground?: string
+): string {
   return `
         const toHex = (c) => '#' + [c.r, c.g, c.b]
           .map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
+        const parseHex = (hex) => {
+          const s = String(hex).replace('#', '');
+          return { r: parseInt(s.slice(0, 2), 16) / 255, g: parseInt(s.slice(2, 4), 16) / 255, b: parseInt(s.slice(4, 6), 16) / 255, hex: '#' + s.toUpperCase() };
+        };
         const lin = (v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
         const lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
         const ratio = (a, b) => {
@@ -538,6 +549,12 @@ export function buildContrastAuditScript(rootIds: string[], minRatio = 3): strin
           if (!root) { out.push({ rootId, checked: 0, lowContrast: 0, skipped: 1, skipReasons: ['root-missing'] }); continue; }
           const row = { rootId, rootName: root.name, checked: 0, lowContrast: 0, skipped: 0, skipReasons: [], samples: [] };
           const mark = (why) => { if (row.skipReasons.indexOf(why) < 0) row.skipReasons.push(why); };
+          // 章节上方的颜色：章节外框（内层）填充 → 文档底色 → 默认白。审计从章节
+          // 开始走，看不到这些祖先，必须由调用方按「我们实际刷了什么」传进来。
+          const inheritedHex = ${JSON.stringify(inheritedBackground ?? null)};
+          const inherited = inheritedHex
+            ? (() => { const p = parseHex(inheritedHex); return { color: { r: p.r, g: p.g, b: p.b }, hex: p.hex }; })()
+            : null;
           const walk = (n, bg) => {
             if (n.visible === false) { row.skipped++; mark('hidden'); return; }
             if (n.type === 'INSTANCE') { row.skipped++; mark('instance-internal'); return; }
@@ -560,7 +577,7 @@ export function buildContrastAuditScript(rootIds: string[], minRatio = 3): strin
             }
             if ('children' in n) { for (const c of n.children) walk(c, nextBg); }
           };
-          walk(root, null);
+          walk(root, inherited);
           out.push(row);
         }
         return out;
@@ -595,8 +612,11 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       }
     },
 
-    async auditTextContrast({ rootIds, minRatio }) {
-      const rows = await run(buildContrastAuditScript(rootIds, minRatio ?? 3), 45000) as Array<{
+    async auditTextContrast({ rootIds, minRatio, inheritedBackground }) {
+      const rows = await run(
+        buildContrastAuditScript(rootIds, minRatio ?? 3, inheritedBackground),
+        45000
+      ) as Array<{
         rootId: string;
         rootName?: string;
         checked: number;
@@ -1799,7 +1819,11 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     },
 
         async exportNodeImage(nodeId, maxSide = 1568) {
-      const r = await run(`
+      // 截图经常是「渲染跑完、插件连接刚抖了一下」：真机（2026-11-06）连续两次都是
+      // `Unable to establish connection to Figma after 10 seconds`，但画布内容完全正常。
+      // 这类是瞬时的（figma-console 自己重连有 10s 上限），重试一次基本就回来了。
+      const r = await retryTransient(() =>
+        run(`
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         if (!n) throw new Error('exportNodeImage: node not found: ' + ${JSON.stringify(nodeId)});
         const w = n.width || 1, h = n.height || 1;
@@ -1811,7 +1835,9 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
         }
         return { base64: btoa(bin), width: Math.round(w * scale), height: Math.round(h * scale) };
-      `, 60000) as { base64: string; width: number; height: number } | null;
+      `, 60000),
+        { attempts: 3, delayMs: 3000 }
+      ) as { base64: string; width: number; height: number } | null;
       if (!r) throw new Error('exportNodeImage: empty result');
       return r;
     },

@@ -242,7 +242,8 @@ Phase 4 只用得到三个工具：
 - `V2_W_FIGURE_FILL_FAILED` — 某张配图没贴上（message 带键名和 nodeId，常见原因：源节点不在目标文件 / 被删 / 导出失败）。该占位保留了描述文案，告诉用户是哪张、为什么，问要不要修好 `asset_map` 后用同步模式（带 `rootId`，`assetMap` 只写这一张）补上
 - `V2_W_FIGURE_ASSET_MISSING` — md 写了 `配图：` 但 `assetMap` 没有对应键，图位留灰板。问用户：补图，还是删掉这条 `配图：`
 - `V2_W_ASSET_KEY_UNMATCHED` — `asset_map` 里某个键在文档里找不到对应章节/配图，多半是编键时数错了 C 或 K。回 `phase3-asset.md` 核对编键
-- `V2_W_RENDER_RETRIED` — 首轮撞上瞬时连接错误，引擎整轮重试后成功。告知用户即可，不用重跑
+- `V2_W_RENDER_RETRIED` — 首轮撞上瞬时连接错误，引擎**整轮重试后成功**（上限 2 次）。产物完整，**无需人工干预、不要因此重跑**，只需在报告里说明「已自动重试成功」；只有重试也失败才会 `ok:false`
+- `V2_W_SCREENSHOT_FAILED` — 渲染成功但附带截图失败（长渲染后插件连接抖一下，0.4.6 起截图自带 3 次重试）。**画布内容是好的**，让用户手动看一眼即可，不要重渲染
 - `V2_W_PACK_GEOMETRY_DEFAULTED` — 模板包缺观感字段（`docBackground` / `sectionShell`），本次走默认白底 / 无外框。**不是错误**：先确认用户是不是换机器后重造了包（缺 geometry），再决定补包
 - `V2_W_TEXT_CONTRAST_LOW` — 正文与最近实心背景对比度低于阈值（默认 3.0）。按顺序查：① 包有没有 geometry；② 模板本身是不是低对比设计。**若出现这条，先别交付，让用户确认可读性**
 - `V2_W_TEMPLATE_ARG_IGNORED` — 传了 `template.fileKey/nodeId` 但模板包已命中，这两个字段没参与决策。下次别传

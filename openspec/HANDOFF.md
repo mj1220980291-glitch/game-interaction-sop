@@ -1,8 +1,14 @@
 # 交接说明（2026-11-03）
 
+## 产品汇报图补充（2026-11-06）
+
+新增 `docs/architecture/leadership.html`，与原有架构海报分开，主图固定 16:9，面向管理者解释使用流程、后台协作和经验复用。术语采用「AI 协作助手 / 规则化内容中枢 / 文档自动生产」，不在主图展示工程标识。附讲解备注、全屏与高清导出，配套预览和 4K 图片。内容依据当前 SOP 阶段文件及渲染、校验、同步实现；保留人工确认、冲突处理和知识维护的能力边界，不涉及功能和版本变更。对应规范：`openspec/specs/leadership-architecture/spec.md`。
+
 ## 当前状态快照（2026-11-04 10:57，换对话先读这一节）
 
-**一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.5`、skill `2.4.3`、`requiredSkillVersion 2.4.0`。
+**一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.6`、skill `2.4.3`、`requiredSkillVersion 2.4.0`。
+
+**0.4.6（2026-11-06，0.4.5 验收返工）**：0.4.5 修完假阳性后**过量跳过** — 审计从章节节点起走，章节上方的根帧（默认白）与章节外框（#161616）不在子树里，章节自身 `fills=[]`，于是「无实心祖先」整章跳过；恰好把 11-04 白底浅字事故屏蔽掉（验收用例 B 第二条判据不可达）。修法：`auditTextContrast` 新增 `inheritedBackground`（章节外框内层 fill → docBackground → #FFFFFF），脚本以它作起始背景，章节内实心底仍优先。顺带：截图 `retryTransient` 3×3s（真机两次 `Unable to establish connection … 10 seconds`）；文档写清 `V2_W_RENDER_RETRIED` = 已自动重试成功无需干预、`V2_W_SCREENSHOT_FAILED` = 画布是好的别重渲染。回归 84 files / 659 tests。
 
 **0.4.5（2026-11-06，验收返工）**：0.4.4 验收打出**假阳性** — 正常配置下 3 章 98 条 `W_TEXT_CONTRAST_LOW`，数据恒为「文字 #FFFFFF / 背景 #FFFFFF / 1.00:1」。根因：`buildContrastAuditScript` 把 TEXT 自己的填充当成背景传下去，`ratio(fill, fill)` 恒等于 1；与 `geometry` 在不在无关，正好解释「缺不缺数值一样」。修法：`nextBg` 只由非 TEXT 节点决定、比值一律用祖先 `bg`、无实心祖先计 skipped；脚本提成可单测的 `buildContrastAuditScript` + 7 条真脚本回归（假 figma 树）。回归 84 files / 657 tests。**待验收**：0.4.5 重跑，正常配置应为 0 条对比度告警，缺 geometry 时应报「`#EEEEEE` / `#FFFFFF` / 约 1.1:1」。遗留：9.5.1 bridge 快照缓存、9.5.2 截图 10s 连接超时（`V2_W_SCREENSHOT_FAILED`，非渲染失败）。
 

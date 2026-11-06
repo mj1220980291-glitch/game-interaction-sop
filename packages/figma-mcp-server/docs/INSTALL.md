@@ -197,6 +197,17 @@ Figma Desktop`，端口监听方也在变。
 | `V2_W_PACK_GEOMETRY_DEFAULTED` | 本次用了默认观感（缺 `docBackground` / `sectionShell`） | 不是错误；要恢复原稿观感就重编模板包 |
 | `V2_W_TEXT_CONTRAST_LOW` | 正文与最近实心背景的对比度低于阈值（默认 3.0，`GISOP_CONTRAST_MIN` 可调） | 先查 pack 的 geometry，再查模板本身是不是低对比设计 |
 
+### `V2_W_RENDER_RETRIED`：已自动重试成功，不用管
+
+看到这条**不是失败**：首轮渲染撞上瞬时连接错误（典型是 `Unable to establish connection to Figma after 10 seconds`），
+引擎整轮重试后成功（上限 2 次）。产物是完整的，无需人工干预，也不必重跑。只有重试也失败才会返回 `ok:false`。
+
+### `V2_W_SCREENSHOT_FAILED`：图没出来，但画布是好的
+
+渲染成功后引擎默认附带一张截图。截图走同一条插件连接，长渲染刚结束时连接常有一下抖动
+（figma-console 自己的重连上限是 10s）；0.4.6 起截图本身会重试 3 次×3s，仍失败才降级成这条告警。
+它**不影响落画布的内容**，手动在 Figma 里看一眼即可。
+
 ### `V2_BACKEND_UNAVAILABLE`
 
 `render_v2_markdown_to_figma` 返回此错误码，说明引擎启动时没接上 Figma 后端。

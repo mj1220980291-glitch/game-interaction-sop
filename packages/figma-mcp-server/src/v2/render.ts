@@ -697,8 +697,16 @@ export async function renderV2MarkdownToFigma(
     const contrastTargets = partsLayout
       ? partsLayout.sections.map((s) => ({ id: s.nodeId, name: s.name }))
       : [{ id: rootInstanceId, name: ir.header.title }];
+    // 章节上方实际压着什么颜色，引擎自己最清楚：内层章节外框 → 文档底色 → 默认白。
+    // 不传这条，缺 geometry 的现场（章节无底色）会整章被跳过——正是 11-04 事故的形状。
+    const shells = usedPack?.geometry?.sectionShell ?? [];
+    const inheritedBackground =
+      shells.length > 0
+        ? (shells[shells.length - 1]?.fill ?? usedPack?.docBackground ?? '#FFFFFF')
+        : (usedPack?.docBackground ?? usedPack?.geometry?.docBackground ?? '#FFFFFF');
     auditWarnings.push(
       ...(await auditRenderedContrast(targetBackend, contrastTargets, {
+        inheritedBackground,
         log: (m) => process.stderr.write(`[figma-interaction-doc-engine] ${m}\n`)
       }))
     );

@@ -74,7 +74,7 @@ export interface ContrastTarget {
 export async function auditRenderedContrast(
   backend: FigmaBackend,
   targets: ContrastTarget[],
-  opts: { minRatio?: number; log?: (m: string) => void } = {}
+  opts: { minRatio?: number; inheritedBackground?: string; log?: (m: string) => void } = {}
 ): Promise<SoftWarning[]> {
   const log = opts.log ?? (() => {});
   if (!backend.auditTextContrast || targets.length === 0) return [];
@@ -84,7 +84,9 @@ export async function auditRenderedContrast(
   try {
     rows = await backend.auditTextContrast({
       rootIds: targets.map((t) => t.id),
-      minRatio
+      minRatio,
+      // 章节上方的颜色：没有它，「缺底色」的现场会整章被跳过（2026-11-06 验收）。
+      ...(opts.inheritedBackground ? { inheritedBackground: opts.inheritedBackground } : {})
     });
   } catch (err) {
     log(`contrast audit skipped: ${(err as Error).message}`);

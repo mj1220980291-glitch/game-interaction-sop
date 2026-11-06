@@ -31,7 +31,7 @@ const solid = (hex: string, opacity = 1) => [
   { type: 'SOLID', color: hexColor(hex), opacity, visible: true }
 ];
 
-function runScript(roots: FakeNode[], rootIds: string[], min = 3) {
+function runScript(roots: FakeNode[], rootIds: string[], min = 3, inherited?: string) {
   const byId = new Map<string, FakeNode>();
   const index = (n: FakeNode) => {
     byId.set(n.id, n);
@@ -39,7 +39,7 @@ function runScript(roots: FakeNode[], rootIds: string[], min = 3) {
   };
   roots.forEach(index);
   const figma = { getNodeByIdAsync: async (id: string) => byId.get(id) ?? null };
-  const code = buildContrastAuditScript(rootIds, min);
+  const code = buildContrastAuditScript(rootIds, min, inherited);
   // 插件脚本是函数体：末尾 `return out;`，用 async IIFE 包一层即可。
   const fn = new Function('figma', `return (async () => {${code}})();`);
   return fn(figma) as Promise<
@@ -206,5 +206,60 @@ describe('对比度体检脚本', () => {
     expect(rowHigh.lowContrast).toBe(2);
     const [rowLow] = await runScript(doc, ['doc'], 3);
     expect(rowLow.lowContrast).toBe(0);
+  });
+
+  /**
+   * 2026-11-06 验收用例 B 的不可达判据：审计从**章节**节点开始走，章节上方的
+   * 根帧 / 章节外框不在子树里；没有 inheritedBackground 时，缺 geometry 的现场
+   * （章节无底色）整章被跳过，恰好屏蔽掉 11-04 那类事故。
+   */
+  it('缺 geometry 的现场：靠继承背景报出真实颜色', async () => {
+    // 章节自身无填充、内部也无实心容器（删掉 geometry 后的真实形状）
+    const bare: FakeNode[] = [
+      {
+        id: 'ch1',
+        name: '界面说明1',
+        type: 'FRAME',
+        fills: [],
+        children: [{ id: 'body', name: '正文/规则', type: 'TEXT', fills: solid('#EEEEEE') }]
+      }
+    ];
+
+    const [noInherit] = await runScript(bare, ['ch1']);
+    expect(noInherit.lowContrast).toBe(0);
+    expect(noInherit.skipReasons).toContain('no-solid-ancestor');
+
+    const [withInherit] = await runScript(bare, ['ch1'], 3, '#FFFFFF');
+    expect(withInherit.checked).toBe(1);
+    expect(withInherit.lowContrast).toBe(1);
+    expect(withInherit.samples?.[0]).toMatchObject({
+      textFill: '#EEEEEE',
+      bgFill: '#FFFFFF'
+    });
+    expect(withInherit.samples?.[0].ratio).toBeLessThan(1.5);
+  });
+
+  it('章节内的实心底会覆盖继承背景', async () => {
+    const roots: FakeNode[] = [
+      {
+        id: 'ch1',
+        name: '界面说明1',
+        type: 'FRAME',
+        fills: [],
+        children: [
+          {
+            id: 'col',
+            name: 'Text',
+            type: 'FRAME',
+            fills: solid('#161616'),
+            children: [{ id: 'body', name: '正文', type: 'TEXT', fills: solid('#EEEEEE') }]
+          }
+        ]
+      }
+    ];
+    // 继承背景是白，但文字实际在 #161616 列里 → 不该报
+    const [row] = await runScript(roots, ['ch1'], 3, '#FFFFFF');
+    expect(row.checked).toBe(1);
+    expect(row.lowContrast).toBe(0);
   });
 });

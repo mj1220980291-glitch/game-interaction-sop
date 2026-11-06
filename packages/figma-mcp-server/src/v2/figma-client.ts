@@ -428,6 +428,13 @@ export interface FigmaBackend {
   auditTextContrast?(p: {
     rootIds: string[];
     minRatio?: number;
+    /**
+     * 章节上方实际压着的颜色（章节外框内层填充 → 文档底色 → 默认白）。
+     *
+     * 审计从章节节点开始走，祖先不在子树里；不传这条，「没有底色」的现场会整章
+     * 被跳过——恰好是 2026-11-04 白底浅字事故的形状（2026-11-06 验收指出）。
+     */
+    inheritedBackground?: string;
   }): Promise<
     Array<{
       rootId: string;
