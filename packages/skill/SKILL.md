@@ -26,7 +26,7 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 
 当版本落后时，向用户输出：
 
-> ⚠️ 你的 skill 版本非最新（当前 `{skillVersion}`，要求 ≥ `{requiredSkillVersion}`），**无法应用最新的 style 文风功能**（默认文风缺 `role_annotation` / `wording` 等 frontmatter 字段，职能标注拆分不会自动触发）。
+> ⚠️ 你的 skill 版本非最新（当前 `{skillVersion}`，要求 ≥ `{requiredSkillVersion}`），**无法应用最新的 style 文风功能**（缺 3 份基础 style / `style.config.json` 轻配置 / 新手引导流程，职能标注拆分也可能不触发）。
 >
 > 升级命令（在 game-interaction-sop 仓库根目录运行）：
 > ```
@@ -133,23 +133,24 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 
 ## 项目级配置（可选，都是零负担）
 
-项目根下两个文件，缺省即用官方默认，不阻塞任何 Phase：
+项目根下文件，缺省即走新手引导或开箱默认，不阻塞任何 Phase：
 
 | 文件 | 作用 | 谁读 |
 |---|---|---|
 | `.interaction-sop/template.json` | 指定本项目的 Figma 模板地址 `{template:{fileKey,nodeId}}`，可加 `roleBlock.componentSetId` | Phase 4 preflight |
-| `.interaction-sop/style.md` | 项目默认文风基线，**只读**；既无 `style_own.md` 也无 `style_<name>.md` 时用它 | Phase 1 读，Phase 2 用 |
-| `references/style-default.md`（skill 内置） | 出厂默认文风；项目里一个 `style*.md` 都没有时**直接加载它**，零配置即生效。**2.3.2 起 frontmatter 带 `role_annotation.mode: selective` / `wording.banned`，职能标注会自动按清单拆分** | Phase 1 读，Phase 2 用 |
-| `.interaction-sop/style_own.md` | 个人文风，Phase 5 的自动沉淀目标；存在即默认生效 | 同上 |
-| `.interaction-sop/style_<name>.md` | 他人 / 分享 / 导入的文风；存在任意一份时，**每次写文档前询问用哪份** | 同上 |
+| `.interaction-sop/style.config.json` | 轻配置，`{defaultBaseStyle: regular \| tri-section \| detailed}`，首次使用引导写入；没有 own / `style.md` 时按它定默认 | Phase 1 读 |
+| `.interaction-sop/style.md` | 项目默认文风基线，**只读**；无 own 时优先于 `style.config.json` | Phase 1 读，Phase 2 用 |
+| `.interaction-sop/style_own.md` | 个人文风，Phase 5 的自动沉淀目标；存在即最高优先级，默认生效 | 同上 |
+| `.interaction-sop/style_<name>.md` | 他人 / 分享 / 导入的文风；存在任意一份时，**每次写文档前询问是否切换**（基础 3 份 base 不参与询问） | 同上 |
 | `.interaction-sop/snapshots/<需求名>.md` | Phase 2 保存时的 Markdown 原稿，只作 Phase 5 diff 基线，同名覆盖 | Phase 5 |
+| `references/style-base-regular.md` / `style-base-tri-section.md` / `style-base-detailed.md`（skill 内置） | 3 份出厂基础文风，随 skill 分发；无 own / 无 `style.md` 时按 `style.config.json` 的 `defaultBaseStyle` 选用。首次全空时触发新手引导（三选一 / 都生成对比） | Phase 1 读，Phase 2 用 |
 
 - 模板只换地址不换结构，节点名须与 `references/template-1-14.md` 一致
 - **库引用模式**：模板与「职能标记」发布到组件库后，填 `template.componentKey` + `roleBlock.variantKeys`，任意能访问该库的 Figma 文件都能生成，目标文件不需要预先放模板
 - **主图用 `figma_instance`**：放的是母版/粘贴子版的真实实例（等比缩放居中、删除占位），不是栅格图片
 - `- @职能：正文` 条目渲染成「职能标记」组件实例；模板没配组件集时引擎报 `V2_ROLE_BLOCK_UNAVAILABLE`
-- 文风 mod 契约见 `references/style-mod-schema.md`（含文件选择顺序、导入/分享）；**唯一沉淀出口是 Phase 5**，Phase 2 / Phase 4 中途不追问；`style.md` 只读不写，存在 `style_<name>.md` 时每份文档先问用哪份
-- **零配置默认文风**：项目里没有任何 `style*.md` 时，加载 skill 自带的 `references/style-default.md`（随 skill 分发，不需要安装脚本往项目里写文件），保证新用户开箱即用
+- 文风 mod 契约见 `references/style-mod-schema.md`（含文件选择顺序、首次使用引导、导入/分享）；**唯一沉淀出口是 Phase 5**，Phase 2 / Phase 4 中途不追问；`style.md` 与 base 文件都只读不写，存在 `style_<name>.md` 时每份文档先问一次是否切换
+- **首次使用引导**：项目里既无 `style*.md` 也无合法 `style.config.json` 时，Phase 1 第一回合会介绍 3 份 base 并询问；用户三选一或「都生成」后写入 `style.config.json`，下次打开直接生效
 
 ---
 
@@ -234,7 +235,10 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 - `references/deviation-schema.md` — 规范偏离记录格式契约
 - `references/template-1-14.md` — Figma 模板节点 ID 映射表（含可配地址、「职能标记」组件集）
 - `references/role-tags.md` — 7 角色定义、颜色、模板节点对应
-- `references/style-mod-schema.md` — 项目文风 mod 契约（精简度 / @职能 策略 / 用词）
-- `references/style-default.md` — 默认文风文件（簇结构约定 + 职能标注 + **2.3.2 起带 role_annotation / wording / verbosity frontmatter**），新建项目 `style.md` 时直接复制
+- `references/style-mod-schema.md` — 项目文风 mod 契约（精简度 / @职能 策略 / 用词 / `style.config.json` 格式 / 文件选择顺序 / 新手引导）
+- `references/style-default.md` — 3 份 base 索引
+- `references/style-base-regular.md` — 基础 style：常规（3-6 bullet，选择性 at 职能）
+- `references/style-base-tri-section.md` — 基础 style：三段式（簇内固定「显示规则 / 状态说明 / 动效说明」）
+- `references/style-base-detailed.md` — 基础 style：详尽（5-10 bullet，每相关职能一条独立 `- @职能：`）
 
 阅读顺序建议：先读本 SKILL.md → 进入对应 Phase 时读对应 phase 文件 → 需要细节时查 references。

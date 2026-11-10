@@ -89,19 +89,43 @@ Phase 4 完成后统一收口：把这一轮被人工改过的**表述**沉进�
 |---|---|
 | `style_own.md` | `style_own.md` |
 | `style_<name>.md` | 写回该份（你选了谁的文风，本轮改动就归谁） |
-| `style.md`（首次，还没有 own） | **不写 `style.md`**：以它为基底复制出 `style_own.md`，再追加条目 |
-| 一个文风文件都没有 | 先复制 `references/style-default.md` 生成 `style.md`（干净基线），再以它复制出 `style_own.md` 写入条目 |
+| `style.md`（无 own） | **不写 `style.md`**：以它为基底复制出 `style_own.md`，再追加条目 |
+| `style-base-<key>.md`（走 `style.config.json`，无 own / 无 `style.md`） | **不写 base**：以当前 base 为基底复制出 `.interaction-sop/style_own.md`，再追加条目；`style.config.json` 不改，下次仍以 own 优先 |
 
 写入规则：
 
 1. 写前备份 `<目标文件>.bak`
 2. **只改涉及字段与正文段**，不重排、不删用户手写段落
-3. `style.md` 任何情况下不写入，保持干净基线
+3. `style.md` 与 base 文件任何情况下不写入，保持干净基线
 4. 冲突处理：
    - 与不可覆盖项（H\* / C2 / T10 / T2）冲突 → 拒收，并说明为什么不能收
    - 与现有 `banned` 冲突（要保留的写法本身就是禁用词）→ 先问再改
    - 同一字段已有同义条目 → 合并，不叠重复项
 5. 写完报一行：`<目标文件> 已更新：N 条（字段 X 条 / 正文段 Y 条）`
+
+---
+
+## Step 3.5 — 新手「三份对比生成」后的分支（可选）
+
+仅当 Phase 1 走了「三份对比生成」子流程、且本次 Phase 4 已把 3 份 md 都落到 Figma 时触发。
+
+固定话术：
+
+```
+三份文档都在 Figma 里了。接下来两条路：
+
+A. 直接挑一种做默认 → 回「用 regular / tri-section / detailed」
+   我把选择写入 .interaction-sop/style.config.json，后续新需求按它写，不生成 style_own
+
+B. 把一份改掉发我 → 回「改了 X 版，这是修改稿」+ 发回修改后的 md
+   我做 diff 把你的改动提炼成条目，沉淀为 style_own.md，后续默认 style_own
+```
+
+分支：
+
+- 用户选 A → 写 `style.config.json`，跳过 Step 1 / Step 2 的 diff（没有基线可比）
+- 用户选 B → 把那份改稿作为 Step 1 的入口 A 素材，base 对应的 md 作为快照基线，走正常 diff → 条目确认 → 写 `style_own.md`
+- 用户两条都不要 / 不回复 → 本次不沉淀，Phase 5 收尾进 Phase 6；下次打开仍会走 Phase 1 新手引导（因为 config 还没写）
 
 ---
 

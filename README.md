@@ -83,15 +83,18 @@ Markdown is written without touching the phases:
 
 | File | Role | Written by |
 |---|---|---|
+| `style.config.json` | light config: which bundled base style is the default | Phase 1 onboarding, or humans |
 | `style.md` | clean project baseline; read-only | humans only, never the agent |
 | `style_own.md` | personal style; active as soon as it exists | Phase 5 auto-distillation |
 | `style_<name>.md` | imported / shared styles | import or Phase 5 when selected |
 
-Resolution order (first match wins): any `style_<name>.md` present → ask once per
-document which one to use (default `style_own.md`); otherwise `style_own.md`
-present → use it silently; otherwise `style.md` → use it; **nothing present → use
-the bundled `packages/skill/references/style-default.md`**, so a fresh install
-works with zero configuration.
+Resolution order (first match wins): `style_own.md` present → use it silently;
+otherwise `style.md` present → use it; otherwise `style.config.json` with a valid
+`defaultBaseStyle` → use that bundled base style
+(`packages/skill/references/style-base-<key>.md`); **nothing present → Phase 1
+onboarding** asks the user to pick one of the 3 bundled base styles (or generate
+all 3 for comparison) and records the choice in `style.config.json`, so a fresh
+install works with zero configuration.
 
 - `verbosity` — terse / normal / verbose, bullets per cluster
 - `role_annotation` — when a rule becomes a `- @职能：…` bullet (and therefore

@@ -34,10 +34,12 @@ This copies the skill into the agent's skill directory as declared in
 - `SKILL.md` — entry; agents read this first
 - `phases/` — phase-specific instructions (0–6)
 - `references/` — authoritative spec files (Markdown v2 contract, template
-  map, role tags, style-mod contract, pattern-library schemas), plus
-  `style-default.md` — the bundled default style (cluster structure +
-  role-annotation rules) that is loaded automatically when a project has no
-  `style*.md`, so a fresh install works with zero configuration
+  map, role tags, style-mod contract, pattern-library schemas), plus 3 base
+  styles (`style-base-regular.md` / `style-base-tri-section.md` /
+  `style-base-detailed.md`) bundled with the skill. On first use (empty
+  `.interaction-sop/`), Phase 1 asks the user to pick one or generate all 3
+  for comparison, then records the choice in `.interaction-sop/style.config.json`.
+  `style-default.md` is kept as a short index pointing at the 3 base styles
 - `agents/` — agent-specific overrides (e.g. `openai.yaml`)
 - `manifest.json` — machine-readable metadata (version, phases, targets,
   companion engine version)

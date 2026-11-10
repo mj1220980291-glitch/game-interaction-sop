@@ -14,20 +14,89 @@ Phase 1 第一回合开口前，Phase 0 会在内部完成项目模式库的检�
 
 ## 项目文风 mod（开口前读一次）
 
-扫 `.interaction-sop/style*.md` 并按契约 `../references/style-mod-schema.md` 的「文件选择顺序」决策，**只加载一份**。判断顺序自上而下，先命中先停：
+扫 `.interaction-sop/style*.md` 与 `style.config.json`，按契约 `../references/style-mod-schema.md` 的「文件选择顺序」决策，**只加载一份**。判断顺序自上而下，先命中先停：
 
-| 目录里有什么 | 行为 |
+| 命中项 | 行为 |
 |---|---|
-| 存在任意 `style_<name>.md` | **本次写文档前问一次用哪份**，选项含 `style_own.md`，默认它 |
-| 没有 `style_<name>.md`，有 `style_own.md` | 用 `style_own.md`，不问 |
-| 只有 `style.md` | 用 `style.md`（项目默认基线），不问 |
-| 都没有 | **加载 skill 自带的 `../references/style-default.md`**（等同默认文风），静默继续，不追问、不主动提议建文风 |
+| `style_own.md` 存在 | 用 `style_own.md`，不询问 base；**若还有非基础 `style_<name>.md`** → 问一次是否切换，默认 `style_own.md` |
+| 无 `style_own.md`，有 `style.md` | 用 `style.md`，不询问 base；**若还有非基础 `style_<name>.md`** → 问一次 |
+| 无 `style_own.md` / `style.md`，有合法 `style.config.json` | 用 skill 内置 `style-base-<key>.md`，不询问；**若还有非基础 `style_<name>.md`** → 问一次 |
+| 都没有 | **触发首次使用引导**（见下） |
 
 - 记下该份的 `verbosity` / `role_annotation` / `wording` 与正文段，Phase 2 按它写；Phase 1 的提问纪律与冲突门禁不受影响
-- **`schema_version` 不匹配** → 提示一次，用户不处理则本次用 `../references/style-default.md`
-- **零配置也要生效**：目录里一个 `style*.md` 都没有时，必须读 `../references/style-default.md`，不要回落到"skill 通用默认表述"
+- **`schema_version` 不匹配** → 提示一次，用户不处理则本次用 `style.config.json` 指定 base，若 config 也无效则进新手引导
+- **`style_<name>.md` 判定排除基础 3 份**：`style-base-regular.md` / `style-base-tri-section.md` / `style-base-detailed.md` 只是 skill 自带候选，不参与询问
 - **`role_annotation.mode: never`** → Phase 2 不写 `- @职能：` 条目，Phase 4 也就不需要「职能标记」组件集
-- `style.md` 只读，任何 Phase 都不改写它；沉淀永远落在 `style_own.md` 或本次选中的 `style_<name>.md`
+- `style.md` 与 base 文件都只读，任何 Phase 都不改写它们；沉淀永远落在 `style_own.md` 或本次选中的 `style_<name>.md`
+
+## 首次使用引导（都空时触发）
+
+命中条件：`.interaction-sop/` 下既无 `style_own.md` / `style.md` / 任意 `style_<name>.md`，也无合法 `style.config.json`。
+
+### 第一回合固定话术
+
+```
+我注意到这是你第一次在这个项目里走 SOP。先选一种交互文档的表达风格，后续默认按它写：
+
+1. 【常规 regular】3-6 条/簇，只在动效 / 新资源 / 关键逻辑处标 @职能
+   适合：一般需求，产出轻量易读
+
+2. 【三段式 tri-section】簇内固定三段「显示规则 / 状态说明 / 动效说明」
+   适合：组件状态复杂、动效密集的需求
+
+3. 【详尽 detailed】5-10 条/簇，每个相关职能都单独起一条 @职能
+   适合：多方协作、职责边界敏感的需求
+
+你喜欢哪一种？
+
+💡 第一次使用，推荐三份都生成一次看看表达效果。回「都生成」我按同一份需求产出 3 份 md，
+   你带到 Figma 对比后再选 —— 两条可选落地方式：
+   （a）直接挑一种做默认（不生成 style_own，就用这份 base）
+   （b）把一份改掉发回来，Phase 5 沉淀为 style_own.md，后续默认用它
+```
+
+### 分支处理
+
+| 用户回复 | 行为 |
+|---|---|
+| 「1 / 常规 / regular」 | 本份文档用 `style-base-regular.md`；需求挖掘完 Phase 2 写一份 md；Phase 2 保存后把 `{defaultBaseStyle: "regular"}` 写入 `.interaction-sop/style.config.json` |
+| 「2 / 三段式 / tri-section」 | 同上，base = `tri-section` |
+| 「3 / 详尽 / detailed」 | 同上，base = `detailed` |
+| 「都生成」/「3 份都要」 | 走「三份对比生成」子流程（见下） |
+| 任意其他 / 跳过 | 本份文档静默用 `regular` 做默认，不写 config；下一次打开仍会问一次 |
+
+### 三份对比生成子流程
+
+用户选了「都生成」时：
+
+1. 正常走 Phase 1 需求挖掘，直到冲突清零（这一步**只做一次**，三份 md 共用同一份理解）
+2. Phase 2 **连续产出 3 份 md**，各用一份 base，文件名加后缀：
+   - `<需求名>_交互文档_regular.md`
+   - `<需求名>_交互文档_tri-section.md`
+   - `<需求名>_交互文档_detailed.md`
+3. 三份都保存后，提示用户：
+
+```
+三份 md 已生成完毕。建议你带到 Figma 对比表达效果，然后告诉我：
+- 「用 regular / tri-section / detailed」→ 我把这份记为默认，后续新需求就按它写
+- 「改了 X 版，看看这版」→ 发修改后的 md 回来，Phase 5 沉淀为 style_own.md
+```
+
+4. 用户确认选哪份 → 写 `style.config.json`；若用户发回改稿 → 走 Phase 5 沉淀路径（见 `phase5-style-learn.md`）
+5. 本阶段最多走一次；用户若全部拒绝 → 本次静默用 `regular`，不写 config
+
+### 写入 `style.config.json`
+
+```json
+{
+  "schema_version": 1,
+  "defaultBaseStyle": "regular"
+}
+```
+
+- 写前检查目录存在，不存在就创建 `.interaction-sop/`
+- 文件已存在时覆盖（备份 `.bak`）
+- `defaultBaseStyle` 只能是 `regular` / `tri-section` / `detailed`
 
 ## 完成条件
 

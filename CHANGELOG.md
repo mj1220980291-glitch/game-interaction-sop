@@ -1,5 +1,51 @@
 # CHANGELOG
 
+## v2.5.0（skill，引擎仍 0.4.6）— 2026-11-10
+
+**3 份出厂基础 style + 首次使用新手引导。** 把单份 `style-default.md` 升级为 3 份候选 base，覆盖主流写法；新用户不再默认吃一份 fallback，第一次进入时介绍 3 种让其挑或都生成对比。**本次仅 skill 侧改动，引擎代码零改动。**
+
+### 1. 新增 3 份基础 style（随 skill 分发）
+
+| key | 文件 | 关键差异 |
+|---|---|---|
+| `regular` | `references/style-base-regular.md` | 3-6 bullet / 簇；选择性 at 职能（动效 / 新资源 / 关键逻辑） |
+| `tri-section` | `references/style-base-tri-section.md` | 簇内固定三段 `#### 显示规则 / 状态说明 / 动效说明`；状态用描述文本 |
+| `detailed` | `references/style-base-detailed.md` | 5-10 bullet / 簇；每个相关职能一条独立 `- @职能：` |
+
+旧 `references/style-default.md` 改成 3 份 base 的索引（仍随 skill 分发，不丢向后引用）。
+
+### 2. 新增 `.interaction-sop/style.config.json` 轻配置
+
+```json
+{ "schema_version": 1, "defaultBaseStyle": "regular" }
+```
+
+- 记录当前项目的默认 base，由 Phase 1 新手引导流程写入
+- 优先级：`style_own.md` > `style.md` > `style.config.json` > 新手引导
+- base 文件本身**只读**，任何 Phase 都不改写；用户调整某份 base 走 Phase 5 沉淀为 `style_own.md`
+
+### 3. Phase 1 首次使用引导
+
+命中条件：`.interaction-sop/` 下既无 `style*.md` 也无合法 `style.config.json`。
+
+- 介绍 3 份 base + 推荐「都生成一次对比」
+- 用户三选一 → 写 `style.config.json`
+- 用户选「都生成」→ Phase 2 产出 3 份 md（文件名加 `_regular / _tri-section / _detailed` 后缀），落 Figma 后两种落地：（a）挑一种做默认，（b）改一份返还由 Phase 5 沉淀为 `style_own.md`
+
+### 4. 文件选择顺序更新
+
+- `style_<name>.md` 判定**排除基础 3 份 base**（它们只是候选，不参与询问）
+- 四级优先：`style_own.md` > `style.md` > `style.config.json` 的 base > 新手引导
+- 任一层级下有 `style_<name>.md` → 问一次是否切换
+
+### 5. 影响
+
+- `manifest.json`：`2.4.3 → 2.5.0`，`references` 新增 3 份 base
+- `SKILL.md` / `phase1-analysis.md` / `phase2-markdown.md` / `phase5-style-learn.md` / `style-mod-schema.md` / `README.md` / `SETUP.md` / `V2.md`：文件选择顺序、首次使用引导、写入目标表全部对齐
+- 无引擎改动，`engineVersion` 仍为 `^0.4.4`
+
+---
+
 ## 产品介绍材料 — 2026-11-06
 
 - 新增 `docs/architecture/leadership.html`：面向管理者的 16:9 产品全景图，用大众产品语言呈现需求到交付的六步流程、三个后台协作能力和项目经验复用闭环。

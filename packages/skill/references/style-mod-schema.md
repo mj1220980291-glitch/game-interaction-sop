@@ -2,24 +2,55 @@
 
 当前 `schema_version: 1`
 
-项目可以把“这个项目的人怎么写交互文档”沉淀成文风 mod：Phase 1 决定本次用哪份，Phase 2 生成 Markdown 时按它写，Phase 5 把人工改过的表述回写进去。一个项目可并存多份，位置固定：
+项目可以把"这个项目的人怎么写交互文档"沉淀成文风 mod：Phase 1 决定本次用哪份，Phase 2 生成 Markdown 时按它写，Phase 5 把人工改过的表述回写进去。
+
+## skill 自带 3 份基础文风（Base Styles）
+
+随 skill 分发，无需用户配置：
+
+| key | 文件（在 skill `references/`） | 适用场景 |
+|---|---|---|
+| `regular` | `style-base-regular.md` | 大多数需求的默认写法；3-6 bullet / 簇；选择性 at 职能 |
+| `tri-section` | `style-base-tri-section.md` | 状态复杂 / 动效密集；簇内固定三段 `显示规则 / 状态说明 / 动效说明` |
+| `detailed` | `style-base-detailed.md` | 多方协作场景；5-10 bullet / 簇；每个相关职能一条独立 `- @职能：` |
+
+**base 文件只读**，任何 Phase 都不改写它们。用户想调整就走 Phase 5 沉淀成 `style_own.md`。
+
+## 项目可选文件
+
+一个项目可并存多份，位置固定：
 
 ```
 <项目根>/.interaction-sop/
-  style.md          ← 项目默认文风（干净基线）：只读，任何 Phase 都不改写
-  style_own.md      ← 个人文风：有它就用它；除选中 style_<name> 外，也是自动沉淀目标
-  style_<name>.md   ← 他人 / 分享 / 导入的文风：存在任意一份时，每次写文档前都要问用哪份
+  style.config.json  ← 轻配置：记录当前默认 base key（当没有 style_own.md 时生效）
+  style.md           ← 项目默认文风（干净基线）：只读，任何 Phase 都不改写
+  style_own.md       ← 个人文风：Phase 5 自动沉淀目标，存在即默认用
+  style_<name>.md    ← 他人 / 分享 / 导入的文风：存在任意一份 → 需要询问是否切换
 ```
 
-三个文件的角色：
+文件角色：
 
 | 文件 | 谁写 | 什么时候生效 |
 |---|---|---|
-| `style.md` | 人（手工维护，保持干净） | 目录里既没有 `style_own.md`、也没有 `style_<name>.md` 时 |
-| `style_own.md` | Phase 5 自动沉淀 | 没有 `style_<name>.md` 时，存在即默认生效 |
-| `style_<name>.md` | 导入 / 手工 / 本次被选中时沉淀 | 存在任意一份 → 每份文档先询问，选中哪份用哪份 |
+| `style.config.json` | Phase 1 新手引导 / 用户手工 | 没有 `style_own.md` 与 `style.md` 时，按 `defaultBaseStyle` 直接用对应 base，不询问 |
+| `style.md` | 人（手工维护，保持干净） | 没有 `style_own.md` 时，优先于 `style.config.json` |
+| `style_own.md` | Phase 5 自动沉淀 | 存在即默认生效（最高优先级） |
+| `style_<name>.md` | 导入 / 手工 / 分享 | 存在任意一份 → 本份文档前问一次是否切换到其中某份 |
 
 > 文风 mod 只影响**怎么写**，不影响**问什么**。Phase 0 检索、Phase 1 提问纪律与冲突清零门禁不受其影响。
+
+### `style.config.json` 格式
+
+```json
+{
+  "schema_version": 1,
+  "defaultBaseStyle": "regular"
+}
+```
+
+- `defaultBaseStyle` 取值：`regular` / `tri-section` / `detailed`
+- 文件由 Phase 1 新手引导流程创建，用户也可以手工写
+- 取值非法 / 文件损坏 → 退化到新手引导流程
 
 ---
 
@@ -134,35 +165,34 @@ wording:
 
 ## 文件选择顺序（Phase 1 开口前执行一次）
 
-扫 `<项目根>/.interaction-sop/` 下的 `style*.md`（排除 `.bak`），按下列顺序决策，**先命中先停**：
+扫 `<项目根>/.interaction-sop/` 下的 `style*.md`（排除 `.bak`）与 `style.config.json`，按下列顺序决策，**先命中先停**：
 
-| 目录里有什么 | 行为 |
+| 命中项 | 行为 |
 |---|---|
-| 存在任意 `style_<name>.md` | **每次写文档前问一次**：选项列出 `style_own.md` 与每个 `style_<name>.md`，默认标 `style_own.md`；用户指定后，本份文档全程用它 |
-| 没有 `style_<name>.md`，有 `style_own.md` | 直接用 `style_own.md`，**不询问** |
-| 只有 `style.md` | 直接用 `style.md`，**不询问** |
-| 一个文风文件都没有 | **加载 skill 自带的 `references/style-default.md`**（等同项目默认文风），静默继续，不追问、不主动提议建文风 |
+| **1. `style_own.md` 存在** | 默认用 `style_own.md`，不询问 base；**若还有任意 `style_<name>.md`**（排除 skill 自带 3 份 base）→ 本份文档前问一次：用 `style_own.md` 还是 `style_<name>.md`？默认 `style_own.md` |
+| **2. 无 `style_own.md`，`style.md` 存在** | 用 `style.md`，不询问 base；**若还有任意 `style_<name>.md`** → 问一次（默认 `style.md`） |
+| **3. 无 `style_own.md` / `style.md`，`style.config.json` 存在且 `defaultBaseStyle` 合法** | 用 skill 内置对应 base 文件（`style-base-<key>.md`），不询问；**若还有任意 `style_<name>.md`** → 问一次（默认 base） |
+| **4. 以上都没有** | **触发新手引导**：介绍 3 份 base，让用户选 → 落到 `style.config.json`。详见 `../phases/phase1-analysis.md` 的「首次使用引导」 |
 
 - 询问一份文档只做一次，问完记在会话里，中途不重复问
 - 用户中途改口（「换成 XX 那份」）→ 从下一次输出生效，已输出的 Markdown 不追溯改写
 - `style.md` 是项目默认基线，**只读**：任何 Phase 都不写它
-- `schema_version` 不匹配 → 提示一次，用户不处理则本次用 `references/style-default.md`
-- **零配置保证**：项目里一个 `style*.md` 都没有时，也必须读到 `references/style-default.md`；它随 skill 一起分发，不依赖安装脚本往项目里写文件，因此新用户开箱即用
+- `style-base-*.md`（skill 自带 3 份 base）同样**只读**：任何 Phase 都不写它们
+- `schema_version` 不匹配 → 提示一次，用户不处理则本次用 `style.config.json` 指定 base，若 config 也无效则进新手引导
+- **零配置保证**：项目里一个 `style*.md` 都没有、也没有 `style.config.json` 时，第一次进入 Phase 1 走新手引导；用户选完后下次就能静默用 config，不再追问
 
-## 默认 style.md 模板
+## 新手引导（文件都空时触发）
 
-本 skill 自带一份版本化的默认文风：`references/style-default.md`（簇结构约定 + 职能标注）。它有两个用途：
+详细流程见 `../phases/phase1-analysis.md` 的「首次使用引导」。要点：
 
-1. **零配置直接生效**：项目里没有任何 `style*.md` 时，Phase 1 直接加载这份文件，不需要复制、不需要用户操作
-2. **项目基线**：用户希望把默认文风落到项目里可改时，复制一份过去：
-
-```bash
-cp <skill目录>/references/style-default.md <项目根>/.interaction-sop/style.md
-```
-
-- 只预置正文两段，不预置 `verbosity` / `role_annotation` / `wording`：缺省走 skill 默认，个人偏好留给 `style_own.md` 沉淀
-- 项目那份可自由改；skill 里这份是出厂值，改动需同步 CHANGELOG
-- 保持两份同一套段落标题（`## 簇结构约定` / `## 职能标注`），便于 Phase 5 定位回写
+1. 一次性介绍 3 份 base（regular / tri-section / detailed），列关键差异
+2. 问「你喜欢哪一种？」+ 推荐「第一次使用建议 3 份都生成一次对比」
+3. 用户三选一 / 「都生成」后：
+   - 本次按用户选的 base 写
+   - 把选择写入 `.interaction-sop/style.config.json`
+4. 落完引擎后，Phase 5 结束前提示用户：
+   - 直接选一种作默认 → 继续用 base，不生成 `style_own.md`
+   - 修改一份返还 → Phase 5 沉淀为 `style_own.md`，后续默认 `style_own.md`
 
 ## 导入与分享
 
@@ -172,11 +202,11 @@ cp <skill目录>/references/style-default.md <项目根>/.interaction-sop/style.
 
 ## 生成方式（冷启动）
 
-用户说“帮我生成文风 mod / 按这几篇文档总结文风”时：
+用户说"帮我生成文风 mod / 按这几篇文档总结文风"时：
 
 1. 读用户给的 2–3 份历史交互文档（Figma 文档用引擎的只读工具取文本，不要只靠截图 OCR）
 2. 反推 `verbosity` / `role_annotation` / `wording` 三组字段，并把作者反复出现的固定写法写进正文段（few-shot）
-3. 先输出草案给用户改，确认后才写 `.interaction-sop/style_own.md`（或用户指定的 `style_<name>.md`）；若项目还没有 `style.md`，同时用「默认 style.md 模板」建一份干净基线，草案只写进 `style_own.md`
+3. 先输出草案给用户改，确认后才写 `.interaction-sop/style_own.md`（或用户指定的 `style_<name>.md`）
 4. 不覆盖已存在的文件，必须先备份或征得同意
 
 ## 迭代协议（唯一出口：Phase 5 文风沉淀）
@@ -205,8 +235,8 @@ cp <skill目录>/references/style-default.md <项目根>/.interaction-sop/style.
 |---|---|
 | `style_own.md` | 写 `style_own.md` |
 | `style_<name>.md` | 写回该份（用户明确选了这份，本轮改动就归它） |
-| `style.md`（首次，还没有 own） | **不写 `style.md`**：以它为基底复制出 `style_own.md`，再追加条目 |
-| 一个文风文件都没有 | 先复制 `references/style-default.md` 生成 `style.md`，再以它为基底复制出 `style_own.md` 写条目 |
+| `style.md` | **不写 `style.md`**：以它为基底复制出 `style_own.md`，再追加条目 |
+| base（`style-base-*.md`，当前默认走 `style.config.json`） | **不写 base**：以当前 base 为基底复制出 `style_own.md`，再追加条目；写完后 `style.config.json` 不动，下次仍以 own 优先 |
 
 - 写前一律备份 `<目标文件>.bak`
 - 只改涉及字段与正文段，不重排、不删用户手写段落
