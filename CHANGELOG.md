@@ -1,5 +1,53 @@
 # CHANGELOG
 
+## v2.5.1（skill，引擎仍 0.4.6）— 2026-11-10
+
+**三份 base 补齐“结构”这一层。** 2.5.0 的 base 只有 `verbosity / role_annotation / wording` 三组 frontmatter 字段，结构要求写在正文散文里——A/C 靠 frontmatter 差异生效，B（三段式）没有机器可读落点，实测产出退化成一整片平铺 bullet。**本次仅 skill 侧改动，引擎代码零改动。**
+
+### 1. 新增 `structure` 字段（三份 base 都带）
+
+```yaml
+structure:
+  layout: grouped            # flat / grouped
+  sections: [界面信息, 状态, 动效]
+  require_sections: true
+  role_first: true           # detailed 用
+```
+
+- `flat`：簇内平铺，全文不得出现 `####`（regular / detailed）
+- `grouped` + `require_sections`：每簇必须分段，段名与顺序同 `sections`，无内容的段可省略，不改名 / 不挪位 / 不加第四段（tri-section）
+- 对 base、`style.md`、`style_own.md`、`style_<name>.md` 一律生效；不写时按 `flat` 处理，与旧行为一致
+
+### 2. tri-section 段名换掉撞 W2 的两个词
+
+`显示规则 / 状态说明 / 动效说明` → **`界面信息 / 状态 / 动效`**。
+
+- `显示规则` 在 `markdown-v2-spec.md` 的 W2 死分类词表里，写出来必得 `W2_DEAD_CATEGORY_CLUSTER_NAME`；spec 又写「`####` 可选、超过 6 条才用」——两处规范都对撞，模型于是不敢分段
+- base 里补明「`require_sections: true` 覆盖 spec 的『`####` 可选』建议；`####` 本身合法（G1–G3 只限位置 / 长度 / 重复）」
+- 删掉旧句「命中 W2/W6 属预期输出，不因警告改名」，改为「出现 `W2_DEAD_CATEGORY_CLUSTER_NAME` 说明段名被改坏，必须改回」
+
+### 3. 三份 base 补齐 own style 有、base 没有的四块
+
+| 补的块 | 内容 |
+|---|---|
+| `## 结构偏好` | 逐条可执行：簇名名词化 / bullet 数 / 配图紧跟规则 / `@动效` 独立成条落簇末 / 职能条目紧挨规则；tri-section 另加「三段强制、每段 bullet 必须落在 `####` 下、状态写描述文本、动效全在 `动效` 段」 |
+| `## 示例` | 每份 1 组好 / 坏对照，坏例点明错在哪 |
+| `## 沉淀与迭代` | base 只读的出路：首轮 `cp style-base-<key>.md → .interaction-sop/style_own.md`，之后学进 own；附「学习记录」表格式 |
+| `wording.terms` / `wording.replace` | 补空数组 + 用法注释（Phase 2 自检一直在查这两个字段，base 里此前根本没有） |
+
+### 4. 校验与文档对齐
+
+- `phases/phase2-markdown.md`：输出前自检新增「`structure` 已落地」一项
+- `references/style-mod-schema.md`：新增 `### structure` 字段说明 + 自检项 + 冷启动反推改为四组字段
+- `SKILL.md` / `phase1-analysis.md` / `style-default.md`：三段名同步
+
+### 影响
+
+- `manifest.json`：`2.5.0 → 2.5.1`
+- 无引擎改动，`engineVersion` 仍为 `^0.4.4`
+
+---
+
 ## v2.5.0（skill，引擎仍 0.4.6）— 2026-11-10
 
 **3 份出厂基础 style + 首次使用新手引导。** 把单份 `style-default.md` 升级为 3 份候选 base，覆盖主流写法；新用户不再默认吃一份 fallback，第一次进入时介绍 3 种让其挑或都生成对比。**本次仅 skill 侧改动，引擎代码零改动。**

@@ -184,6 +184,7 @@ Step 0 通过后，按 `references/markdown-v2-spec.md` 模板写出完整 Markd
 - [ ] **0.4 完整分类决策（界面 ↔ 章节, 模块 ↔ 簇, 丢弃清单）已与用户确认**
 - [ ] **文档内无"待确认 / 待拍板 / 待策划确认"类行内标记**（出现 = Phase 1 冲突清零门禁被绕过 → 回退 Phase 1 拍板该冲突后重写该段，不保留标记）
 - [ ] **已读本次生效的文风文件（按「文件选择顺序」确定）：bullet 数落在 `bullets_per_cluster` 区间；`terms` / `replace` 已替换；`banned` 零命中。零配置新用户已走完 Phase 1 新手引导，`style.config.json` 已记录 `defaultBaseStyle`**
+- [ ] **`structure` 已落地：`require_sections: true` 时每个簇都有 `####` 分段、段名与顺序与 `structure.sections` 一致（无内容的段可省略，但不改名、不挪位、不新增第四段）；`layout: flat` 时全文不出现 `####`**
 - [ ] **`role_annotation` 与 `- @职能：` 条目一致：`never` 时一条都没有，`selective` 时只标注 `when` 命中的内容，角色名取自 7 名单，正文不重复角色名**
 - [ ] **【职能拆分】凡"由某职能负责"的信息已独立成 `- @职能：` 条目；普通 bullet 里没有残留的"（策划配表）""程序判断"；一条里没有两个职能；条目正文自包含、无"同上"**
 - [ ] 文件头 4 行齐全（跟进UI / 需求组 / 易协作链接 / 最后更新时间）

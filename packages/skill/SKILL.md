@@ -238,7 +238,7 @@ description: "游戏交互需求 → 交互文档的完整 SOP。使用场景：
 - `references/style-mod-schema.md` — 项目文风 mod 契约（精简度 / @职能 策略 / 用词 / `style.config.json` 格式 / 文件选择顺序 / 新手引导）
 - `references/style-default.md` — 3 份 base 索引
 - `references/style-base-regular.md` — 基础 style：常规（3-6 bullet，选择性 at 职能）
-- `references/style-base-tri-section.md` — 基础 style：三段式（簇内固定「显示规则 / 状态说明 / 动效说明」）
+- `references/style-base-tri-section.md` — 基础 style：三段式（簇内固定「界面信息 / 状态 / 动效」）
 - `references/style-base-detailed.md` — 基础 style：详尽（5-10 bullet，每相关职能一条独立 `- @职能：`）
 
 阅读顺序建议：先读本 SKILL.md → 进入对应 Phase 时读对应 phase 文件 → 需要细节时查 references。

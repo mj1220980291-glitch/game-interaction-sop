@@ -11,7 +11,7 @@
 | key | 文件（在 skill `references/`） | 适用场景 |
 |---|---|---|
 | `regular` | `style-base-regular.md` | 大多数需求的默认写法；3-6 bullet / 簇；选择性 at 职能 |
-| `tri-section` | `style-base-tri-section.md` | 状态复杂 / 动效密集；簇内固定三段 `显示规则 / 状态说明 / 动效说明` |
+| `tri-section` | `style-base-tri-section.md` | 状态复杂 / 动效密集；簇内固定三段 `界面信息 / 状态 / 动效` |
 | `detailed` | `style-base-detailed.md` | 多方协作场景；5-10 bullet / 簇；每个相关职能一条独立 `- @职能：` |
 
 **base 文件只读**，任何 Phase 都不改写它们。用户想调整就走 Phase 5 沉淀成 `style_own.md`。
@@ -129,6 +129,22 @@ wording:
 - `normal`：等同 skill 默认（T1 / T6）
 - `verbose`：允许补背景与原因，但仍禁止 T2 的四类丢弃内容
 
+### `structure`
+
+控制簇内**是否分段**（对应 `####` 子分类标题）。对 base、`style.md`、`style_own.md`、`style_<name>.md` 一律生效。
+
+| 字段 | 取值 | 默认 | 作用 |
+|---|---|---|---|
+| `layout` | `flat` / `grouped` | `flat` | `flat` = 簇内平铺 bullet；`grouped` = 按 `sections` 分段 |
+| `sections` | 文本数组，如 `[界面信息, 状态, 动效]` | `[]` | `grouped` 时的段名与顺序，段名即 `####` 标题 |
+| `require_sections` | `true` / `false` | `false` | `true` 时每簇必须分段，无内容的段可省略，但不得改名 / 挪位 / 新增第四段 |
+| `role_first` | `true` / `false` | `false` | `true` 时簇内第一条写功能简述，其后按职能铺开 |
+
+- `layout: flat` 时全文不得出现 `####`；`grouped` 时不得出现游离 bullet（触发 W5）
+- 段名要避开 W2 死分类词表（`显示规则 / 操作规则 / 反馈表现 / 异常与边界 / 功能定位 / 配图说明 / 注意事项 / 待确认`），否则会拿到 `W2_DEAD_CATEGORY_CLUSTER_NAME`
+- `require_sections: true` 覆盖 `markdown-v2-spec.md` 里「`####` 可选、超过 6 条才用」的建议；`####` 本身合法（G1–G3 只限制位置 / 长度 / 重复）
+- 不写 `structure` 时按 `flat` 处理，与旧行为一致
+
 ### `role_annotation`
 
 控制 `- @职能：正文` 条目的使用（对应 Figma「职能标记」组件）。
@@ -205,7 +221,7 @@ wording:
 用户说"帮我生成文风 mod / 按这几篇文档总结文风"时：
 
 1. 读用户给的 2–3 份历史交互文档（Figma 文档用引擎的只读工具取文本，不要只靠截图 OCR）
-2. 反推 `verbosity` / `role_annotation` / `wording` 三组字段，并把作者反复出现的固定写法写进正文段（few-shot）
+2. 反推 `verbosity` / `structure` / `role_annotation` / `wording` 四组字段，并把作者反复出现的固定写法写进正文段（few-shot）
 3. 先输出草案给用户改，确认后才写 `.interaction-sop/style_own.md`（或用户指定的 `style_<name>.md`）
 4. 不覆盖已存在的文件，必须先备份或征得同意
 
@@ -256,6 +272,7 @@ wording:
 
 - [ ] 已按「文件选择顺序」确定本次生效文风；目录里有 `style_<name>.md` 时已问过用户
 - [ ] 已读本次生效的 style（若有），`verbosity.level` 与 bullet 数落在配置范围
+- [ ] `structure.layout` 与文档实际一致：`flat` 时无 `####`；`grouped` 时每簇段名与顺序同 `sections`、无游离 bullet
 - [ ] `role_annotation.mode` 与实际写出的 `@职能` 条目一致；`never` 时一条都没有
 - [ ] `terms` / `replace` 全部替换完成，`banned` 零命中
 - [ ] 不可覆盖项（H*/C2/T10/T2）未被文风理由绕过
