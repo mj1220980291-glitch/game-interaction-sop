@@ -31,7 +31,13 @@ const solid = (hex: string, opacity = 1) => [
   { type: 'SOLID', color: hexColor(hex), opacity, visible: true }
 ];
 
-function runScript(roots: FakeNode[], rootIds: string[], min = 3, inherited?: string) {
+function runScript(
+  roots: FakeNode[],
+  rootIds: string[],
+  min = 3,
+  inherited?: string,
+  bodyNames?: string[]
+) {
   const byId = new Map<string, FakeNode>();
   const index = (n: FakeNode) => {
     byId.set(n.id, n);
@@ -39,7 +45,7 @@ function runScript(roots: FakeNode[], rootIds: string[], min = 3, inherited?: st
   };
   roots.forEach(index);
   const figma = { getNodeByIdAsync: async (id: string) => byId.get(id) ?? null };
-  const code = buildContrastAuditScript(rootIds, min, inherited);
+  const code = buildContrastAuditScript(rootIds, min, inherited, bodyNames);
   // 插件脚本是函数体：末尾 `return out;`，用 async IIFE 包一层即可。
   const fn = new Function('figma', `return (async () => {${code}})();`);
   return fn(figma) as Promise<
@@ -48,8 +54,16 @@ function runScript(roots: FakeNode[], rootIds: string[], min = 3, inherited?: st
       checked: number;
       lowContrast: number;
       skipped: number;
+      basis?: 'body' | 'all-text';
+      otherLowContrast?: number;
       skipReasons?: string[];
-      samples?: Array<{ textId: string; textFill: string; bgFill: string; ratio: number }>;
+      samples?: Array<{
+        textId: string;
+        textName?: string;
+        textFill: string;
+        bgFill: string;
+        ratio: number;
+      }>;
     }>
   >;
 }
@@ -252,7 +266,7 @@ describe('对比度体检脚本', () => {
             name: 'Text',
             type: 'FRAME',
             fills: solid('#161616'),
-            children: [{ id: 'body', name: '正文', type: 'TEXT', fills: solid('#EEEEEE') }]
+            children: [{ id: 'body', name: '正文/规则', type: 'TEXT', fills: solid('#EEEEEE') }]
           }
         ]
       }
@@ -261,5 +275,56 @@ describe('对比度体检脚本', () => {
     const [row] = await runScript(roots, ['ch1'], 3, '#FFFFFF');
     expect(row.checked).toBe(1);
     expect(row.lowContrast).toBe(0);
+  });
+
+  /**
+   * 2026-11-10 验收：背景已正确，但样本取了章节标题的白字 → 报「文字 #FFFFFF /
+   * 背景 #FFFFFF / 1.00:1」，而正文实际是 `#EEEEEE`。审计只统计正文层。
+   */
+  it('只统计正文层：标题白字不进样本', async () => {
+    const roots: FakeNode[] = [
+      {
+        id: 'ch1',
+        name: '躲藏者技能界面',
+        type: 'FRAME',
+        fills: [],
+        children: [
+          { id: 'title', name: '标题', type: 'TEXT', fills: solid('#FFFFFF') },
+          { id: 'num', name: '标号/1', type: 'TEXT', fills: solid('#FFFFFF') },
+          { id: 'body1', name: '正文/规则', type: 'TEXT', fills: solid('#EEEEEE') },
+          { id: 'body2', name: '正文/规则', type: 'TEXT', fills: solid('#EEEEEE') }
+        ]
+      }
+    ];
+
+    const [row] = await runScript(roots, ['ch1'], 3, '#FFFFFF');
+    expect(row.basis).toBe('body');
+    expect(row.checked).toBe(2);
+    expect(row.lowContrast).toBe(2);
+    // 样本必须是正文，不是标题
+    expect(row.samples?.every((s) => s.textFill === '#EEEEEE')).toBe(true);
+    expect(row.samples?.[0].bgFill).toBe('#FFFFFF');
+    expect(row.samples?.[0].ratio).toBeGreaterThan(1);
+    expect(row.samples?.[0].ratio).toBeLessThan(1.2);
+    expect(row.samples?.[0].textName).toBe('正文/规则');
+    // 标题 / 标号同样偏低，但单列出来不混进正文计数
+    expect(row.otherLowContrast).toBe(2);
+  });
+
+  it('正文层名对不上时退回全部文本，并标明口径', async () => {
+    const roots: FakeNode[] = [
+      {
+        id: 'ch1',
+        name: '界面说明1',
+        type: 'FRAME',
+        fills: [],
+        children: [{ id: 'body', name: '说明文字', type: 'TEXT', fills: solid('#EEEEEE') }]
+      }
+    ];
+    const [row] = await runScript(roots, ['ch1'], 3, '#FFFFFF', ['正文/规则']);
+    expect(row.basis).toBe('all-text');
+    expect(row.checked).toBe(1);
+    expect(row.lowContrast).toBe(1);
+    expect(row.samples?.[0].textFill).toBe('#EEEEEE');
   });
 });

@@ -6,7 +6,9 @@
 
 ## 当前状态快照（2026-11-04 10:57，换对话先读这一节）
 
-**一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.6`、skill `2.4.3`、`requiredSkillVersion 2.4.0`。
+**一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.7`、skill `2.4.3`、`requiredSkillVersion 2.4.0`。
+
+**0.4.7（2026-11-11，0.4.6 验收返工）**：0.4.6 背景继承已正确（缺 geometry 时 `#FFFFFF`），但**文字样本取错层** — 审计取章节里第一个 TEXT（标题 `#FFFFFF`），报「文字 #FFFFFF / 背景 #FFFFFF / 1.00:1」，而正文实测 `#EEEEEE`（应约 1.15:1）。修法：只统计正文层（`bodyNames` 默认 `正文/规则`），标题/标号不计入正文条数、单列 `otherLowContrast`；认不出正文层时退回全部文本并标 `basis:'all-text'`；message 附样本层名。顺带：`V2_BRIDGE_DOWN` 附端口持有者（pid + 命令行，`describePortHolders`）。回归 84 files / 661 tests。0.4.6 验收已确认截图告警消失（回执 9.5.2 关闭）。
 
 **0.4.6（2026-11-06，0.4.5 验收返工）**：0.4.5 修完假阳性后**过量跳过** — 审计从章节节点起走，章节上方的根帧（默认白）与章节外框（#161616）不在子树里，章节自身 `fills=[]`，于是「无实心祖先」整章跳过；恰好把 11-04 白底浅字事故屏蔽掉（验收用例 B 第二条判据不可达）。修法：`auditTextContrast` 新增 `inheritedBackground`（章节外框内层 fill → docBackground → #FFFFFF），脚本以它作起始背景，章节内实心底仍优先。顺带：截图 `retryTransient` 3×3s（真机两次 `Unable to establish connection … 10 seconds`）；文档写清 `V2_W_RENDER_RETRIED` = 已自动重试成功无需干预、`V2_W_SCREENSHOT_FAILED` = 画布是好的别重渲染。回归 84 files / 659 tests。
 

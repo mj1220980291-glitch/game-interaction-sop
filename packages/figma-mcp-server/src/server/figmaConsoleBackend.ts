@@ -510,12 +510,16 @@ function toFigureSlotGeometry(row: Record<string, unknown>): FigureSlotGeometry 
  *   - **起点背景由调用方给**（`inheritedBackground`）：审计从章节节点开始走，章节
  *     上方的根帧 / 章节外框不在子树里，靠这条把「章节实际压在什么颜色上」补上。
  *     没有它时，缺 geometry 的现场（白底）会整章被跳过，正好屏蔽掉 11-04 那类事故。
+ *   - **只统计正文层**（`bodyNames`，默认 `正文/规则`）：章节标题是白字、标号是数字，
+ *     把它们算进来会让样本变成「标题白字压白底」，报的却不是正文的真实颜色
+ *     （2026-11-10 验收）。识别不到正文层时才退回「全部文本」，并在 `basis` 里标明。
  *   - 只有既无实心祖先、调用方也没给继承背景时，才计 skipped 的 `no-solid-ancestor`
  */
 export function buildContrastAuditScript(
   rootIds: string[],
   minRatio = 3,
-  inheritedBackground?: string
+  inheritedBackground?: string,
+  bodyNames: string[] = ['正文/规则']
 ): string {
   return `
         const toHex = (c) => '#' + [c.r, c.g, c.b]
@@ -543,11 +547,14 @@ export function buildContrastAuditScript(
         };
 
         const min = ${JSON.stringify(minRatio)};
+        const bodyNames = ${JSON.stringify(bodyNames)};
         const out = [];
         for (const rootId of ${JSON.stringify(rootIds)}) {
           const root = await figma.getNodeByIdAsync(rootId);
-          if (!root) { out.push({ rootId, checked: 0, lowContrast: 0, skipped: 1, skipReasons: ['root-missing'] }); continue; }
-          const row = { rootId, rootName: root.name, checked: 0, lowContrast: 0, skipped: 0, skipReasons: [], samples: [] };
+          if (!root) { out.push({ rootId, checked: 0, lowContrast: 0, skipped: 1, basis: 'all-text', skipReasons: ['root-missing'] }); continue; }
+          const row = { rootId, rootName: root.name, checked: 0, lowContrast: 0, skipped: 0, basis: 'body', skipReasons: [], samples: [] };
+          const body = { checked: 0, lowContrast: 0, samples: [] };
+          const other = { checked: 0, lowContrast: 0, samples: [] };
           const mark = (why) => { if (row.skipReasons.indexOf(why) < 0) row.skipReasons.push(why); };
           // 章节上方的颜色：章节外框（内层）填充 → 文档底色 → 默认白。审计从章节
           // 开始走，看不到这些祖先，必须由调用方按「我们实际刷了什么」传进来。
@@ -567,17 +574,33 @@ export function buildContrastAuditScript(
               if (!fill) { row.skipped++; mark('text-without-solid-fill'); }
               else if (!bg) { row.skipped++; mark('no-solid-ancestor'); }
               else {
-                row.checked++;
+                const isBody = bodyNames.length === 0 || bodyNames.indexOf(n.name) >= 0;
+                const bucket = isBody ? body : other;
+                bucket.checked++;
                 const r = ratio(fill.color, bg.color);
                 if (r < min) {
-                  row.lowContrast++;
-                  if (row.samples.length < 3) row.samples.push({ textId: n.id, textFill: fill.hex, bgFill: bg.hex, ratio: r });
+                  bucket.lowContrast++;
+                  if (bucket.samples.length < 3) bucket.samples.push({ textId: n.id, textName: n.name, textFill: fill.hex, bgFill: bg.hex, ratio: r });
                 }
               }
             }
             if ('children' in n) { for (const c of n.children) walk(c, nextBg); }
           };
           walk(root, inherited);
+          if (body.checked > 0) {
+            row.basis = 'body';
+            row.checked = body.checked;
+            row.lowContrast = body.lowContrast;
+            row.samples = body.samples;
+          } else {
+            // 这套模板的正文层不叫「正文/规则」：退回全部文本，并把口径标出来，
+            // 免得把标题白字当成正文报给用户。
+            row.basis = 'all-text';
+            row.checked = body.checked + other.checked;
+            row.lowContrast = body.lowContrast + other.lowContrast;
+            row.samples = body.samples.concat(other.samples).slice(0, 3);
+          }
+          row.otherLowContrast = other.lowContrast;
           out.push(row);
         }
         return out;
@@ -612,9 +635,9 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       }
     },
 
-    async auditTextContrast({ rootIds, minRatio, inheritedBackground }) {
+    async auditTextContrast({ rootIds, minRatio, inheritedBackground, bodyNames }) {
       const rows = await run(
-        buildContrastAuditScript(rootIds, minRatio ?? 3, inheritedBackground),
+        buildContrastAuditScript(rootIds, minRatio ?? 3, inheritedBackground, bodyNames),
         45000
       ) as Array<{
         rootId: string;
@@ -622,8 +645,10 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         checked: number;
         lowContrast: number;
         skipped: number;
+        basis?: 'body' | 'all-text';
+        otherLowContrast?: number;
         skipReasons?: string[];
-        samples?: Array<{ textId: string; textFill: string; bgFill: string; ratio: number }>;
+        samples?: Array<{ textId: string; textName?: string; textFill: string; bgFill: string; ratio: number }>;
       }> | null;
       return rows ?? [];
     },

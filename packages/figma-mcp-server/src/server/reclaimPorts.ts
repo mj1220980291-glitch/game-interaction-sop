@@ -250,6 +250,26 @@ export interface PreferredPortResult {
 /** 当前监听首选端口的 pid 列表（诊断用：告诉用户「9223 被谁占着」）。 */
 export function preferredPortHolders(port = PREFERRED_BRIDGE_PORT): number[] {
   return findListenerOnPort(port);
+}
+
+export interface PortHolder {
+  pid: number;
+  /** 命令行摘要（拿不到就不填）。 */
+  command?: string;
+}
+
+/**
+ * 「这个端口现在被谁占着」——带命令行，用于报错文案。
+ *
+ * 真机（2026-11-10）：`V2_BRIDGE_DOWN` 只说「桥在监听但没有插件回话」，实际是
+ * 9223 被一个残留的 `figma-console-mcp` 占着，人工 netstat 才发现。只在**失败路径**
+ * 调用（会起一次 wmic/powershell，约 1s）。
+ */
+export function describePortHolders(port = PREFERRED_BRIDGE_PORT): PortHolder[] {
+  return findListenerOnPort(port).map((pid) => {
+    const command = readCommandLine(pid);
+    return command ? { pid, command } : { pid };
+  });
 }/**
  * 让首选端口空出来。
  *

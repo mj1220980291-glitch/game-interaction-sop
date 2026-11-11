@@ -435,6 +435,12 @@ export interface FigmaBackend {
      * 被跳过——恰好是 2026-11-04 白底浅字事故的形状（2026-11-06 验收指出）。
      */
     inheritedBackground?: string;
+    /**
+     * 正文层名（默认 `正文/规则`）。只统计这些文本，避免把章节标题（白字）当成
+     * 正文样本——2026-11-10 验收：背景已对，样本却取了标题的 `#FFFFFF`。
+     * 一章里一个都认不出来时退回「全部文本」，并置 `basis: 'all-text'`。
+     */
+    bodyNames?: string[];
   }): Promise<
     Array<{
       rootId: string;
@@ -444,8 +450,18 @@ export interface FigmaBackend {
       /** 低于阈值的条数。 */
       lowContrast: number;
       skipped: number;
+      /** 统计口径：正文层 / 全部文本（模板正文层不叫默认名时）。 */
+      basis?: 'body' | 'all-text';
+      /** `basis: 'body'` 时，非正文文本里低对比的条数（仅供诊断）。 */
+      otherLowContrast?: number;
       skipReasons?: string[];
-      samples?: Array<{ textId: string; textFill: string; bgFill: string; ratio: number }>;
+      samples?: Array<{
+        textId: string;
+        textName?: string;
+        textFill: string;
+        bgFill: string;
+        ratio: number;
+      }>;
     }>
   >;
 

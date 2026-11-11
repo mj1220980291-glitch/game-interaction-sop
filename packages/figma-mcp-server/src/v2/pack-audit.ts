@@ -17,6 +17,13 @@ import type { FigmaBackend } from './figma-client.js';
 import type { SoftWarning } from './ir.js';
 import { SOFT_WARNING_CODES } from './ir.js';
 import type { TemplatePack } from './template/schema.js';
+import { CLUSTER_SLOTS } from './template-slots.js';
+
+/**
+ * 正文层名。审计只统计这些文本：章节标题是白字、标号是数字，把它们算进来会让
+ * 样本变成「标题白字压白底」，报的却不是正文的真实颜色（2026-11-10 验收）。
+ */
+export const BODY_TEXT_NAMES = [CLUSTER_SLOTS.bullet];
 
 /** WCAG 大字号档；低于它基本就是「看不清」。可用 `GISOP_CONTRAST_MIN` 覆盖。 */
 export const DEFAULT_CONTRAST_MIN = 3;
@@ -74,7 +81,12 @@ export interface ContrastTarget {
 export async function auditRenderedContrast(
   backend: FigmaBackend,
   targets: ContrastTarget[],
-  opts: { minRatio?: number; inheritedBackground?: string; log?: (m: string) => void } = {}
+  opts: {
+    minRatio?: number;
+    inheritedBackground?: string;
+    bodyNames?: string[];
+    log?: (m: string) => void;
+  } = {}
 ): Promise<SoftWarning[]> {
   const log = opts.log ?? (() => {});
   if (!backend.auditTextContrast || targets.length === 0) return [];
@@ -85,6 +97,7 @@ export async function auditRenderedContrast(
     rows = await backend.auditTextContrast({
       rootIds: targets.map((t) => t.id),
       minRatio,
+      bodyNames: opts.bodyNames ?? BODY_TEXT_NAMES,
       // 章节上方的颜色：没有它，「缺底色」的现场会整章被跳过（2026-11-06 验收）。
       ...(opts.inheritedBackground ? { inheritedBackground: opts.inheritedBackground } : {})
     });
@@ -99,14 +112,21 @@ export async function auditRenderedContrast(
     if (!row || (row.lowContrast ?? 0) === 0) continue;
     const name = byId.get(row.rootId)?.name ?? row.rootName ?? row.rootId;
     const sample = row.samples?.[0];
+    // 口径要说清：模板正文层不叫 `正文/规则` 时退回全部文本，别把标题白字报成正文。
+    const kind = row.basis === 'all-text' ? '文本（未识别到正文层）' : '正文';
+    const alsoOther =
+      row.basis !== 'all-text' && (row.otherLowContrast ?? 0) > 0
+        ? `；另有 ${row.otherLowContrast} 条标题 / 标号文本同样偏低（未计入）`
+        : '';
     warnings.push({
       code: SOFT_WARNING_CODES.W_TEXT_CONTRAST_LOW,
       message:
-        `「${name}」有 ${row.lowContrast} 条正文对比度低于 ${minRatio}:1` +
+        `「${name}」有 ${row.lowContrast} 条${kind}对比度低于 ${minRatio}:1` +
         (sample
-          ? `（文字 ${sample.textFill} / 背景 ${sample.bgFill}，实际 ${sample.ratio.toFixed(2)}:1）`
+          ? `（文字 ${sample.textFill} / 背景 ${sample.bgFill}，实际 ${sample.ratio.toFixed(2)}:1` +
+            `${sample.textName ? `，层名 ${sample.textName}` : ''}）`
           : '') +
-        '。先确认模板包有没有漏 geometry（docBackground / sectionShell），再看模板本身是否就是低对比设计。',
+        `。先确认模板包有没有漏 geometry（docBackground / sectionShell），再看模板本身是否就是低对比设计${alsoOther}。`,
       context: name
     });
   }
