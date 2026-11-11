@@ -17,6 +17,7 @@ import {
   auditPackFields,
   auditRenderedContrast,
   contrastMinFromEnv,
+  smokePackKeys,
   DEFAULT_CONTRAST_MIN
 } from '../../src/v2/pack-audit.js';
 
@@ -132,5 +133,63 @@ describe('对比度体检', () => {
     });
     expect(w).toHaveLength(0);
     expect(logs.join(' ')).toContain('bridge hiccup');
+  });
+});
+
+describe('deep 冒烟：缺 key 不崩', () => {
+  it('footer 为 null 时跳过，其余三个照常冒烟', async () => {
+    const seen: string[] = [];
+    const backend = {
+      async instantiateByKey({ componentKey }: { componentKey: string }) {
+        seen.push(componentKey);
+        return { id: `tmp-${componentKey}` };
+      },
+      async deleteNodes() {}
+    } as unknown as FigmaBackend;
+
+    const keys = await smokePackKeys(backend, {
+      top: 'k-top',
+      chapter: 'k-chapter',
+      cluster: 'k-cluster',
+      footer: null
+    });
+
+    expect(keys.map((k) => k.part)).toEqual(['top', 'chapter', 'cluster']);
+    expect(keys.every((k) => k.ok)).toBe(true);
+    expect(seen).toHaveLength(3);
+  });
+
+  it('key 在但 import 不到时只记这一条失败，不抛', async () => {
+    const backend = {
+      async instantiateByKey({ componentKey }: { componentKey: string }) {
+        if (componentKey === 'stale') throw new Error('Could not find published component');
+        return { id: 'tmp' };
+      },
+      async deleteNodes() {}
+    } as unknown as FigmaBackend;
+
+    const keys = await smokePackKeys(backend, {
+      top: 'stale',
+      chapter: 'ok',
+      cluster: null,
+      footer: null
+    });
+
+    expect(keys).toHaveLength(2);
+    expect(keys[0].ok).toBe(false);
+    expect(keys[0].error).toContain('Could not find');
+    expect(keys[1].ok).toBe(true);
+  });
+
+  it('整包都是 null 时返回空数组', async () => {
+    const backend = {
+      async instantiateByKey() {
+        throw new Error('不该被调用');
+      },
+      async deleteNodes() {}
+    } as unknown as FigmaBackend;
+    expect(
+      await smokePackKeys(backend, { top: null, chapter: null, cluster: null, footer: null })
+    ).toEqual([]);
   });
 });

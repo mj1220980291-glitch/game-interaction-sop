@@ -20,11 +20,15 @@ import type { CompileGap } from './errors.js';
 export interface CaptureFromKeysInput {
   /** 绑在**库文件**上的后端（import 出来的临时实例量完就删）。 */
   libraryBackend: FigmaBackend;
-  /** 绑在**源模板文件**上的后端，用来抄底色。 */
+  /** 绑在**源模板文件**上的后端，用来抄底色 / 量原稿的章节外框与标号网格。 */
   sourceBackend?: FigmaBackend;
   chapterKey?: string | null;
   sourceRootId?: string;
   docBackground?: string;
+  /** 原稿章节母版 id（在源模板文件里）：量章节外框的内边距与底色。 */
+  sectionSourceId?: string;
+  /** 原稿图上标号节点 id（在源模板文件里）：量标号网格与尺寸。 */
+  badgeSourceId?: string;
 }
 
 /**
@@ -63,7 +67,10 @@ export async function captureGeometryFromKeys(input: CaptureFromKeysInput): Prom
     const { geometry: measured, gaps: inner } = await captureGeometry({
       backend: libraryBackend,
       chapterComponentId: inst.id,
-      ...(input.docBackground ? { docBackground: input.docBackground } : {})
+      ...(input.docBackground ? { docBackground: input.docBackground } : {}),
+      ...(input.sourceBackend ? { sourceBackend: input.sourceBackend } : {}),
+      ...(input.sectionSourceId ? { sectionSourceId: input.sectionSourceId } : {}),
+      ...(input.badgeSourceId ? { badgeSourceId: input.badgeSourceId } : {})
     });
     Object.assign(geometry, measured);
     gaps.push(...inner);
@@ -73,6 +80,23 @@ export async function captureGeometryFromKeys(input: CaptureFromKeysInput): Prom
     } catch {
       /* 删不掉只是留个临时实例，不影响本次结果 */
     }
+  }
+
+  // 「库已发布 → 只生成包」这条路手里只有 key，原稿节点 id 得调用方给。
+  // 缺了就说清楚缺的是哪个 id、后果是什么，别让残包静默入库。
+  if (!input.sectionSourceId) {
+    gaps.push({
+      what: '缺原稿章节 id（`sectionSourceId`），章节外框采不到',
+      impact: '`sectionShell` 缺失 → 章节上下贴边、卡片底色丢失（模板的黑边与底色靠它）',
+      fix: '传原稿章节母版 id 重跑 verify；或走 phase=compile（编译期能看到粘进来的原稿）'
+    });
+  }
+  if (!input.badgeSourceId) {
+    gaps.push({
+      what: '缺原稿标号 id（`badgeSourceId`），标号网格采不到',
+      impact: '`bubbleGrid` 缺失 → 标号按默认 8 宫格摆放',
+      fix: '传原稿图上 `气泡` 节点 id 重跑 verify；或走 phase=compile'
+    });
   }
   return { geometry, gaps };
 }
@@ -125,8 +149,11 @@ export async function captureGeometry(input: CaptureGeometryInput): Promise<{
   const chapterWidth = chapter.absoluteBoundingBox?.width;
   if (chapterWidth && chapterWidth > 0) geometry.chapterWidth = Math.round(chapterWidth);
 
+  // 原稿节点（章节外框 / 标号）在源模板文件里，不能拿库文件的后端去读。
+  const sourceProbe = input.sourceBackend ?? backend;
+
   if (input.sectionSourceId) {
-    const chain = await measureSectionShell(backend, input.sectionSourceId);
+    const chain = await measureSectionShell(sourceProbe, input.sectionSourceId);
     if (chain.length > 0) {
       geometry.sectionShell = chain;
     } else {
@@ -162,13 +189,13 @@ export async function captureGeometry(input: CaptureGeometryInput): Promise<{
   // 标号网格与母版尺寸：比例存储，模板换尺寸时自动缩放。
   // 点位只有原稿带着（产物里的 `标号/N` 已被收口成母版），所以优先看原稿。
   const badgeNodes = input.badgeSourceId
-    ? (await backend.scanSubtree(input.badgeSourceId, 20000)).nodes
+    ? (await sourceProbe.scanSubtree(input.badgeSourceId, 20000)).nodes
     : nodes;
   const bubble = badgeNodes.find((n) => n.name === CHAPTER_SLOTS.badgeContainer);
   const badgeMainBox =
     badgeNodes.find((n) => n.name === CHAPTER_SLOTS.mainImage)?.absoluteBoundingBox ?? mainBox;
   if (bubble && badgeMainBox) {
-    const { nodes: inside } = await backend.scanSubtree(bubble.id, 4000);
+    const { nodes: inside } = await sourceProbe.scanSubtree(bubble.id, 4000);
     const master =
       inside.find((n) => isBadgeMaster(n.name)) ??
       inside.find((n) => isBadgeFrame(n.name) && /母版/.test(n.name));

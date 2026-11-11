@@ -95,6 +95,8 @@ export {
   auditRenderedContrast,
   auditTemplatePack,
   contrastMinFromEnv,
+  smokePackKeys,
+  type PackKeySmoke,
   DEFAULT_CONTRAST_MIN
 } from './pack-audit.js';
 export { compileTemplate, type CompileReport, type CompileInput } from './compile/index.js';

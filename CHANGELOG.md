@@ -1,5 +1,47 @@
 # CHANGELOG
 
+## 0.4.9（引擎，skill 仍 2.5.1）— 2026-11-11
+
+**蛋仔基线包回来了：库已发布就能生成完整包，不再只能整轮 compile。** 现场：本机
+`~/.game-interaction-sop/templates/蛋仔派对.json` 丢了（模板包从来不进仓库），蛋仔文档
+静默回落到官方 1.14 基线——`ok:true`、只是「长得不对」。而按 key 生成包这条路
+（`captureGeometryFromKeys`）本来就**采不到章节外框**，还漏了标号网格。
+
+### 1. verify 补齐原稿透传
+
+- `CompileInput` / `captureGeometryFromKeys` 新增 `sectionSourceId` / `badgeSourceId`
+- 原稿节点（章节外框、标号容器）改由**源文件后端**读——此前 `inside` 用库文件后端扫
+  `气泡`，永远扫到空，标号网格静默缺失
+- 缺 id 时 `gaps` 点名：「缺原稿章节 id（`sectionSourceId`），`sectionShell` 缺失 →
+  章节贴边、丢卡片底色」，标号同款
+- `verifyPhase` 此前把几何 gaps 丢掉（返回 `gaps: []`），现在原样带出
+
+### 2. `audit_template_pack(deep)` 的 key 冒烟独立成函数
+
+`smokePackKeys(backend, components)`：`footer: null` 之类的合法空跳过、key 在但 import
+不到只记一条失败，不抛。工具侧行为不变。
+
+### 3. 新增基线包 `assets/packs/蛋仔派对.json`
+
+按库内已发布组件（`110:74/86/114/119`）重新量，随引擎分发：
+
+| 项 | 值 |
+|---|---|
+| key 冒烟 | 4/4 import 通过 |
+| 几何 | 底色 `#232429`、章节宽 `2209`、主图 `1200×719`、占位 `#F5F5F5`/`#BFBFBF`、标号母版 `63×63` |
+| `sectionShell` | 有意为空——蛋仔黑边在**文档根**（左右各 60），不在章节外框上，审计只报这一条可接受项 |
+| 能力 | `none / none / container / instance / inline-suffix / none / reuse / right` |
+
+真机验证（沙盒 `0eoR7aPlpzIva8IdWATWkL`，`buzhong.md`）：`ok:true`，2 章 / 3 簇 /
+3 标号，根 `135:1663`，无 `V2_W_TEXT_CONTRAST_LOW`。
+
+### 4. 回归
+
+- 新增 `tests/v2/compile-geometry-from-keys.spec.ts`（3 条：采到外框与网格 / 只从源文件读 /
+  缺 id 的话术），`pack-audit.spec.ts` +3 条（deep 冒烟）
+- 85 files / 669 tests 通过（`--no-file-parallelism`），`tsc` 通过；版本 `0.4.8 → 0.4.9`
+
+
 ## v2.5.1（skill，引擎仍 0.4.6）— 2026-11-10
 
 **三份 base 补齐“结构”这一层。** 2.5.0 的 base 只有 `verbosity / role_annotation / wording` 三组 frontmatter 字段，结构要求写在正文散文里——A/C 靠 frontmatter 差异生效，B（三段式）没有机器可读落点，实测产出退化成一整片平铺 bullet。**本次仅 skill 侧改动，引擎代码零改动。**

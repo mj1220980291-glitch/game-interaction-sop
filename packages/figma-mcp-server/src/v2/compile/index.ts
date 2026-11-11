@@ -58,6 +58,10 @@ export interface CompileInput {
   actualFingerprint?: string;
   /** 文档底色 `#rrggbb`：深色稿在白色画布上整篇文字看不清。 */
   docBackground?: string;
+  /** `verify` 阶段：原稿章节母版 id（源模板文件内），用来采章节外框。 */
+  sectionSourceId?: string;
+  /** `verify` 阶段：原稿图上标号节点 id（源模板文件内），用来采标号网格。 */
+  badgeSourceId?: string;
   /** `verify` 阶段：编译产出的 key（人工可在报告里抄，或由上层传入）。 */
   components?: ComponentKeys;
   write?: boolean;
@@ -192,6 +196,8 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
       ...(sourceBackend ? { sourceBackend } : {}),
       chapterKey: verified.chapter ?? null,
       sourceRootId: input.source.nodeId,
+      ...(input.sectionSourceId ? { sectionSourceId: input.sectionSourceId } : {}),
+      ...(input.badgeSourceId ? { badgeSourceId: input.badgeSourceId } : {}),
       ...(input.docBackground ? { docBackground: input.docBackground } : {})
     });
     geometry = captured.geometry;
@@ -227,7 +233,7 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
     capabilities: pack.capabilities,
     diffs: [],
     anchors: pack.anchors,
-    gaps: [],
+    gaps: geoGaps,
     checks: [],
     templateJson: pack,
     mdContract,

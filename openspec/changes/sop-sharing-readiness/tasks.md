@@ -6,11 +6,11 @@
 
 ## 2. 两套基线包（P0，依赖 Figma）
 
-- [ ] 2.1 `captureGeometryFromKeys` 透传 `sectionSourceId` / `sourceRootId` / `badgeSourceId`；缺原稿 id 时写 `gaps`
-- [ ] 2.2 官方 1.14 重编：`compile → 发布 → verify → audit_template_pack(deep)` → 覆盖 `assets/packs/default.json`，补齐 `placeholder` / `bubbleGrid` / `docPadding` / `footerGap`
-- [ ] 2.3 蛋仔派对重编：产出 `assets/packs/蛋仔派对.json`（同时在 `README.md` 更新状态表）
-- [ ] 2.4 两套包 `audit_template_pack` findings 为空（或仅可接受项），`deep:true` 全 ok
-- [ ] 2.5 单测：`deep` 缺 key 时不崩、`gaps` 里有「缺原稿章节 id」的话术
+- [x] 2.1 `captureGeometryFromKeys` 透传 `sectionSourceId` / `sourceRootId` / `badgeSourceId`；缺原稿 id 时写 `gaps`（2026-11-11，引擎 0.4.9）
+- [ ] 2.2 官方 1.14 重编：`compile → 发布 → verify → audit_template_pack(deep)` → 覆盖 `assets/packs/default.json`，补齐 `placeholder` / `bubbleGrid` / `docPadding` / `footerGap`（`_staging` 里已有「官方1.14 模板」，可量 placeholder + bubbleGrid；docPadding / footerGap 仍需重编）
+- [x] 2.3 蛋仔派对重编：**不需要重编**——库内组件仍在，按 key 直接生成 `assets/packs/蛋仔派对.json`（`110:74/86/114/119`），README 状态表已更新
+- [x] 2.4 两套包 `audit_template_pack` findings 为空（或仅可接受项），`deep:true` 全 ok——蛋仔 4/4 key ok，仅 `sectionShell` 缺（蛋仔黑边在文档根，属预期）
+- [x] 2.5 单测：`deep` 缺 key 时不崩、`gaps` 里有「缺原稿章节 id」的话术
 
 ## 3. 已知限制与文档（P1）
 

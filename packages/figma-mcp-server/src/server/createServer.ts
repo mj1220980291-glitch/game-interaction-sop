@@ -34,6 +34,8 @@ import {
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   auditPackFields,
+  smokePackKeys,
+  type PackKeySmoke,
   compileTemplate,
   parseV2,
   probeTemplate,
@@ -665,6 +667,19 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
               '在源项目文件里跑可能因组件依赖成环而挂死；在库文件本身跑则永远成功、测不出问题'
           },
           badgeContainerSourceId: { type: 'string', description: '散落标号模板用来补容器的 1:14 气泡节点 id' },
+          sectionSourceId: {
+            type: 'string',
+            description:
+              'phase=verify 时：原稿章节母版 id（在 source 文件里）。库已发布、不想整轮 compile 时用它采' +
+              '章节外框（内边距 + 底色）。不传则 sectionShell 缺失，渲染时章节贴边、丢卡片底色，' +
+              '并在 gaps 里点名'
+          },
+          badgeSourceId: {
+            type: 'string',
+            description:
+              'phase=verify 时：原稿图上「气泡」节点 id（在 source 文件里）。用来采标号网格与尺寸；' +
+              '不传则 bubbleGrid 缺失、标号按默认 8 宫格摆放，并在 gaps 里点名'
+          },
           components: {
             type: 'object',
             description: 'phase=verify 时传入编译产出的 4 个 key',
@@ -738,6 +753,12 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
           ...(typeof args?.partsPageId === 'string' ? { partsPageId: args.partsPageId } : {}),
           ...(typeof args?.badgeContainerSourceId === 'string'
             ? { badgeContainerSourceId: args.badgeContainerSourceId }
+            : {}),
+          ...(typeof args?.sectionSourceId === 'string'
+            ? { sectionSourceId: args.sectionSourceId }
+            : {}),
+          ...(typeof args?.badgeSourceId === 'string'
+            ? { badgeSourceId: args.badgeSourceId }
             : {}),
           ...(args?.components ? { components: args.components as never } : {}),
           write: args?.write === true,
@@ -843,7 +864,7 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         const findings = auditPackFields(pack);
         const geometryPresent = Object.keys(pack.geometry ?? {});
 
-        const keys: Array<{ part: string; key: string; ok: boolean; error?: string }> = [];
+        let keys: PackKeySmoke[] = [];
         if (deep) {
           const backend = opts.v2Backend;
           if (!backend?.instantiateByKey || !backend.deleteNodes) {
@@ -852,21 +873,7 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
               'deep 体检需要 Figma 后端（instantiateByKey + deleteNodes）；去掉 deep 只做字段体检。'
             );
           }
-          for (const part of ['top', 'chapter', 'cluster', 'footer'] as const) {
-            const key = pack.components[part];
-            if (!key) continue;
-            try {
-              const inst = await backend.instantiateByKey({ componentKey: key, name: '__pack_audit__' });
-              keys.push({ part, key, ok: true });
-              try {
-                await backend.deleteNodes([inst.id]);
-              } catch {
-                /* 删不掉只是留一个临时实例 */
-              }
-            } catch (e) {
-              keys.push({ part, key, ok: false, error: (e as Error).message });
-            }
-          }
+          keys = await smokePackKeys(backend, pack.components);
         }
 
         return jsonResult({

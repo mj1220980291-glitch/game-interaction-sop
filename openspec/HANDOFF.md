@@ -11,15 +11,29 @@
 | 序 | 事项 | 依赖 | 状态 |
 |---|---|---|---|
 | 1 | 安装片段改 node 绝对路径（脚本 + SETUP） | 无 | **已做**，真机待验（tasks 1.3） |
-| 2 | 两套基线包重编（官方 1.14 补 4 字段 + 蛋仔新建）+ `captureGeometryFromKeys` 透传 | **Figma 真机** | 未做，分享前的硬卡点 |
+| 2 | 两套基线包重编（官方 1.14 补 4 字段 + 蛋仔新建）+ `captureGeometryFromKeys` 透传 | **Figma 真机** | 蛋仔**已产出**（0.4.9，库内 key 直接生成 + 沙盒渲染验证）；官方 1.14 的 4 个缺值仍待补（2.2） |
 | 3 | 已知限制写进文档（左列 HUG / badgeAnchors 手工 / 10s 抖动会自愈）+ `docs/onboarding.md` | 无 | **已做**（2026-11-11） |
 | 4 | LICENSE + THIRD-PARTY-NOTICE（vendor 里 figma-console-mcp 1.23.0 是 MIT） | 无 | **用户决定跳过**（内部使用，不做） |
 | 5 | 分享前自查（token / 私有 key / 教程与架构图仍是未提交 WIP） | 无 | 5.1 / 5.2 **已做**；5.3（提交 `docs/`）待定 |
 | 6 | 找人按接入文档独立走一遍（真正的验收） | 1–5 | 未做 |
 
-**2026-11-11 / 3 + 5 落地明细**：
+**2026-11-11 / 蛋仔基线包（0.4.9）**：
 
-- `template-contract.md` 新增「三·六、章节几何：左列只到「标题 + 主图」高」
+- 根因：`~/.game-interaction-sop/templates/蛋仔派对.json` 丢了（模板包从不进仓库），
+  文档静默回落官方 1.14 基线；而「按 key 生成包」这条路采不到章节外框、标号网格也读不到
+  （`inside` 误用库文件后端）
+- 修：`sectionSourceId` / `badgeSourceId` 透传 + 改用源文件后端 + 缺 id 写 `gaps` +
+  verify 不再吞几何 gaps；`smokePackKeys` 独立成函数
+- 产出 `assets/packs/蛋仔派对.json`：key `110:74/86/114/119`（4/4 import 通过）、
+  底色 `#232429`、章节宽 `2209`、主图 `1200×719`、占位 `#F5F5F5`/`#BFBFBF`、标号母版 `63×63`；
+  `sectionShell` 有意为空（黑边在文档根，左右各 60）
+- 真机：沙盒 `0eoR7aPlpzIva8IdWATWkL` 渲染 `buzhong.md` → `ok:true`、根 `135:1663`、
+  2 章 / 3 簇 / 3 标号、无 `CONTRAST_LOW`
+- 环境坑（复现两次）：CodeMaker 里**已禁用**的独立 `figma-console` 条目仍在跑，
+  引擎退到 9224 → `Cannot connect`。`node scripts/cleanup-orphan-mcp.mjs --force` 清理后可跑
+- 尚未：官方 1.14 的 `placeholder` / `bubbleGrid` / `docPadding` / `footerGap`（tasks 2.2）
+
+**2026-11-11 / 3 + 5 落地明细**：- `template-contract.md` 新增「三·六、章节几何：左列只到「标题 + 主图」高」
 - `INSTALL.md` 新增「看起来像 bug、其实是设计」表（左列 HUG / 标号网格 / 10s 抖动）
 - `phase4-figma.md`：`badgeAnchors` 未传时**只补表走同步、不动版面**（两处）；`V2_W_RENDER_RETRIED`
   的「上限 2 次」更正为 0.4.8 的「3 次、退避 3s / 9s」

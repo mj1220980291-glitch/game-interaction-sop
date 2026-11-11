@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "project": "蛋仔派对",
+  "source": { "fileKey": "UYCJok3MXTWITMfeJSqEF6", "nodeIds": ["798:17608"] },
+  "components": {
+    "top": "8bfc19ca0d1a581b584bac1429218d7fd5337e86",
+    "chapter": "c525e4c72a1a049eb62bfd98a69c4c2988d9c89a",
+    "cluster": "10ba10ce16e448cfb0eb8136f2249b355c6a29e3",
+    "footer": "679993168cb5e1c613205ac792c3cf1d9416353d"
+  },
+  "capabilities": {
+    "overview": "none",
+    "clusterGroups": "none",
+    "badgeSlot": "container",
+    "numberBadge": "instance",
+    "roleAnnotation": "inline-suffix",
+    "figure": "none",
+    "hiddenPool": "reuse",
+    "column": "right"
+  },
+  "docBackground": "#232429",
+  "geometry": {
+    "docBackground": "#232429",
+    "chapterWidth": 2209,
+    "mainImage": { "width": 1200, "height": 719 },
+    "placeholder": { "fill": "#F5F5F5", "stroke": "#BFBFBF" },
+    "badgeSize": { "width": 63, "height": 63 }
+  }
+}

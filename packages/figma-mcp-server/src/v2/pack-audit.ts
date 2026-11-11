@@ -133,8 +133,43 @@ export async function auditRenderedContrast(
   return warnings;
 }
 
-/** 工具入口：字段体检 + （可选）渲染后对比度体检的组合。 */
-export async function auditTemplatePack(input: {
+export interface PackKeySmoke {
+  part: 'top' | 'chapter' | 'cluster' | 'footer';
+  key: string;
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * `audit_template_pack(deep:true)` 的 key 冒烟。
+ *
+ * 结尾部件按契约可以没有（`footer: null`），半套包里也可能有 null —— 这些是
+ * **合法的空**，跳过即可，不能当成失败、更不能崩。真失败只有一种：key 在但 import 不到。
+ */
+export async function smokePackKeys(
+  backend: FigmaBackend,
+  components: Record<'top' | 'chapter' | 'cluster' | 'footer', string | null | undefined>
+): Promise<PackKeySmoke[]> {
+  const out: PackKeySmoke[] = [];
+  for (const part of ['top', 'chapter', 'cluster', 'footer'] as const) {
+    const key = components[part];
+    if (!key) continue;
+    try {
+      const inst = await backend.instantiateByKey!({ componentKey: key, name: '__pack_audit__' });
+      out.push({ part, key, ok: true });
+      try {
+        await backend.deleteNodes!([inst.id]);
+      } catch {
+        /* 删不掉只是留一个临时实例 */
+      }
+    } catch (e) {
+      out.push({ part, key, ok: false, error: (e as Error).message });
+    }
+  }
+  return out;
+}
+
+/** 工具入口：字段体检 + （可选）渲染后对比度体检的组合。 */export async function auditTemplatePack(input: {
   pack?: TemplatePack;
   backend?: FigmaBackend;
   chapterIds?: string[];

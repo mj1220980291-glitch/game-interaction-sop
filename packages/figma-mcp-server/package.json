@@ -1,6 +1,6 @@
 {
   "name": "figma-interaction-doc-engine",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "description": "Deterministic engine that turns v2 interaction-doc Markdown into Figma documents via figma-console-mcp. 0.4.3: bridge liveness is a plugin roundtrip (not socket state), render preflight on by default, per-exec client-side timeout returns V2_BRIDGE_NO_REPLY (no 60s host self-heal restart), bridge snapshot in result, third-state bridge diagnostics.",
   "type": "module",
   "private": true,
