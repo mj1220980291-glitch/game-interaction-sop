@@ -100,6 +100,29 @@ structure:
 - 单文件离线打开，支持全屏展示、高清图片导出与展开讲解备注；配套 `leadership-preview.png`、`leadership-4k.png` 可用于汇报。
 - 本次仅新增介绍材料，不改变引擎、skill 或版本契约。
 
+## 0.4.8（引擎）— 2026-11-11
+
+**整轮重试只给了 2 次、退避固定 5s，两次都撞在同一段抖动里。** 0.4.7 验收 13.3：同一配置
+连续两次返回 `[fill.chapter1] … Unable to establish connection to Figma after 10 seconds`，
+第三次手动成功；期间 `figma_list_open_files` 与轻量 `figma_execute` 正常。
+
+排查结论：`fill.*` **本来就在重试范围内**（判据看整轮错误 message，`isTransientBridgeError`
+匹配 `Unable to establish connection`，阶段前缀不参与判断），真实原因是 **首轮 + 默认 1 次
+重试全部用尽**。
+
+### 改动
+
+- 整轮尝试上限 `2 → 3`
+- 退避 `固定 5s → 3s / 9s 递增`，避免两次重试落在同一个抖动窗口
+- 文档写明：`[阶段名]` 前缀不影响是否重试；10s 是 figma-console 自己的重连预算，不归我们调，
+  放宽只会让失败更慢
+
+### 回归
+
+- `tests/v2/render-call-surface.spec.ts` 新增两条：连续两次瞬时失败后第三次成功（断言退避
+  `[3000, 9000]` 与 `3 次上限` 文案）、三次都失败才返回错误
+- 版本 bump `0.4.8`
+
 ## 0.4.7（引擎，skill 仍 2.4.3）— 2026-11-11
 
 **背景取值修对了，但文字样本取了章节标题。** 0.4.6 验收（用例 B：删 geometry）报出

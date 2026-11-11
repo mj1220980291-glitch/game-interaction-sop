@@ -6,7 +6,9 @@
 
 ## 当前状态快照（2026-11-04 10:57，换对话先读这一节）
 
-**一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.7`、skill `2.4.3`、`requiredSkillVersion 2.4.0`。
+**一句话**：回执 E1–E7 / S1–S5 与 0.4.1 验收不通过项（B/P1/P2/P3）**全部关闭并签收**。引擎 `0.4.8`、skill `2.5.1`、`requiredSkillVersion 2.4.0`。
+
+**0.4.8（2026-11-11）**：0.4.7 验收 13.3 的 `[fill.chapter1] … Unable to establish connection … 10 seconds` 连续两次失败——`fill.*` **本来就在重试范围**（判据看整轮 message，阶段前缀不参与），真实原因是「首轮 + 默认 1 次重试」用尽。改：尝试上限 2→3、退避 5s 固定 → 3s/9s 递增。10s 是 figma-console 自身重连预算，不调。回归：`render-call-surface` 新增 2 条（退避 `[3000,9000]`、三次都失败才报错）。**0.4.7 已被验收方确认为交付基线**（回执十三：四条判据全中、正常态 `CONTRAST_LOW=0`）。
 
 **0.4.7（2026-11-11，0.4.6 验收返工）**：0.4.6 背景继承已正确（缺 geometry 时 `#FFFFFF`），但**文字样本取错层** — 审计取章节里第一个 TEXT（标题 `#FFFFFF`），报「文字 #FFFFFF / 背景 #FFFFFF / 1.00:1」，而正文实测 `#EEEEEE`（应约 1.15:1）。修法：只统计正文层（`bodyNames` 默认 `正文/规则`），标题/标号不计入正文条数、单列 `otherLowContrast`；认不出正文层时退回全部文本并标 `basis:'all-text'`；message 附样本层名。顺带：`V2_BRIDGE_DOWN` 附端口持有者（pid + 命令行，`describePortHolders`）。回归 84 files / 661 tests。0.4.6 验收已确认截图告警消失（回执 9.5.2 关闭）。
 

@@ -983,23 +983,37 @@ export async function reconcileWithRetry(
  * 第三次才成」被当成随机失败。判据与同步共用 `isTransientBridgeError`，
  * 重试是整轮重跑——`createOnce` 自己会先回滚上一次的根帧。
  */
+/**
+ * 整轮重试：只在「连接类」失败上重来，且退避递增。
+ *
+ * 真机（2026-11-11，0.4.7 验收 13.3）：同一配置连续两次都栽在
+ * `Unable to establish connection to Figma after 10 seconds`——首轮 + 默认 1 次重试
+ * 全撞在同一段抖动里，第三次手动才成功。所以：
+ *
+ *   - 尝试上限 2 → 3
+ *   - 退避 5s 固定 → 3s / 9s 递增，别把两次重试挤在同一个抖动窗口
+ *
+ * 10 秒是 figma-console 自己的重连预算，不归我们调；放宽它只会让失败更慢。
+ * 注意判据看的是**整轮错误 message**，`[fill.chapter1]` 这类阶段前缀不影响是否重试。
+ */
 async function renderWithRetry(
   run: () => Promise<RenderResult>,
   opts: { attempts?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {}
 ): Promise<RenderResult> {
-  const attempts = Math.max(1, opts.attempts ?? 2);
-  const delayMs = opts.delayMs ?? 5000;
+  const attempts = Math.max(1, opts.attempts ?? 3);
+  const delayMs = opts.delayMs ?? 3000;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   let last = await run();
   for (let attempt = 2; attempt <= attempts; attempt += 1) {
     if (last.ok) return last;
     const message = last.errors.map((e) => e.message).join(' ');
     if (!isTransientBridgeError(message)) return last;
+    const wait = delayMs * Math.pow(3, attempt - 2);
     process.stderr.write(
       `[figma-interaction-doc-engine] render hiccup (attempt ${attempt - 1}/${attempts}): ` +
-        `${message.slice(0, 120)} — retrying in ${delayMs}ms\n`
+        `${message.slice(0, 120)} — retrying in ${wait}ms\n`
     );
-    await sleep(delayMs);
+    await sleep(wait);
     const retried = await run();
     if (retried.ok) {
       return {

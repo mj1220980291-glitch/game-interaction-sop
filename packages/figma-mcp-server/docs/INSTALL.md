@@ -207,7 +207,11 @@ Figma Desktop`，端口监听方也在变。
 ### `V2_W_RENDER_RETRIED`：已自动重试成功，不用管
 
 看到这条**不是失败**：首轮渲染撞上瞬时连接错误（典型是 `Unable to establish connection to Figma after 10 seconds`），
-引擎整轮重试后成功（上限 2 次）。产物是完整的，无需人工干预，也不必重跑。只有重试也失败才会返回 `ok:false`。
+引擎整轮重试后成功（0.4.8 起上限 3 次，退避 3s / 9s）。产物是完整的，无需人工干预，也不必重跑。
+只有重试也失败才会返回 `ok:false`。
+
+报错里的 `[fill.chapter1]` 这类**阶段前缀不参与重试判定**——只要整轮错误属于连接类就会重试。
+那 10 秒是 figma-console 自己的重连预算，不是可调参数。
 
 ### `V2_W_SCREENSHOT_FAILED`：图没出来，但画布是好的
 

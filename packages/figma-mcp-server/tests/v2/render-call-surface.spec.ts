@@ -164,6 +164,60 @@ describe('创建路径瞬时重试', () => {
     expect(r.errors[0]?.code).toBe('V2_TEMPLATE_PACK_MISSING');
     expect(calls).toBe(1);
   });
+
+  /**
+   * 真机 2026-11-11（0.4.7 验收 13.3）：同一配置连续两次都栽在 10s 连接超时
+   * ——首轮 + 1 次重试全撞在同一段抖动里。0.4.8 起上限 3 次、退避 3s / 9s 递增。
+   */
+  it('连续两次瞬时失败后第三次成功，退避递增', async () => {
+    const m = makeBackend();
+    let calls = 0;
+    const sleeps: number[] = [];
+    const flaky: FigmaBackend = {
+      ...m.backend,
+      async commitUndoCheckpoint(label) {
+        calls += 1;
+        if (calls <= 2) {
+          throw new Error(
+            '[fill.chapter1] figma_execute failed: Error: Unable to establish connection to Figma after 10 seconds.'
+          );
+        }
+        return m.backend.commitUndoCheckpoint!(label);
+      }
+    };
+
+    const r = await renderV2MarkdownToFigma(
+      { markdown: MD, retry: { sleep: async (ms) => void sleeps.push(ms) } },
+      flaky
+    );
+
+    expect(r.ok, JSON.stringify(r.errors)).toBe(true);
+    expect(calls).toBe(3);
+    // 阶段前缀 `[fill.chapter1]` 不影响是否重试；退避递增，不挤在同一窗口
+    expect(sleeps).toEqual([3000, 9000]);
+    const retried = r.warnings.find((w) => w.code === 'V2_W_RENDER_RETRIED');
+    expect(retried?.message).toContain('3 次上限');
+  });
+
+  it('三次都失败才返回错误', async () => {
+    const m = makeBackend();
+    let calls = 0;
+    const dead: FigmaBackend = {
+      ...m.backend,
+      async commitUndoCheckpoint() {
+        calls += 1;
+        throw new Error('figma_execute failed: Unable to establish connection to Figma after 10 seconds');
+      }
+    };
+
+    const r = await renderV2MarkdownToFigma(
+      { markdown: MD, retry: { sleep: async () => {} } },
+      dead
+    );
+
+    expect(r.ok).toBe(false);
+    expect(calls).toBe(3);
+  });
 });
 
 describe('报错瘦身', () => {
