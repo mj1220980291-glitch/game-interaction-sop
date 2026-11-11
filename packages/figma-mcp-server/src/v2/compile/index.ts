@@ -30,7 +30,7 @@ import { preflight } from './preflight.js';
 import { assertSourceRuns, verifyCompiledCluster } from './run-contract.js';
 import { deriveCapabilities, type CapabilityDiff } from './verify-capabilities.js';
 import { CHAPTER_SLOTS } from '../template-slots.js';
-import { captureGeometry, captureGeometryFromKeys, readGeometrySidecar, writeGeometrySidecar } from './geometry.js';
+import { captureDocSpacing, captureGeometry, captureGeometryFromKeys, readGeometrySidecar, writeGeometrySidecar } from './geometry.js';
 import type { TemplateGeometry } from '../template/schema.js';
 import { COMPILE_CODES, compileError } from './errors.js';
 
@@ -202,6 +202,18 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
     });
     geometry = captured.geometry;
     geoGaps.push(...captured.gaps);
+
+    const spacing = await captureDocSpacing({
+      backend: sourceBackend ?? input.backend,
+      ...(input.source.nodeId ? { sourceRootId: input.source.nodeId } : {}),
+      ...(input.sectionSourceId ? { sectionSourceId: input.sectionSourceId } : {})
+    });
+    geoGaps.push(...spacing.gaps);
+    Object.assign(geometry, {
+      ...(spacing.docPadding ? { docPadding: spacing.docPadding } : {}),
+      ...(spacing.rootGap !== undefined ? { rootGap: spacing.rootGap } : {}),
+      ...(spacing.footerGap !== undefined ? { footerGap: spacing.footerGap } : {})
+    });
   }
 
   const pack = buildTemplatePack({
@@ -444,6 +456,25 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
       })
     );
     gaps.push(...captured.gaps);
+
+    // 文档级留白只能在原稿的整篇文档里量：部件里没有「章与章空 60」「结尾前空 200」。
+    const sourceProbe = input.source.fileKey && backend.withFileKey
+      ? backend.withFileKey(input.source.fileKey)
+      : backend;
+    const spacing = await stage('geometry.docSpacing', () =>
+      captureDocSpacing({
+        backend: sourceProbe,
+        ...(input.source.nodeId ? { sourceRootId: input.source.nodeId } : {}),
+        ...(input.staged?.chapter ? { sectionSourceId: input.staged.chapter } : {})
+      })
+    );
+    gaps.push(...spacing.gaps);
+    Object.assign(captured.geometry, {
+      ...(spacing.docPadding ? { docPadding: spacing.docPadding } : {}),
+      ...(spacing.rootGap !== undefined ? { rootGap: spacing.rootGap } : {}),
+      ...(spacing.footerGap !== undefined ? { footerGap: spacing.footerGap } : {})
+    });
+
     writeGeometrySidecar(input.project, captured.geometry);
   }
 

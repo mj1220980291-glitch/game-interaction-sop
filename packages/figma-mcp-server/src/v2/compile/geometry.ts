@@ -276,6 +276,159 @@ function isRootOf(node: { parentType?: string }): boolean {
   return node.parentType === 'PAGE';
 }
 
+/**
+ * 文档级留白：`docPadding` / `rootGap` / `footerGap`。
+ *
+ * 这三样**只存在于原稿的整篇文档里**：部件里既看不到文档根的内边距，也看不到
+ * 「章与章空 60」「结尾前空 200」。以前 schema 有字段、编译却一行都不采，于是
+ * 任何包这三项都是空，渲染按 0 处理——表现为内容贴边、块与块紧贴、结尾一刀切，
+ * 而且不报错（2026-11-11 蛋仔真机比对）。
+ *
+ * 采集口径只用结构（内边距 / 兄弟块 y 距离 / 空留白块高度），不看图层命名：
+ *
+ *   - `docPadding`：原稿根的 padding
+ *   - `rootGap`：所有父级里「相邻兄弟块的正间距」的众数（章节常被装在一个容器里，
+ *     所以不能只看根的直接子级）
+ *   - `footerGap`：根的直接子级里，紧挨最后一个块之前那个**空块**的高度
+ *     （原稿用实心空 FRAME 表达「结尾前留白」，不是 itemSpacing）
+ */
+export async function captureDocSpacing(input: {
+  backend: FigmaBackend;
+  sourceRootId?: string;
+  /** 原稿章节节点 id：量「章与章之间」的间距最准（章节常被装在一个容器里）。 */
+  sectionSourceId?: string;
+}): Promise<{
+  docPadding?: { top: number; right: number; bottom: number; left: number };
+  rootGap?: number;
+  footerGap?: number;
+  gaps: CompileGap[];
+}> {
+  const gaps: CompileGap[] = [];
+  const { backend, sourceRootId, sectionSourceId } = input;
+  if (!sourceRootId) {
+    gaps.push({
+      what: '缺原稿文档根节点，文档级留白采不到',
+      impact: '`docPadding` / `rootGap` / `footerGap` 按 0 处理：内容贴边、块与块紧贴、结尾不留白',
+      fix: '传 `source.nodeId`（原稿模板根）重跑；或在包里手写这三项'
+    });
+    return { gaps };
+  }
+
+  const { nodes } = await backend.scanSubtree(sourceRootId, 20000);
+  const root = nodes.find((n) => n.id === sourceRootId);
+  if (!root) {
+    gaps.push({
+      what: '原稿根节点读不到（可能不在当前文件）',
+      impact: '文档级留白按 0 处理',
+      fix: '确认插件开在原稿模板所在文件后重跑'
+    });
+    return { gaps };
+  }
+
+  const out: {
+    docPadding?: { top: number; right: number; bottom: number; left: number };
+    rootGap?: number;
+    footerGap?: number;
+  } = {};
+
+  const pad = root.padding;
+  if (pad && (pad.top || pad.right || pad.bottom || pad.left)) {
+    out.docPadding = { top: pad.top, right: pad.right, bottom: pad.bottom, left: pad.left };
+  }
+
+  const kids = new Map<string, typeof nodes>();
+  for (const n of nodes) {
+    if (!n.parentId) continue;
+    const list = kids.get(n.parentId) ?? [];
+    list.push(n);
+    kids.set(n.parentId, list);
+  }
+
+  const yOf = (n: (typeof nodes)[number]) => n.absoluteBoundingBox?.y;
+  const hOf = (n: (typeof nodes)[number]) => n.absoluteBoundingBox?.height;
+
+  const tally = new Map<number, number>();
+  const rootWidth = root.absoluteBoundingBox?.width ?? 0;
+  for (const list of kids.values()) {
+    if (list.length < 2) continue;
+    const sorted = [...list].sort((a, b) => (yOf(a) ?? 0) - (yOf(b) ?? 0));
+    for (let i = 1; i < sorted.length; i += 1) {
+      const prev = sorted[i - 1]!;
+      const cur = sorted[i]!;
+      // 只统计「块级」兄弟：窄条（说明栏内部的小行）的间距会把 60 淹掉
+      const prevW = prev.absoluteBoundingBox?.width ?? 0;
+      const curW = cur.absoluteBoundingBox?.width ?? 0;
+      if (rootWidth > 0 && (prevW < rootWidth * 0.5 || curW < rootWidth * 0.5)) continue;
+      const prevY = yOf(prev);
+      const prevH = hOf(prev);
+      const curY = yOf(cur);
+      if (prevY === undefined || prevH === undefined || curY === undefined) continue;
+      const gap = Math.round(curY - (prevY + prevH));
+      if (gap <= 0 || gap > 1000) continue;
+      tally.set(gap, (tally.get(gap) ?? 0) + 1);
+    }
+  }
+
+  // 章节自己的容器里的间距最准：原稿常把章节包在「交互稿」这类 wrapper 里，
+  // 顶层块之间的 0 间距会把真正的 60 盖掉。
+  if (sectionSourceId) {
+    const section = nodes.find((n) => n.id === sectionSourceId);
+    const siblings = section?.parentId ? (kids.get(section.parentId) ?? []) : [];
+    const ordered = [...siblings].sort((a, b) => (yOf(a) ?? 0) - (yOf(b) ?? 0));
+    const idx = ordered.findIndex((n) => n.id === sectionSourceId);
+    for (const pair of [[idx - 1, idx], [idx, idx + 1]]) {
+      const [a, b] = pair;
+      if (a === undefined || b === undefined || a < 0 || b < 0) continue;
+      const first = ordered[a];
+      const second = ordered[b];
+      if (!first || !second) continue;
+      const gap = Math.round((yOf(second) ?? 0) - ((yOf(first) ?? 0) + (hOf(first) ?? 0)));
+      if (gap > 0 && gap <= 1000) {
+        tally.set(gap, (tally.get(gap) ?? 0) + 3); // 章节间距加权，压过零散的小间距
+      }
+    }
+  }
+
+  if (tally.size > 0) {
+    const best = [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]!;
+    out.rootGap = best[0];
+  }
+
+  // 结尾前留白：从最后一个块往回走，跳过「空块」（无子级、无文字）把它们的高度
+  // 记成留白，再量到上一个有内容的块底部。原稿用实心空 FRAME 表达这块留白，
+  // 不是 itemSpacing，所以不能靠 gap 猜。
+  // 原稿根部常套一层「交互稿」wrapper（像 5:5495 → 5:5496），先剥掉只剩一个孩子
+  // 的壳，再找结尾块，否则会把 wrapper 当成唯一内容。
+  let effKids = [...(kids.get(root.id) ?? [])].sort((a, b) => (yOf(a) ?? 0) - (yOf(b) ?? 0));
+  let guard = 0;
+  while (effKids.length === 1 && guard < 3) {
+    const only = effKids[0]!;
+    const nextKids = kids.get(only.id) ?? [];
+    if (nextKids.length < 2) break;
+    effKids = [...nextKids].sort((a, b) => (yOf(a) ?? 0) - (yOf(b) ?? 0));
+    guard += 1;
+  }
+
+  if (effKids.length >= 2) {
+    const footer = effKids[effKids.length - 1]!;
+    let i = effKids.length - 2;
+    let skippedSpacer = false;
+    while (i > 0) {
+      const cand = effKids[i]!;
+      const empty = (kids.get(cand.id) ?? []).length === 0 && !cand.characters;
+      if (!empty) break;
+      skippedSpacer = true;
+      i -= 1;
+    }
+    const content = effKids[i]!;
+    const contentBottom = (yOf(content) ?? 0) + (hOf(content) ?? 0);
+    const gap = Math.round((yOf(footer) ?? 0) - contentBottom);
+    if (gap > 0 && (skippedSpacer || gap > (out.rootGap ?? 0))) out.footerGap = gap;
+  }
+
+  return { ...out, gaps };
+}
+
 function round4(v: number): number {
   return Math.round(v * 10000) / 10000;
 }

@@ -127,8 +127,19 @@ export interface TemplateGeometry {
   }>;
 }
 
-export interface TemplatePack {
-  schema_version: number;
+/** 职能标签变体来源（随包分发的那份）。 */
+export interface PackRoleBlock {
+  /** 角色 → 已发布变体 key。跨库唯一可靠的方式。 */
+  variantKeys?: Record<string, string>;
+  /** 变体组件集 nodeId（只在渲染目标文件内解析）。 */
+  componentSetId?: string;
+  /** 变体名前缀，缺省 `职能标记=`。 */
+  variantPrefix?: string;
+  /** 变体里承载文字的图层名，缺省 `文本`。 */
+  labelTextName?: string;
+}
+
+export interface TemplatePack {  schema_version: number;
   project?: string;
   source?: TemplateSource;
   components: ComponentKeys;
@@ -141,6 +152,14 @@ export interface TemplatePack {
   docBackground?: string;
   /** 几何与色彩（编译期实测；缺省 = 渲染期默认值）。 */
   geometry?: TemplateGeometry;
+  /**
+   * 职能标签（`@GUI` 等）的变体来源。
+   *
+   * 这 7 个 key 是**模板身份的一部分**：没有它，`@GUI` 变不成彩色标签。以前只存在
+   * `~/.game-interaction-sop/template.json`（本机、不在仓库、换机即丢），所以挪进包里
+   * 一起分发；解析优先级包 > 用户配置。
+   */
+  roleBlock?: PackRoleBlock;
   /** Relative path of the human-readable writing contract. */
   mdContract?: string;
 }
@@ -421,5 +440,48 @@ export function parseTemplatePack(raw: unknown): ParseTemplatePackResult {
   const mdContract = readString(raw['mdContract']);
   if (mdContract) pack.mdContract = mdContract;
 
+  const roleBlock = parseRoleBlock(raw['roleBlock'], warnings);
+  if (roleBlock) pack.roleBlock = roleBlock;
+
   return { ok: true, pack, warnings };
+}
+
+/**
+ * `roleBlock`：坏字段只丢自己（与 `geometry` 同口径），不让整包失败。
+ *
+ * 角色名不做白名单校验：别名（音效 / 特效 / 开发）在解析期才归一，这里只保证
+ * 「值是字符串、key 看着像已发布 key」。
+ */
+function parseRoleBlock(raw: unknown, warnings: string[]): PackRoleBlock | undefined {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    warnings.push('roleBlock must be an object; ignored');
+    return undefined;
+  }
+  const rec = raw as Record<string, unknown>;
+  const out: PackRoleBlock = {};
+
+  const keys = rec['variantKeys'];
+  if (keys && typeof keys === 'object' && !Array.isArray(keys)) {
+    const variantKeys: Record<string, string> = {};
+    for (const [role, key] of Object.entries(keys as Record<string, unknown>)) {
+      if (typeof key !== 'string' || key.trim() === '') {
+        warnings.push(`roleBlock.variantKeys.${role} is not a string; ignored`);
+        continue;
+      }
+      variantKeys[role.trim()] = key.trim();
+    }
+    if (Object.keys(variantKeys).length > 0) out.variantKeys = variantKeys;
+  } else if (keys !== undefined) {
+    warnings.push('roleBlock.variantKeys must be an object; ignored');
+  }
+
+  const setId = readString(rec['componentSetId']);
+  if (setId) out.componentSetId = setId;
+  const prefix = readString(rec['variantPrefix']);
+  if (prefix) out.variantPrefix = prefix;
+  const label = readString(rec['labelTextName']);
+  if (label) out.labelTextName = label;
+
+  return out.variantKeys || out.componentSetId ? out : undefined;
 }

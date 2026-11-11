@@ -1,5 +1,25 @@
 # 交接说明（2026-11-03）
 
+## 换对话先读（2026-11-11 晚：模板「包外数据」补齐，引擎 0.4.10）
+
+**状态**：引擎 `0.4.10`、skill `2.5.1`。
+
+本轮把「模板里画在部件之外、以前没人记录」的东西补齐，change 见
+`openspec/changes/pack-doc-geometry-and-roleblock/`：
+
+| 项 | 之前 | 现在 |
+|---|---|---|
+| `docPadding` / `rootGap` / `footerGap` | schema 有字段、compile **一行采集都没有** | `captureDocSpacing` 编译期自动量；量不到写 gaps |
+| 观感告警 | 蛋仔型（黑边在文档根）每次渲染误报 `sectionShell` | `docPadding` 非全 0 就不报；蛋仔包 `findings: []` |
+| 职能标签 7 个 key | 只在 `~/.game-interaction-sop/template.json` | 进包，解析 **包 > 用户配置**；两套包都带 |
+| 书写契约 | 人工落盘，蛋仔那份已丢 | 从包派生，`phase=contract` 随时重建 |
+| `placeholder` / `bubbleGrid` | 被当成「缺失待补」 | 明确不采，理由写进契约 |
+
+**遗留真机项**（tasks 6.2 / 6.3）：蛋仔与 1.14 的渲染复测。沙盒跨文件 import 反复
+撞 30s 超时，需要在 Figma 里 `Assets → Libraries` 对「交互SOP模板库」关开一次再复跑。
+数值层面已验证过：蛋仔 `verify` 采出 `{0,60,0,60}` / `60` / `200`，与手工值一致。
+
+
 ## 换对话先读（2026-11-11 交接：准备对外分享）
 
 **状态**：引擎 `0.4.8`、skill `2.5.1`。变色龙项目 0.4.7 已验收通过并确认为交付基线

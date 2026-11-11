@@ -56,8 +56,11 @@ import {
   loadPartsPack,
   isLibraryTemplate,
   DEFAULT_TEMPLATE,
+  DEFAULT_VARIANT_PREFIX,
+  DEFAULT_LABEL_TEXT_NAME,
   type PackCandidate,
   type PackResolution,
+  type TemplateConfig,
   type TemplateRef
 } from './template-config.js';
 import { renderFromParts, type PartsSummary } from './render/parts/index.js';
@@ -1215,7 +1218,7 @@ export async function renderInner(
   }
 ): Promise<string> {
   // 1. Clone master template into target page.
-  const template = resolveTemplateConfig(input.template);
+  const template = applyPackRoleBlock(resolveTemplateConfig(input.template), resolvedPack);
   const seenWarnings = new Set<string>();
   const warnRoleBlock = (message: string) => {
     if (seenWarnings.has(message)) return;
@@ -1478,8 +1481,28 @@ function assertRoleBlocksAvailable(
 }
 
 /** 角色块配置问题的错误码分流：四种原因以前共用一句话，正是误诊的来源。 */
-function roleBlockFailureError(failure: RoleBlockFailure): Error & { code: string; details?: string } {
-  switch (failure.kind) {
+/**
+ * 职能标签配置：**包优先**，用户配置兜底。
+ *
+ * 7 个变体 key 属于模板身份（没有它 `@GUI` 只是普通文字），以前只存在用户目录，
+ * 换机即丢且不报错。挪进包后随仓库分发；用户配置仅在包里没写时生效，保证老用法不变。
+ */
+export function applyPackRoleBlock(template: TemplateConfig, resolvedPack?: PackResolution): TemplateConfig {
+  const packRole = resolvedPack?.hit?.pack.roleBlock;
+  if (!packRole || (!packRole.variantKeys && !packRole.componentSetId)) return template;
+  return {
+    ...template,
+    ...(resolvedPack?.hit?.path ? { configPath: resolvedPack.hit.path } : {}),
+    roleBlock: {
+      ...(packRole.variantKeys ? { variantKeys: packRole.variantKeys } : {}),
+      ...(packRole.componentSetId ? { componentSetId: packRole.componentSetId } : {}),
+      variantPrefix: packRole.variantPrefix ?? template.roleBlock?.variantPrefix ?? DEFAULT_VARIANT_PREFIX,
+      labelTextName: packRole.labelTextName ?? template.roleBlock?.labelTextName ?? DEFAULT_LABEL_TEXT_NAME
+    }
+  };
+}
+
+function roleBlockFailureError(failure: RoleBlockFailure): Error & { code: string; details?: string } {  switch (failure.kind) {
     case 'not-in-target-file':
       return Object.assign(
         new Error(

@@ -19,6 +19,19 @@
     "column": "right"
   },
   "docBackground": "#232429",
+  "roleBlock": {
+    "variantPrefix": "职能标记=",
+    "labelTextName": "文本",
+    "variantKeys": {
+      "策划": "f8a863b0bf5292b0af1de94ad34df79e4d2cdae4",
+      "拼接": "59affd1f9571d491d47ff6faca4d392e8b52c36b",
+      "GUI": "5b5ecdd3f0be7747a2a2cf8b584e186f4d309bb2",
+      "动效": "72f1dc338ab428ab013c662baa9218aaf7aa0f18",
+      "音频": "718879cfd47e0aae7c8fb319baf2be7feb869420",
+      "程序": "9b3333d03b5426a739e8b06a7788b1aa77a57996",
+      "美术": "40eedf59b32b8c01ed203e5a2130b739145f36e1"
+    }
+  },
   "geometry": {
     "docBackground": "#232429",
     "chapterWidth": 2209,

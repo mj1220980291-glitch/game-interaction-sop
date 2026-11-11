@@ -145,7 +145,10 @@ export function buildMdContract(pack: TemplatePack, opts: MdContractOptions = {}
     ...(hasFigure ? ['- 配图：<说明>'] : []),
     '```',
     '',
-    `> 列布局：${column}；${number}`
+    `> 列布局：${column}；${number}`,
+    '',
+    '> 文件头四行是契约要求的顺序；**顶部部件没有「需求组」槽位时**（如蛋仔），',
+    '> 该行可省略，写了只会得到一条 `V2_W_HEADER_SLOT_MISSING` 软告警。'
   ]
     .filter((line) => line !== undefined)
     .join('\n');

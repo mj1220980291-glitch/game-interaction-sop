@@ -45,6 +45,20 @@ describe('字段体检（只报默认值，不判错）', () => {
     expect(auditPackFields(FULL_PACK)).toHaveLength(0);
   });
 
+  it('黑边画在文档根时不催 sectionShell（蛋仔型）', () => {
+    const rootWhitespace = {
+      schema_version: 1,
+      components: { top: 'a', chapter: 'b', cluster: 'c', footer: null },
+      capabilities: {},
+      docBackground: '#232429',
+      geometry: {
+        docBackground: '#232429',
+        docPadding: { top: 0, right: 60, bottom: 0, left: 60 }
+      }
+    } as never;
+    expect(auditPackFields(rootWhitespace)).toHaveLength(0);
+  });
+
   it('两项都缺时一条聚合告警，两个字段都点名', () => {
     const w = auditPackFields(BARE_PACK);
     expect(w).toHaveLength(1);

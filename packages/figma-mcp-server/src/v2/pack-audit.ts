@@ -41,18 +41,27 @@ export function contrastMinFromEnv(env: NodeJS.ProcessEnv = process.env): number
  */
 export function auditPackFields(pack: TemplatePack | undefined): SoftWarning[] {
   if (!pack) return [];
+  const g = pack.geometry;
   const missing: string[] = [];
   const impacts: string[] = [];
 
-  const docBackground = pack.docBackground ?? pack.geometry?.docBackground;
+  const docBackground = pack.docBackground ?? g?.docBackground;
   if (!docBackground) {
     missing.push('docBackground');
     impacts.push('文档底色用默认白');
   }
-  if (!pack.geometry?.sectionShell || pack.geometry.sectionShell.length === 0) {
+
+  // 黑边有两种画法：套在章节外面（`sectionShell`），或直接画在文档根（`docPadding`
+  // + 根填充）。蛋仔属于后者——以前一律催 `sectionShell`，每次渲染都被误报一次。
+  const hasRootWhitespace =
+    (g?.docPadding &&
+      (g.docPadding.top || g.docPadding.right || g.docPadding.bottom || g.docPadding.left)) ||
+    false;
+  if (!hasRootWhitespace && (!g?.sectionShell || g.sectionShell.length === 0)) {
     missing.push('sectionShell');
     impacts.push('章节没有外框，模板的黑边与卡片底色会缺');
   }
+
   if (missing.length === 0) return [];
 
   return [

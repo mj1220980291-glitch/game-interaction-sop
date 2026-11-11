@@ -1,5 +1,51 @@
 # CHANGELOG
 
+## 0.4.10（引擎，skill 仍 2.5.1）— 2026-11-11
+
+**模板里「画在部件之外」的那部分，以前从来没人记。** 逐层比对原稿与产物后确认：
+`docPadding` / `rootGap` / `footerGap` 三个字段 schema 里都有，`src/v2/compile/` 里
+**一行采集代码都没有** —— 任何包这三项必然为空、渲染按 0 处理，表现为内容贴边、
+块与块紧贴、结尾一刀切，而且不报错（蛋仔包那三个 60/60/200 是手工补的）。
+
+### 1. 编译期采集文档级留白
+
+新增 `captureDocSpacing`，`compile` 与 `verify` 两路都写进包：
+
+| 字段 | 采集口径 |
+|---|---|
+| `docPadding` | 原稿根的 padding |
+| `rootGap` | 章节同级间距加权 + 块级兄弟间距众数（只统计宽度 ≥ 根宽 50% 的兄弟，避免被说明栏内部的小间距淹掉） |
+| `footerGap` | 先剥掉「只有一个孩子」的 wrapper，再从结尾块往回跳过空留白块，量到上一个内容块底部 |
+
+真机（蛋仔 `_staging` 5:5495 / 章节 5:5778）：采集出 `{0,60,0,60}` / `60` / `200`，
+与手工值一致。
+
+### 2. 观感告警按「信息是否已表达」判
+
+`auditPackFields` 不再无条件催 `sectionShell`：`docPadding` 非全 0 时（黑边画在文档根）
+不再告警。蛋仔包体检 `findings: []`；1.14（章节壳型）行为不变。
+
+### 3. `roleBlock` 随包分发
+
+7 个职能变体 key 原先只在 `~/.game-interaction-sop/template.json`（本机、换机即丢）。
+`TemplatePack.roleBlock` 新增后解析优先级为 **包 > 用户配置**，两套基线包都带上了
+（真机 `importComponentByKeyAsync` 7/7 通过）。
+
+### 4. 明确不采的两项（写进契约）
+
+- `placeholder`：占位灰用默认值；对比过低属对比度问题，走 `V2_W_TEXT_CONTRAST_LOW`
+- `bubbleGrid`：标号位置属每篇文档的 `badgeAnchors`，模板网格记下来会让「示意位」看起来像「已对位」
+
+### 5. 书写契约不留档
+
+`md-contract` 是包的投影，丢了重跑 `phase=contract` 即可；文档不再要求人工保存。
+
+### 回归
+
+- 新增 `compile-doc-spacing.spec.ts`（3）、`role-block-pack.spec.ts`（3），`pack-audit.spec.ts` +1
+- 87 files / 676 tests 通过（`--no-file-parallelism`），`tsc` 通过；版本 `0.4.9 → 0.4.10`
+
+
 ## 0.4.9（引擎，skill 仍 2.5.1）— 2026-11-11
 
 **蛋仔基线包回来了：库已发布就能生成完整包，不再只能整轮 compile。** 现场：本机
