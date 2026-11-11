@@ -194,7 +194,7 @@ function printSnippet(agent, entry) {
       console.log('');
       console.log('    Name    : figma-interaction-doc-engine');
       console.log('    Type    : stdio');
-      console.log('    Command : node');
+      console.log(`    Command : ${process.execPath}`);
       console.log(`    Args    : ${entry}`);
       console.log('    Env     : FIGMA_BACKEND=figma-console');
       console.log('              FIGMA_ACCESS_TOKEN=<your figd_ token>');
@@ -206,7 +206,7 @@ function printSnippet(agent, entry) {
       console.log('  Append:');
       console.log('');
       console.log('    [mcp_servers.figma-interaction-doc-engine]');
-      console.log(`    command = "node"`);
+      console.log(`    command = ${JSON.stringify(process.execPath)}`);
       console.log(`    args    = [${e}]`);
       console.log('    env     = { FIGMA_BACKEND = "figma-console", FIGMA_ACCESS_TOKEN = "<your figd_ token>" }');
       break;
@@ -229,7 +229,7 @@ function printSnippet(agent, entry) {
       break;
     }
     default: {
-      console.log(`  (no preset snippet for "${agent}"; use node ${entry})`);
+      console.log(`  (no preset snippet for "${agent}"; use ${process.execPath} ${entry})`);
     }
   }
 }
@@ -241,7 +241,9 @@ function printJsonSnippet(entryJson, indent, withDisabled = false) {
   console.log(`${p}{`);
   console.log(`${p}  "mcpServers": {`);
   console.log(`${p}    "figma-interaction-doc-engine": {`);
-  console.log(`${p}      "command": "node",`);
+  // 写绝对路径而不是 `"node"`：2026-11-04 实测，目标机器 PATH 里没有 node 时
+  // 宿主直接「连不上 MCP」，错误只在宿主日志里，排查要一整晚。
+  console.log(`${p}      "command": ${JSON.stringify(process.execPath)},`);
   console.log(`${p}      "args": [${entryJson}],`);
   console.log(`${p}      "env": {`);
   console.log(`${p}        "FIGMA_BACKEND": "figma-console",`);

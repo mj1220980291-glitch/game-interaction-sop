@@ -1,5 +1,29 @@
 # 交接说明（2026-11-03）
 
+## 换对话先读（2026-11-11 交接：准备对外分享）
+
+**状态**：引擎 `0.4.8`、skill `2.5.1`。变色龙项目 0.4.7 已验收通过并确认为交付基线
+（回执十三节：缺 geometry 四条判据全中、正常态 `CONTRAST_LOW=0`）；0.4.8 只加重试退避。
+
+**本轮的活都在 `openspec/changes/sop-sharing-readiness/`**（proposal / design / tasks），
+目标不是加功能，是把「别人装不起来 / 装起来不像」的静默失败逐个变成显式可用。按 tasks 顺序做：
+
+| 序 | 事项 | 依赖 | 状态 |
+|---|---|---|---|
+| 1 | 安装片段改 node 绝对路径（脚本 + SETUP） | 无 | **已做**，真机待验（tasks 1.3） |
+| 2 | 两套基线包重编（官方 1.14 补 4 字段 + 蛋仔新建）+ `captureGeometryFromKeys` 透传 | **Figma 真机** | 未做，分享前的硬卡点 |
+| 3 | 已知限制写进文档（左列 HUG / badgeAnchors 手工 / 10s 抖动会自愈）+ `docs/onboarding.md` | 无 | 未做 |
+| 4 | LICENSE + THIRD-PARTY-NOTICE（vendor 里 figma-console-mcp 1.23.0 是 MIT） | 无 | 未做 |
+| 5 | 分享前自查（token / 私有 key / 教程与架构图仍是未提交 WIP） | 无 | 未做 |
+| 6 | 找人按接入文档独立走一遍（真正的验收） | 1–5 | 未做 |
+
+**三条已知限制**（写文档时别漏）：左列只到「标题+主图」高，剩余空白是卡片底色（设计如此）；
+`badgeAnchors` 未传时标号走模板网格并告警；偶发 `Unable to establish connection … 10 seconds`
+是 figma-console 自身重连预算，0.4.8 起整轮重试 3 次、退避 3s/9s。
+
+**不在本轮**：模板包切换 UX（用户已确认后置）、`suggest_badge_anchors` 草稿工具、
+`deep` 的 fingerprint 比对，以及各 change 里零散的真机待验项（见 `openspec/changes/*/tasks.md` 未勾选项）。
+
 ## 产品汇报图补充（2026-11-06）
 
 新增 `docs/architecture/leadership.html`，与原有架构海报分开，主图固定 16:9，面向管理者解释使用流程、后台协作和经验复用。术语采用「AI 协作助手 / 规则化内容中枢 / 文档自动生产」，不在主图展示工程标识。附讲解备注、全屏与高清导出，配套预览和 4K 图片。内容依据当前 SOP 阶段文件及渲染、校验、同步实现；保留人工确认、冲突处理和知识维护的能力边界，不涉及功能和版本变更。对应规范：`openspec/specs/leadership-architecture/spec.md`。

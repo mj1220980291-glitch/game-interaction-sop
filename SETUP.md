@@ -62,7 +62,7 @@ node dist/server/index.js
 |---|---|
 | Name | `figma-interaction-doc-engine` |
 | Type | `stdio` |
-| Command | `node` |
+| Command | **node 的绝对路径**，如 `C:\Program Files\nodejs\node.exe`（`node scripts/install-mcp.mjs --agent codemaker` 会直接打印这一行） |
 | Args（第一行） | `<仓库绝对路径>/packages/figma-mcp-server/dist/server/index.js` |
 | Env（第一行） | `FIGMA_BACKEND=figma-console` |
 | Env（第二行） | `FIGMA_ACCESS_TOKEN=<你的 Token>` |
@@ -78,6 +78,11 @@ node dist/server/index.js
 > 两个可选 env 只在排障时动：`GISOP_PREFLIGHT` 控制渲染前是否探活（0.4.3 起默认开，
 > 失败返回 `V2_BRIDGE_DOWN`）；`GISOP_EXEC_TIMEOUT_MS` 控制单次 `figma_execute`
 > 的客户端上限（超时返回 `V2_BRIDGE_NO_REPLY`，不再挂到宿主 60s 超时）。
+>
+> **Command 一定要写 node 的绝对路径，不要写 `node`。** 目标机器的 PATH 里常常没有
+> node（我们自己的验收机就是），此时宿主连 MCP 进程都拉不起来，表现是「MCP 面板里
+> 一直连不上」，日志里只有一句 `spawn ENOENT`。`node scripts/install-mcp.mjs --agent <host>`
+> 会直接打印绝对路径的配置片段。
 >
 > 模板包：引擎自带基线包（`assets/packs/default.json` = 官方 1.14），**装完即可渲染**。
 > 要切项目就在 `<项目>/.interaction-sop/template.json` 或

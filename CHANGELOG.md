@@ -100,6 +100,18 @@ structure:
 - 单文件离线打开，支持全屏展示、高清图片导出与展开讲解备注；配套 `leadership-preview.png`、`leadership-4k.png` 可用于汇报。
 - 本次仅新增介绍材料，不改变引擎、skill 或版本契约。
 
+## 未发布（工具链 / 文档）— 2026-11-11
+
+**准备对外分享：安装片段改 node 绝对路径。** `scripts/install-mcp.mjs` 原先输出
+`"command": "node"`：目标机器 PATH 里没有 node 时，宿主连 MCP 进程都拉不起来，表现是
+「MCP 面板一直连不上」，日志只有 `spawn ENOENT`（本机 11-04 就是这样，排查了一整晚）。
+
+- 安装片段（CodeMaker 表单 / Codex TOML / `mcpServers` JSON / 默认提示）一律输出
+  `process.execPath`
+- `SETUP.md` 配置表改成「node 绝对路径」并写明原因
+- 新增 change `openspec/changes/sop-sharing-readiness/`：分享前剩余项（两套基线包重编、
+  已知限制文档、LICENSE/NOTICE、试点验收）
+
 ## 0.4.8（引擎）— 2026-11-11
 
 **整轮重试只给了 2 次、退避固定 5s，两次都撞在同一段抖动里。** 0.4.7 验收 13.3：同一配置
