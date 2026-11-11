@@ -103,6 +103,7 @@ import {
 } from './reconcile/index.js';
 import { isTransientBridgeError, retryTransient } from '../server/retry.js';
 import { getBridgeState } from '../server/bridgeState.js';
+import { describePortHolders } from '../server/reclaimPorts.js';
 import { auditPackFields, auditRenderedContrast } from './pack-audit.js';
 import {
   anchorKey,
@@ -539,6 +540,23 @@ export async function renderV2MarkdownToFigma(
       // 探活结果（pluginConnected / lastRoundtripMs）已经写进 bridgeState，
       // 这里刷新一次快照，返回体才有「这次到底是哪种失败」。
       engineFields.bridge = getBridgeState();
+      // 探活失败时把「端口现在被谁占着」一并报出来：真机 2026-11-10 的现场就是
+      // 9223 被残留 figma-console-mcp 占着，而文案只说「没有插件回话」。
+      const port = getBridgeState().preferredPort;
+      let holderNote = '';
+      try {
+        const holders = describePortHolders(port);
+        if (holders.length > 0) {
+          holderNote =
+            `\n端口 ${port} 当前被占用：` +
+            holders
+              .map((h) => `pid=${h.pid}${h.command ? `（${h.command}）` : ''}`)
+              .join('、') +
+            '。若是另一份 figma-console-mcp，结束它再重开插件。';
+        }
+      } catch {
+        /* 端口查询失败不影响主错误 */
+      }
       return {
         ok: false,
         ...packFields,
@@ -548,7 +566,8 @@ export async function renderV2MarkdownToFigma(
             code: 'V2_BRIDGE_DOWN',
             message:
               `渲染前探活失败，Bridge 或 Figma 插件没有响应：${(e as Error).message}。` +
-              '在 Figma 里关掉并重新运行 Desktop Bridge 插件（Plugins → Development）后重试。'
+              '在 Figma 里关掉并重新运行 Desktop Bridge 插件（Plugins → Development）后重试。' +
+              holderNote
           }
         ],
         warnings: parsed.warnings

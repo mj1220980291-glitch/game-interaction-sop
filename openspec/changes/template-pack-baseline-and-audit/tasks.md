@@ -31,6 +31,7 @@
 - [x] 4.7 单测：完整包不告警、缺字段才告警（同文件）
 - [x] 4.9 **0.4.5 返工**：对比度脚本把 TEXT 自身填充当背景 → 恒 `1.00:1` 假阳性（0.4.4 验收打出 98 条）。修 `nextBg` 只由非 TEXT 决定、比值用祖先 `bg`；脚本提成 `buildContrastAuditScript` 并加 `tests/server/contrast-audit-script.spec.ts`（用假 figma 树跑真脚本）
 - [x] 4.10 **0.4.6 返工**：审计起点选错（从章节起走，看不到根帧 / 章节外框），叠加「无实心祖先整章跳过」→ 缺 geometry 的现场不报警（0.4.5 验收用例 B 第二条判据不可达）。修法：`auditTextContrast` 新增 `inheritedBackground`（章节外框内层 fill → docBackground → `#FFFFFF`），脚本 `walk(root, inherited)`；章节内实心底仍优先
+- [x] 4.11 **0.4.7 返工**：背景对了但**样本取错层**（取章节标题的白字 → 报 `#FFFFFF/#FFFFFF/1.00:1`，正文实际 `#EEEEEE`）。修法：只统计正文层（`bodyNames` 默认 `正文/规则`），标题 / 标号单列 `otherLowContrast`；认不出正文层退回全部文本并标 `basis:'all-text'`；message 附样本层名。顺带 `V2_BRIDGE_DOWN` 附端口持有者（`describePortHolders`）
 
 ## 5. 排查工具
 

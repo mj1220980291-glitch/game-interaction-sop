@@ -197,6 +197,13 @@ Figma Desktop`，端口监听方也在变。
 | `V2_W_PACK_GEOMETRY_DEFAULTED` | 本次用了默认观感（缺 `docBackground` / `sectionShell`） | 不是错误；要恢复原稿观感就重编模板包 |
 | `V2_W_TEXT_CONTRAST_LOW` | 正文与最近实心背景的对比度低于阈值（默认 3.0，`GISOP_CONTRAST_MIN` 可调） | 先查 pack 的 geometry，再查模板本身是不是低对比设计 |
 
+> 对比度只统计**正文层**（`正文/规则`）；章节标题、标号这类文本不计入，避免把「标题白字」
+> 当成正文样本（2026-11-10 验收踩过）。模板正文层不叫这个名字时退回「全部文本」，
+> message 会写成「文本（未识别到正文层）」。
+>
+> `V2_BRIDGE_DOWN` 的 message 会附上「端口当前被谁占用（pid + 命令行）」，
+> 不用再手动 netstat。
+
 ### `V2_W_RENDER_RETRIED`：已自动重试成功，不用管
 
 看到这条**不是失败**：首轮渲染撞上瞬时连接错误（典型是 `Unable to establish connection to Figma after 10 seconds`），
