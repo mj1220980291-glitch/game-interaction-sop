@@ -24,6 +24,9 @@
     "chapterWidth": 2209,
     "mainImage": { "width": 1200, "height": 719 },
     "placeholder": { "fill": "#F5F5F5", "stroke": "#BFBFBF" },
-    "badgeSize": { "width": 63, "height": 63 }
+    "badgeSize": { "width": 63, "height": 63 },
+    "docPadding": { "top": 0, "right": 60, "bottom": 0, "left": 60 },
+    "rootGap": 60,
+    "footerGap": 200
   }
 }

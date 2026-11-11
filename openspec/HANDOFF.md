@@ -25,10 +25,16 @@
 - 修：`sectionSourceId` / `badgeSourceId` 透传 + 改用源文件后端 + 缺 id 写 `gaps` +
   verify 不再吞几何 gaps；`smokePackKeys` 独立成函数
 - 产出 `assets/packs/蛋仔派对.json`：key `110:74/86/114/119`（4/4 import 通过）、
-  底色 `#232429`、章节宽 `2209`、主图 `1200×719`、占位 `#F5F5F5`/`#BFBFBF`、标号母版 `63×63`；
+  底色 `#232429`、章节宽 `2209`、主图 `1200×719`、占位 `#F5F5F5`/`#BFBFBF`、标号母版 `63×63`、
+  `docPadding` 左右 60 / `rootGap` 60 / `footerGap` 200；
   `sectionShell` 有意为空（黑边在文档根，左右各 60）
-- 真机：沙盒 `0eoR7aPlpzIva8IdWATWkL` 渲染 `buzhong.md` → `ok:true`、根 `135:1663`、
-  2 章 / 3 簇 / 3 标号、无 `CONTRAST_LOW`
+- 三条留白是第一轮渲染后补的：缺省全 0 → 内容贴边、块贴块、结尾前不留白
+- 顶部部件已删「需求组」栏（用户决定）；蛋仔项目 md **不写** `需求组` 行，
+  写了只出 `V2_W_HEADER_SLOT_MISSING` 软告警。契约未改，其它项目仍必填
+- 已知结构差异（**决定不改**）：说明栏顶端跟「章节标题」齐平，原稿是跟「主图」齐平——
+  因为章节部件是「左列 = 标题 + 主图」。要改得动部件分层与渲染分栏，两份模板都受影响
+- 真机：沙盒 `0eoR7aPlpzIva8IdWATWkL` 渲染 `buzhong.md` → `ok:true`、根 `139:3179`、
+  2 章 / 3 簇 / 3 标号、无 `CONTRAST_LOW`；根宽 `2329`（2205 + 左右 60）、块间距 60、结尾前 200
 - 环境坑（复现两次）：CodeMaker 里**已禁用**的独立 `figma-console` 条目仍在跑，
   引擎退到 9224 → `Cannot connect`。`node scripts/cleanup-orphan-mcp.mjs --force` 清理后可跑
 - 尚未：官方 1.14 的 `placeholder` / `bubbleGrid` / `docPadding` / `footerGap`（tasks 2.2）
