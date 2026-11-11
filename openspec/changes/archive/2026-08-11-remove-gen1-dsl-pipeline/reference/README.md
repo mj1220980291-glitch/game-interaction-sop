@@ -4,7 +4,7 @@
 
 `figma-interaction-doc-engine` 的第一版设计：**LLM 写 YAML DSL → 引擎渲染 Figma**。
 
-原始设计文档见 `gen1-original-design.md`（来自旧仓库 `H:\kk8项目文件\openspec\changes\build-figma-interaction-doc-engine\`，从未归档）。核心动机（design.md 开头）：
+原始设计文档见 `gen1-original-design.md`（来自旧仓库 `<旧仓库>\openspec\changes\build-figma-interaction-doc-engine\`，从未归档）。核心动机（design.md 开头）：
 
 > 布局规则全部寄存在 SKILL.md 文档里，由 LLM 在每次执行时即兴解释和遵守。继续在 SKILL 里堆规则，是把「形式系统的活儿」塞给「统计系统」。
 

@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="文风、模板、模式库分别是什么，怎么配置、怎么维护，文件放在哪里。">
+<title>项目资产 - 游戏交互文档 SOP 使用说明</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <span class="mark"><a href="index.html">游戏交互文档 SOP</a></span>
+    <span class="crumb">使用说明 / <b>项目资产</b></span>
+    <span class="page-no">03</span>
+  </div>
+</header>
+
+<aside class="sidenav">
+  <ul>
+    <li><a href="index.html">这是什么</a></li>
+    <li><a href="01-quickstart.html">01 最快上手</a></li>
+    <li><a href="02-focus.html">02 验收清单</a></li>
+    <li><a href="03-assets.html" aria-current="page">03 项目资产</a></li>
+    <li><a href="04-troubleshoot.html">04 常见问题</a></li>
+    <li><a href="appendix-markdown.html">附录 写法速查</a></li>
+  </ul>
+</aside>
+
+<main class="wrap">
+
+  <h1>文风、模板、模式库</h1>
+
+  <p class="lede">这三样东西决定这份文档「读起来像不像你们组写的」「排出来是不是你们要的版式」「下次同类需求能不能少问几轮」。先讲它们是什么，再讲怎么配、怎么维护，最后是文件放哪。</p>
+
+  <h2>先说结论：不配也能用</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>你没配</th><th>会发生什么</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>文风</td>
+          <td>用 skill 自带的默认文风。随安装一起到位，不需要复制任何文件。</td>
+        </tr>
+        <tr>
+          <td>模板</td>
+          <td>用内置默认模板地址。第一次跑通不用碰模板。</td>
+        </tr>
+        <tr>
+          <td>模式库</td>
+          <td>检索这一步直接跳过，不影响任何阶段。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>所以新人第一周不需要建任何文件。需要配的时机是另一个：你们已经有一份「组里都认」的写法，或者这个项目的模板和默认模板长得不一样。</p>
+
+  <h2>三样东西分别是什么</h2>
+
+  <figure class="diagram">
+    <div class="flow three">
+      <div class="node">
+        <span class="k">管怎么说</span>
+        <span class="t">文风</span>
+        <span class="d">一组写法开关加范例：写多细、什么时候标角色、用哪个词。不改变问什么，只改变怎么写。</span>
+      </div>
+      <div class="node key">
+        <span class="k">管长什么样</span>
+        <span class="t">模板</span>
+        <span class="d">文档的画布结构：章节怎么排、说明块放哪、配图槽在哪。项目模板和默认模板不同时，才需要自己做一份。</span>
+      </div>
+      <div class="node">
+        <span class="k">管少问几轮</span>
+        <span class="t">模式库</span>
+        <span class="d">把「这类需求上次怎么定」写成条目。下次同类需求先检索，命中就拿来当起点。</span>
+      </div>
+    </div>
+    <figcaption>三样互不影响：改文风不会改版式，换模板不会改措辞，没有模式库也不会卡住流程。</figcaption>
+  </figure>
+
+  <h2>怎么配</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>资产</th><th>最小配置动作</th><th>谁做</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>文风</td>
+          <td>想有项目基线：把 <code>packages/skill/references/style-default.md</code> 复制成 <code>.interaction-sop/style.md</code>，改成你们的写法。个人文风不用建，第一次沉淀时自动生成。</td>
+          <td>人改基线，AI 生成个人文风</td>
+        </tr>
+        <tr>
+          <td>模板</td>
+          <td>默认模板够用就不做。项目版式不同：按编译流程做一套，登记后这个项目自动用它。</td>
+          <td>人（编译中有一处必须人点发布）</td>
+        </tr>
+        <tr>
+          <td>模式库</td>
+          <td>没有就先空着。想建：让 AI 读两三份历史文档做冷启动，生成第一批条目。</td>
+          <td>AI 起草，你确认</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>怎么维护</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>资产</th><th>维护方式</th><th>频率</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>文风</td>
+          <td>交付时你改过的表述，AI 列成清单问你要不要收，收了才写进去。基线文件 <code>style.md</code> 永不自动写。</td>
+          <td>有改动才有，不是每份都有</td>
+        </tr>
+        <tr>
+          <td>模板</td>
+          <td>模板改了就重编，用 <code>-v2</code> 后缀生成新组件，不原地改、不删旧的。</td>
+          <td>模板变更时</td>
+        </tr>
+        <tr>
+          <td>模式库</td>
+          <td>按风险分级增量维护：新东西才建条目，旧条目只在结论变了时改。</td>
+          <td>每轮结尾自动判断</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>文件都放在哪</h2>
+
+  <p>项目级文件统一放在项目根的 <code>.interaction-sop/</code> 目录。七项，各有各的归属。</p>
+
+  <figure class="diagram">
+    <div class="flow four">
+      <div class="node">
+        <span class="k">人写 · 只读</span>
+        <span class="t">style.md</span>
+        <span class="d">项目基线文风。任何阶段都不自动写它。</span>
+      </div>
+      <div class="node">
+        <span class="k">交付时生成</span>
+        <span class="t">style_own.md</span>
+        <span class="d">你的个人文风。存在就默认生效。</span>
+      </div>
+      <div class="node">
+        <span class="k">导入或分享</span>
+        <span class="t">style_名字.md</span>
+        <span class="d">别人的文风。存在任意一份，每份文档先问用哪份。</span>
+      </div>
+      <div class="node key">
+        <span class="k">人写或编译产出</span>
+        <span class="t">template.json</span>
+        <span class="d">本项目模板包的地址。地址而已，不含节点。</span>
+      </div>
+      <div class="node key">
+        <span class="k">模板包推导</span>
+        <span class="t">md-contract.md</span>
+        <span class="d">这个项目能写什么、不能写什么。</span>
+      </div>
+      <div class="node">
+        <span class="k">写文档时生成</span>
+        <span class="t">snapshots/</span>
+        <span class="d">每份文档保存时的原稿，供交付时对比。</span>
+      </div>
+      <div class="node">
+        <span class="k">自动维护</span>
+        <span class="t">patterns/</span>
+        <span class="d">项目模式库，可复用的交互写法。</span>
+      </div>
+    </div>
+    <figcaption>前三项是文风，中间两项和模板有关，后两项是过程产物。红色边框的两项最容易在出错时被想起。</figcaption>
+  </figure>
+
+  <h2>文风：怎么写由它定</h2>
+
+  <p>每份文档开始前挑一份，先命中先停，中途不换。你说「换成某某那份」，从下一段输出开始生效。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>目录里有什么</th><th>行为</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>存在任意 <code>style_名字.md</code></td>
+          <td>每份文档开始前问你一次用哪份，默认指向你的 <code>style_own.md</code>。</td>
+        </tr>
+        <tr>
+          <td>没有带名字的，有 <code>style_own.md</code></td>
+          <td>直接用，不问你。</td>
+        </tr>
+        <tr>
+          <td>只有 <code>style.md</code></td>
+          <td>直接用，不问你。</td>
+        </tr>
+        <tr>
+          <td>一个文风文件都没有</td>
+          <td>加载 skill 自带的默认文风，静默继续。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>一份文风长什么样</h3>
+
+  <p>文件头是三组开关，下面是可选的范例段。</p>
+
+  <div class="code"><pre><code>---
+schema_version: 1
+name: 局内交互组
+verbosity:
+  level: terse
+  bullets_per_cluster: 3-5
+role_annotation:
+  mode: selective
+  when:
+    - 数值阈值 / 配表字段
+    - 服务端逻辑但界面有可见结果
+  never:
+    - 通用交互流程
+wording:
+  tone: 直述
+  person: 无人称
+  sentence: 短句
+  terms:
+    - from: 警官蛋
+      to: 治安官
+  banned:
+    - 尽量
+    - 建议
+---
+
+## 示例
+
+- 好：按住左键锁定朝向，按住期间移动不改变角色朝向
+- 坏：玩家可以尝试按住鼠标左键来对朝向进行锁定</code></pre></div>
+
+  <p>三组开关的范围：<code>verbosity</code> 管写多细，<code>role_annotation</code> 管什么时候把一条规则写成「@职能：」条目，<code>wording</code> 管语气、人称、句长和术语替换。</p>
+
+  <div class="note warn">
+    <span class="label">文风管不到的地方</span>
+    <p>引擎的硬校验和状态行规则不受文风影响。哪怕全组都习惯那样写，只要违反，仍然拒绝渲染。两者撞上时，先满足校验，再谈文风。</p>
+  </div>
+
+  <h3>想用别人的文风</h3>
+  <p>把对方给的东西丢给 AI：一段文字、一份旧文档、一个 Figma 链接都可以。它会反推成上面那三组字段，出草案让你确认，确认后存成 <code>style_名字.md</code>。同名文件已存在时先备份成 <code>.bak</code>。</p>
+
+  <h3>想把你的给别人</h3>
+  <p>让它把文件完整内容打印出来，或者写成独立文件带走。不改字段，也不擅自删掉你觉得敏感的说法。</p>
+
+  <h2>模板：长什么样由它定</h2>
+
+  <p>模板包把项目模板编译成共享库里的四个部件，登记之后这个项目就用它。四个部件分别是顶部、章节、簇、结尾。</p>
+
+  <h3>从项目模板到可用，五步</h3>
+
+  <figure class="diagram">
+    <div class="flow row">
+      <div class="node key">
+        <span class="k">人工</span>
+        <span class="t">粘到中转页</span>
+        <span class="d">整块项目模板粘进库文件的 _staging 页</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node">
+        <span class="k">程序</span>
+        <span class="t">先干跑</span>
+        <span class="d">只出计划和缺口，不写画布</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node">
+        <span class="k">程序</span>
+        <span class="t">再实跑</span>
+        <span class="d">克隆成组件，统一字体，收编零件</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node key">
+        <span class="k">人工</span>
+        <span class="t">点发布</span>
+        <span class="d">Figma 没有发布接口，只能人点</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node">
+        <span class="k">程序</span>
+        <span class="t">登记</span>
+        <span class="d">逐个试导入，产出配置文件</span>
+      </div>
+    </div>
+    <figcaption>红色两处必须人做。逐步操作见 <code>packages/skill/references/template-compile.md</code>。</figcaption>
+  </figure>
+
+  <p>登记产出 <code>~/.game-interaction-sop/templates/&lt;项目名&gt;.json</code>，里面只有组件 key 和能力说明，不含节点。项目目录里再留一份 <code>.interaction-sop/template.json</code> 指过去。</p>
+
+  <h3>引擎按这个顺序找模板包</h3>
+  <ol>
+    <li>环境变量 <code>GISOP_TEMPLATE_PACK</code> 指向的路径。</li>
+    <li>当前目录的 <code>.interaction-sop/template.json</code>。</li>
+    <li><code>~/.game-interaction-sop/templates/&lt;GISOP_PROJECT&gt;.json</code>。</li>
+    <li><code>~/.game-interaction-sop/templates/default.json</code>。</li>
+  </ol>
+  <p>四个都没有，报 <code>V2_TEMPLATE_PACK_MISSING</code>，并把这四个位置的检查结果一起返回。看到这条不用猜，看候选列表就知道差在哪。</p>
+
+  <h3>四处会卡住</h3>
+
+  <details class="item">
+    <summary><span class="symptom">粘错、漏粘，或粘了张截图</span> <span class="code-tag">V2_COMPILE_STAGED_PART_MISMATCH</span></summary>
+    <div class="body">
+      <p>编译认的是节点 id，名字只用于核对。粘错项目、少粘一块、把截图当模板粘进去，都会在这一步被拦下。</p>
+      <p>按提示重粘。粘完不要改名、不要摆位置。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">编译完了，但没人在 Figma 里发布</span> <span class="code-tag">V2_COMPILE_NOT_PUBLISHED</span></summary>
+    <div class="body">
+      <p>编译只是把组件造出来，没发布就取不到 key。去库文件里走一遍 Assets，管理库，发布变更。四个部件和全部零件都要在列表里。</p>
+      <p>另一种情况：发布过，但 key 变了。同样重发一次。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">组件名以 _ 或 . 开头，发布不出去</span> <span class="code-tag">V2_COMPILE_UNPUBLISHABLE_NAME</span></summary>
+    <div class="body">
+      <p>Figma 会把这类命名归进隐藏组，不会发布。改名重跑即可。</p>
+      <p>另一种触发：项目名里带了 <code>: / \ * ? " &lt; &gt; |</code>。项目名会变成配置文件名，这些字符写不出来。像 <code>1:14</code> 要写成 <code>官方1.14</code>。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">冒烟跑不起来，或者卡到超时</span> <span class="code-tag">V2_COMPILE_VERIFY_UNAVAILABLE</span></summary>
+    <div class="body">
+      <p>冒烟要在空的沙盒文件里跑。在源项目文件里跑，部件可能还依赖源文件里的组件，导入会成环，实测三十秒超时。在库文件里跑则永远成功，测不出到底发布没有。</p>
+      <p>先确认插件开着，再把校验文件换成一个空文件。</p>
+    </div>
+  </details>
+
+  <h3>重编只能追加</h3>
+  <p>模板改了重新编译，用 <code>-v2</code>、<code>-v3</code> 后缀生成新组件，新 key 覆盖配置。不要原地改，也不要删旧组件，否则已经交付的文档会连带失效。</p>
+  <p>一个项目只能挂一套模板。需要两套排版时，只能另开项目目录。</p>
+
+  <h2>模式库：可复用的写法</h2>
+
+  <p>一个条目一个文件，放在 <code>.interaction-sop/patterns/</code>，同目录还有索引和偏离记录。条目里记的是这类需求当时定下的结论、依据和适用范围，格式见 <code>packages/skill/references/pattern-schema.md</code>。</p>
+  <p>开新需求时先检索，命中了就拿来当起点，少问一轮。没有库就跳过，不报错。维护由最后一个阶段按风险分级做：新东西才建条目，旧条目只在结论变了时改。</p>
+
+  <h2>写法边界：md-contract.md</h2>
+
+  <p>登记时会一并返回这份文件的内容，由调用方落盘到 <code>.interaction-sop/md-contract.md</code>。它由模板能力推导，写明这个项目能写哪些结构。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>模板能力</th><th>意味着</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>不支持簇分组（<code>clusterGroups: none</code>）</td>
+          <td>Markdown 里不能出现四级标题。写了会在建画布前被拒绝。</td>
+        </tr>
+        <tr>
+          <td>不支持设计总览（<code>overview: none</code>）</td>
+          <td>不能写「设计总览」那一节。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>最容易在两种场合踩到：从别的项目抄写法，或者照着附录的完整示例写，而本项目模板是精简版。改 Markdown 之前先翻一眼这个文件。</p>
+
+  <div class="pager">
+    <a href="02-focus.html">
+      <span class="dir">上一页</span>
+      02 验收清单
+    </a>
+    <a href="04-troubleshoot.html">
+      <span class="dir">下一页</span>
+      04 常见问题
+    </a>
+  </div>
+
+</main>
+
+<footer class="site-foot">
+  <dl>
+    <dt>对应版本</dt><dd>仓库 2.3.3 / skill 2.4.1 / 引擎 0.4.2</dd>
+    <dt>说明书日期</dt><dd>2026-11-04</dd>
+  </dl>
+  <p>说明会滞后于代码。发现对不上时，以仓库里的实现为准。</p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

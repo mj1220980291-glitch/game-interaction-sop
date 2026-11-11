@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="游戏交互文档 SOP 的产品架构图：五层结构，从输入到产出。">
+<title>产品架构 - 游戏交互文档 SOP</title>
+<style>
+  :root {
+    --ink: #10203a;
+    --ink-2: #43587a;
+    --ink-3: #647a99;
+    --line: #c9d7ec;
+    --blue: #2f6fe4;
+    --blue-deep: #123a86;
+    --blue-soft: #eaf1fd;
+    --paper: #fbfcff;
+    --radius: 18px;
+    --font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    overflow-x: clip;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(1200px 700px at 50% -10%, #e8f0ff 0%, rgba(232, 240, 255, 0) 60%),
+      radial-gradient(900px 500px at 85% 30%, #eef4ff 0%, rgba(238, 244, 255, 0) 55%),
+      radial-gradient(900px 600px at 10% 70%, #f0f5ff 0%, rgba(240, 245, 255, 0) 60%),
+      var(--paper);
+    color: var(--ink);
+    font-family: var(--font);
+    line-height: 1.7;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 3px;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(47, 111, 228, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(47, 111, 228, 0.05) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, #000 20%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, #000 20%, transparent 75%);
+  }
+
+  .page {
+    position: relative;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 40px 40px 56px;
+  }
+
+  header.head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding-bottom: 18px;
+    border-bottom: 1px solid rgba(47, 111, 228, 0.16);
+  }
+
+  .brand {
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+  .brand b {
+    display: block;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(26px, 3vw, 38px);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-align: right;
+    text-wrap: balance;
+  }
+
+  h1 span {
+    display: block;
+    margin-top: 6px;
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--ink-2);
+    letter-spacing: 0;
+  }
+
+  .stage {
+    position: relative;
+    height: 1060px;
+    margin-top: 20px;
+  }
+
+  .stage::before,
+  .stage::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    border-radius: 50%;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .stage::before {
+    top: 96px;
+    width: 1120px;
+    height: 520px;
+    border: 1px solid rgba(47, 111, 228, 0.1);
+  }
+
+  .stage::after {
+    top: 760px;
+    width: 980px;
+    height: 300px;
+    border: 1px dashed rgba(47, 111, 228, 0.12);
+  }
+
+  .disk.engine::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 112%;
+    height: 210%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(ellipse at center, rgba(56, 122, 240, 0.22), rgba(56, 122, 240, 0) 68%);
+    filter: blur(18px);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .spine {
+    position: absolute;
+    left: 50%;
+    top: 90px;
+    bottom: 60px;
+    width: 2px;
+    transform: translateX(-50%);
+    background: linear-gradient(180deg, rgba(47, 111, 228, 0.55), rgba(47, 111, 228, 0.06));
+  }
+
+  .spine::before {
+    content: "";
+    position: absolute;
+    top: -26px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 9px solid transparent;
+    border-right: 9px solid transparent;
+    border-bottom: 18px solid rgba(47, 111, 228, 0.55);
+  }
+
+  .spine-label {
+    position: absolute;
+    left: 50%;
+    top: 24px;
+    transform: translateX(-50%);
+    padding: 5px 14px;
+    border: 1px solid rgba(47, 111, 228, 0.3);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(8px);
+    font-size: 12px;
+    color: var(--blue-deep);
+    white-space: nowrap;
+  }
+
+  .disk {
+    position: absolute;
+    left: 50%;
+    top: var(--y);
+    width: var(--w);
+    transform: translateX(-50%);
+    z-index: var(--z, 1);
+  }
+
+  .disk .plate {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -22px;
+    height: 64px;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at center, rgba(24, 62, 140, 0.16), rgba(24, 62, 140, 0) 70%);
+    filter: blur(6px);
+  }
+
+  .disk .body {
+    position: relative;
+    height: var(--h, 168px);
+    border-radius: 50%;
+    border: 1px solid rgba(47, 111, 228, 0.22);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(233, 241, 254, 0.9) 60%, rgba(219, 232, 252, 0.86) 100%);
+    box-shadow:
+      0 24px 50px -28px rgba(18, 58, 134, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    display: grid;
+    place-items: center;
+    padding: 10px 60px;
+    text-align: center;
+  }
+
+  .disk.engine .body {
+    border-color: rgba(255, 255, 255, 0.45);
+    background:
+      linear-gradient(180deg, #3d7bf0 0%, #2a63d6 55%, #1b49ab 100%);
+    box-shadow:
+      0 30px 60px -26px rgba(18, 58, 134, 0.6),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 0 0 6px rgba(47, 111, 228, 0.08);
+    color: #fdfeff;
+  }
+
+  .disk .label {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .disk .label .no {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-3);
+    letter-spacing: 0;
+  }
+
+  .disk.engine .label .no {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .disk .label h2 {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+
+  .disk .role {
+    margin: 2px 0 10px;
+    font-size: 12.5px;
+    color: var(--ink-3);
+  }
+
+  .disk.engine .role {
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 7px;
+    max-width: 560px;
+  }
+
+  .chip {
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(47, 111, 228, 0.24);
+    background: rgba(255, 255, 255, 0.78);
+    font-size: 12px;
+    color: var(--blue-deep);
+    white-space: nowrap;
+    backdrop-filter: blur(6px);
+  }
+
+  .chip.key {
+    border-color: rgba(47, 111, 228, 0.7);
+    background: #fdfeff;
+    font-weight: 600;
+    box-shadow: 0 4px 12px -6px rgba(18, 58, 134, 0.5);
+  }
+
+  .disk.engine .chip {
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.14);
+    color: #fdfeff;
+  }
+
+  .disk.engine .chip.key {
+    background: #fdfeff;
+    color: var(--blue-deep);
+    border-color: #fdfeff;
+  }
+
+  .rail {
+    position: absolute;
+    width: 168px;
+    z-index: 6;
+  }
+
+  .rail.in {
+    left: 0;
+    top: 148px;
+  }
+
+  .rail.out {
+    right: 0;
+    top: 566px;
+  }
+
+  .rail .cap {
+    font-size: 11.5px;
+    color: var(--ink-3);
+    margin-bottom: 8px;
+  }
+
+  .rail .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border: 1px solid rgba(47, 111, 228, 0.2);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.86);
+    box-shadow: 0 10px 24px -18px rgba(18, 58, 134, 0.6);
+    font-size: 12.5px;
+    color: var(--ink-2);
+    backdrop-filter: blur(8px);
+  }
+
+  .rail .item::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--blue);
+    box-shadow: 0 0 0 3px rgba(47, 111, 228, 0.15);
+  }
+
+  .wires {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wires path {
+    fill: none;
+    stroke: rgba(47, 111, 228, 0.45);
+    stroke-width: 1.2;
+    stroke-dasharray: 4 5;
+  }
+
+  footer.foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 26px;
+    justify-content: space-between;
+    padding-top: 16px;
+    border-top: 1px solid rgba(47, 111, 228, 0.16);
+    font-size: 12.5px;
+    color: var(--ink-3);
+  }
+
+  footer.foot b {
+    color: var(--ink-2);
+    font-weight: 600;
+  }
+
+  @media (max-width: 1080px) {
+    .stage {
+      height: auto;
+      padding: 20px 0 10px;
+    }
+
+    .spine,
+    .spine-label,
+    .wires {
+      display: none;
+    }
+
+    .rail {
+      position: static;
+      width: auto;
+      margin: 0 auto 18px;
+      max-width: 620px;
+    }
+
+    .rail .cap {
+      text-align: center;
+    }
+
+    .rail .item {
+      display: inline-flex;
+      margin: 0 6px 8px 0;
+    }
+
+    .disk {
+      position: static;
+      width: auto;
+      transform: none;
+      margin: 0 auto 26px;
+      max-width: 620px;
+    }
+
+    .disk .body {
+      height: auto;
+      border-radius: 20px;
+      padding: 20px 22px;
+      place-items: stretch;
+    }
+
+    .disk .plate {
+      display: none;
+    }
+
+    .chips {
+      max-width: none;
+    }
+
+    h1 {
+      text-align: left;
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .disk.engine .body {
+      animation: breathe 7s ease-in-out infinite;
+    }
+
+    .rail .item {
+      animation: drift 9s ease-in-out infinite;
+    }
+
+    .rail .item:nth-child(3) {
+      animation-delay: -3s;
+    }
+
+    .rail .item:nth-child(4) {
+      animation-delay: -6s;
+    }
+
+    @keyframes breathe {
+      0%,
+      100% {
+        box-shadow:
+          0 30px 60px -26px rgba(18, 58, 134, 0.55),
+          inset 0 1px 0 rgba(255, 255, 255, 0.35),
+          0 0 0 6px rgba(47, 111, 228, 0.06);
+      }
+      50% {
+        box-shadow:
+          0 34px 70px -24px rgba(18, 58, 134, 0.65),
+          inset 0 1px 0 rgba(255, 255, 255, 0.4),
+          0 0 0 12px rgba(47, 111, 228, 0.1);
+      }
+    }
+
+    @keyframes drift {
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(-4px);
+      }
+    }
+  }
+
+  @media print {
+    body {
+      background: #fdfeff;
+    }
+
+    .stage {
+      height: auto;
+    }
+
+    .disk {
+      position: static;
+      transform: none;
+      margin: 0 auto 18px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="head">
+    <div class="brand">
+      游戏交互文档 SOP
+      <b>产品架构</b>
+    </div>
+    <h1>
+      需求进来，文档出去
+      <span>五层结构，一条主线。上层说话，下层干活。</span>
+    </h1>
+  </header>
+
+  <div class="stage">
+    <div class="spine" aria-hidden="true"></div>
+    <div class="spine-label">一轮：一份需求 → 一份交互文档</div>
+
+    <svg class="wires" viewBox="0 0 1240 1060" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M172,194 C300,194 380,176 430,190" />
+      <path d="M172,238 C310,238 390,190 440,198" />
+      <path d="M172,282 C320,282 400,202 450,206" />
+      <path d="M880,920 C1000,920 1020,650 1068,612" />
+      <path d="M900,960 C1010,960 1030,690 1068,656" />
+      <path d="M880,1000 C1000,1000 1040,726 1068,700" />
+    </svg>
+
+    <div class="rail in">
+      <div class="cap">输入</div>
+      <div class="item">策划文档</div>
+      <div class="item">Figma 设计稿</div>
+      <div class="item">口头需求</div>
+    </div>
+
+    <div class="disk" style="--y: 60px; --w: 540px; --h: 150px; --z: 5;">
+      <div class="plate"></div>
+      <div class="body">
+        <div>
+          <div class="label"><span class="no">L1</span><h2>入口</h2></div>
+          <p class="role">你在这里</p>
+          <div class="chips">
+            <span class="chip">CodeMaker</span>
+            <span class="chip">Claude Desktop</span>
+            <span class="chip">Cursor</span>
+            <span class="chip">Cline</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="disk" style="--y: 240px; --w: 740px; --h: 170px; --z: 4;">
+      <div class="plate"></div>
+      <div class="body">
+        <div>
+          <div class="label"><span class="no">L2</span><h2>编排层</h2></div>
+          <p class="role">skill：把七个阶段排好队</p>
+          <div class="chips">
+            <span class="chip">P0 翻库</span>
+            <span class="chip">P1 挖掘</span>
+            <span class="chip">P2 写文档</span>
+            <span class="chip">P3 配图</span>
+            <span class="chip">P4 写 Figma</span>
+            <span class="chip">P5 文风</span>
+            <span class="chip">P6 模式库</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="disk engine" style="--y: 440px; --w: 900px; --h: 196px; --z: 3;">
+      <div class="plate"></div>
+      <div class="body">
+        <div>
+          <div class="label"><span class="no">L3</span><h2>引擎层</h2></div>
+          <p class="role">figma-interaction-doc-engine：脏活在这里</p>
+          <div class="chips">
+            <span class="chip key">格式校验</span>
+            <span class="chip key">模板解析</span>
+            <span class="chip key">渲染</span>
+            <span class="chip">同步</span>
+            <span class="chip">模板编译</span>
+            <span class="chip">配图审计</span>
+            <span class="chip">澄清校验</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="disk" style="--y: 690px; --w: 760px; --h: 160px; --z: 2;">
+      <div class="plate"></div>
+      <div class="body">
+        <div>
+          <div class="label"><span class="no">L4</span><h2>运行时</h2></div>
+          <p class="role">连到你本机</p>
+          <div class="chips">
+            <span class="chip">figma-console 代理</span>
+            <span class="chip">连接插件</span>
+            <span class="chip">Figma 文件</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="disk" style="--y: 890px; --w: 600px; --h: 140px; --z: 1;">
+      <div class="plate"></div>
+      <div class="body">
+        <div>
+          <div class="label"><span class="no">L5</span><h2>项目资产</h2></div>
+          <p class="role">跟着项目走</p>
+          <div class="chips">
+            <span class="chip">文风文件</span>
+            <span class="chip">模板包</span>
+            <span class="chip">写法契约</span>
+            <span class="chip">模式库</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rail out">
+      <div class="cap">产出</div>
+      <div class="item">Figma 交互文档</div>
+      <div class="item">生效的文风文件</div>
+      <div class="item">模式库条目</div>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <span><b>不配也能跑</b>：默认文风、默认模板、空模式库。</span>
+    <span><b>你只出手三处</b>：说需求、审文档、看结果。</span>
+    <span>对应版本：仓库 2.3.3 / skill 2.4.1 / 引擎 0.4.2</span>
+  </footer>
+
+</div>
+</body>
+</html>

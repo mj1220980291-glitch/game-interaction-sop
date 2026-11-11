@@ -14,10 +14,10 @@
 
 ## 3. 已知限制与文档（P1）
 
-- [ ] 3.1 `template-contract.md`：写明「左列只到标题+主图高，剩余是卡片底色」
-- [ ] 3.2 `phase4-figma.md`：`badgeAnchors` 未传时的处理口径（提示补表，不要改版面）
-- [ ] 3.3 `INSTALL.md`：把「10s 抖动会自动重试」与「左列 HUG」并入排障表
-- [ ] 3.4 新增 `docs/onboarding.md`（一页）：30 分钟接入顺序 + 三个已知限制 + demo 位置
+- [x] 3.1 `template-contract.md`：写明「左列只到标题+主图高，剩余是卡片底色」（新增「三·六、章节几何」）
+- [x] 3.2 `phase4-figma.md`：`badgeAnchors` 未传时的处理口径（只补表、不动版面；两处都改了）
+- [x] 3.3 `INSTALL.md`：新增「看起来像 bug、其实是设计」表（左列 HUG / 标号网格 / 10s 抖动）
+- [x] 3.4 新增 `docs/onboarding.md`（一页）：四步接入 + 三个已知限制 + demo 位置 + 模板包与卡点分流
 
 ## 4. 许可证（P1）
 
@@ -27,8 +27,8 @@
 
 ## 5. 分享前自查（P1）
 
-- [ ] 5.1 仓库里没有个人 token / 私有路径（`mcps.json` 示例、回执、`~/.game-interaction-sop` 样例）
-- [ ] 5.2 两套基线包不含私有库 key（若含，替换成公开模板库或标注「内部库，需自备」）
+- [x] 5.1 仓库里没有个人 token / 私有路径（`mcps.json` 示例、回执、`~/.game-interaction-sop` 样例）——清掉 4 处个人路径，无 `figd_` / `.env`
+- [x] 5.2 两套基线包不含私有库 key（若含，替换成公开模板库或标注「内部库，需自备」）——`default.json` 是公司内 1.14 库 key，已在 `assets/packs/README.md` 与 `docs/onboarding.md` 标注
 - [ ] 5.3 `docs/tutorial/`、`docs/architecture/` 若作为分享材料，先提交并校对
 
 ## 6. 试点验收（P1）

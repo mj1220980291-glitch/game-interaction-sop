@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="游戏交互文档 SOP 使用说明：它做什么、怎么装通、哪里容易出错，文风与模板资产怎么管。">
+<title>这是什么 - 游戏交互文档 SOP 使用说明</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <span class="mark"><a href="index.html">游戏交互文档 SOP</a></span>
+    <span class="crumb">使用说明 / <b>这是什么</b></span>
+    <span class="page-no">首页</span>
+  </div>
+</header>
+
+<aside class="sidenav">
+  <ul>
+    <li><a href="index.html" aria-current="page">这是什么</a></li>
+    <li><a href="01-quickstart.html">01 最快上手</a></li>
+    <li><a href="02-focus.html">02 验收清单</a></li>
+    <li><a href="03-assets.html">03 项目资产</a></li>
+    <li><a href="04-troubleshoot.html">04 常见问题</a></li>
+    <li><a href="appendix-markdown.html">附录 写法速查</a></li>
+  </ul>
+</aside>
+
+<main class="wrap">
+
+  <h1>一份需求，变成 Figma 里的交互文档</h1>
+
+  <p class="lede">这套东西把「策划提需求」到「Figma 里排好的交互文档」之间那段活，固定成一条流程。你说清需求、给图、审稿，AI 按规范写文档，再通过引擎写进 Figma 模板。</p>
+
+  <h2>它做什么</h2>
+
+  <p>三步，每步都有明确产物。第一步和最后验收需要你参与，中间由 AI 完成。</p>
+
+  <figure class="diagram">
+    <div class="flow row">
+      <div class="node">
+        <span class="k">输入</span>
+        <span class="t">需求</span>
+        <span class="d">策划文档、Figma 设计稿或口头需求</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node">
+        <span class="k">第 1 步</span>
+        <span class="t">澄清</span>
+        <span class="d">AI 提问，把含糊的地方问死</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node">
+        <span class="k">第 2 步</span>
+        <span class="t">写文档</span>
+        <span class="d">结构化 Markdown，配图在这一步定好位置</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node key">
+        <span class="k">第 3 步</span>
+        <span class="t">写进 Figma</span>
+        <span class="d">引擎按 1:14 模板落节点，产出交互文档</span>
+      </div>
+    </div>
+    <figcaption>一份需求进来，一份排好版的交互文档出去。中间由 AI 带着走，不需要你自己拼。</figcaption>
+  </figure>
+
+  <h2>谁在做什么</h2>
+
+  <p>四方的分工要分清。搞混了就会出现「以为是工具的问题，其实是文件没打开」这类误会。</p>
+
+  <figure class="diagram">
+    <div class="flow stack">
+      <div class="node">
+        <span class="k">你</span>
+        <span class="t">说需求、给图、审稿、定文风</span>
+        <span class="d">提供设计稿或策划文档；回答 AI 的提问；审核 Markdown；最后看一眼 Figma 成品。</span>
+      </div>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <div class="node">
+        <span class="k">AI 带着 SOP</span>
+        <span class="t">提问、写 Markdown、调工具</span>
+        <span class="d">按阶段推进，写之前先校验，写完把 Markdown 和配图映射交给引擎。</span>
+      </div>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <div class="node">
+        <span class="k">引擎（MCP 服务）</span>
+        <span class="t">校验格式，克隆模板，落节点</span>
+        <span class="d">不合适的 Markdown 会被直接拒绝，不会写出一半。</span>
+      </div>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <div class="node">
+        <span class="k">Figma 连接插件</span>
+        <span class="t">让引擎能动当前文件</span>
+        <span class="d">在目标文件里启动并保持开着，关了就断连。</span>
+      </div>
+    </div>
+    <figcaption>从下往上看：插件让引擎能用 Figma，引擎让 AI 能落文档，AI 让你只需要说话和审稿。</figcaption>
+  </figure>
+
+  <p class="small">它是怎么搭起来的，单独画成了一张架构图：<a href="../architecture/index.html">docs/architecture/index.html</a>。</p>
+
+  <h2>从哪开始</h2>
+
+  <div class="entries">
+    <a class="entry" href="01-quickstart.html">
+      <span class="n">第一次用</span>
+      <span class="t">装了就能跑</span>
+      <span class="d">四步装好，拿一份真需求走完整个流程。</span>
+    </a>
+    <a class="entry" href="02-focus.html">
+      <span class="n">交付前</span>
+      <span class="t">验收清单</span>
+      <span class="d">照着勾，勾完就是能交的文档。</span>
+    </a>
+    <a class="entry" href="03-assets.html">
+      <span class="n">要长期用</span>
+      <span class="t">项目资产</span>
+      <span class="d">文风、模板、模式库是什么，怎么配、怎么维护。</span>
+    </a>
+  </div>
+
+  <div class="pager">
+    <span></span>
+    <a href="01-quickstart.html">
+      <span class="dir">下一页</span>
+      01 最快上手
+    </a>
+  </div>
+
+</main>
+
+<footer class="site-foot">
+  <dl>
+    <dt>对应版本</dt><dd>仓库 2.3.3 / skill 2.4.1 / 引擎 0.4.2</dd>
+    <dt>说明书日期</dt><dd>2026-11-04</dd>
+  </dl>
+  <p>说明会滞后于代码。发现对不上时，以仓库里的实现为准。</p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

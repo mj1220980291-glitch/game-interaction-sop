@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="四步装好 CodeMaker 与 Figma 引擎，再拿一份真需求跑通一次完整流程。">
+<title>最快上手 - 游戏交互文档 SOP 使用说明</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <span class="mark"><a href="index.html">游戏交互文档 SOP</a></span>
+    <span class="crumb">使用说明 / <b>最快上手</b></span>
+    <span class="page-no">01</span>
+  </div>
+</header>
+
+<aside class="sidenav">
+  <ul>
+    <li><a href="index.html">这是什么</a></li>
+    <li><a href="01-quickstart.html" aria-current="page">01 最快上手</a></li>
+    <li><a href="02-focus.html">02 验收清单</a></li>
+    <li><a href="03-assets.html">03 项目资产</a></li>
+    <li><a href="04-troubleshoot.html">04 常见问题</a></li>
+    <li><a href="appendix-markdown.html">附录 写法速查</a></li>
+  </ul>
+</aside>
+
+<main class="wrap">
+
+  <h1>四步装好，跑通一次</h1>
+
+  <p class="lede">这一页只有两件事：把环境装通，然后拿一份真需求走完一遍。装和跑不分家，因为实际用起来就是边装边试。</p>
+
+  <h2>装之前确认三件事</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>需要</th><th>确认方法</th><th>不满足会怎样</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Node.js 20 或更高</td>
+          <td>命令行运行 <code>node -v</code></td>
+          <td>编译直接失败</td>
+        </tr>
+        <tr>
+          <td>Figma 账号，能打开你要写文档的那个文件</td>
+          <td>浏览器登录 Figma 即可</td>
+          <td>引擎找不到文件</td>
+        </tr>
+        <tr>
+          <td>CodeMaker，且能改 MCP 配置</td>
+          <td>设置里能看到 MCP Servers</td>
+          <td>AI 看不到引擎工具</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="small">Windows 上如果 <code>node</code> 命令找不到，用完整路径 <code>"C:\Program Files\nodejs\node.exe"</code>。</p>
+
+  <h2>四步装好</h2>
+
+  <figure class="diagram">
+    <div class="flow four">
+      <div class="node">
+        <span class="k">第 1 步</span>
+        <span class="t">装 SOP</span>
+        <span class="d">编译引擎，再把 skill 装进 CodeMaker</span>
+      </div>
+      <div class="node key">
+        <span class="k">第 2 步</span>
+        <span class="t">配 MCP</span>
+        <span class="d">只配一个服务，最常出错的一步</span>
+      </div>
+      <div class="node">
+        <span class="k">第 3 步</span>
+        <span class="t">拿 Token</span>
+        <span class="d">Figma 个人访问令牌，只读</span>
+      </div>
+      <div class="node">
+        <span class="k">第 4 步</span>
+        <span class="t">开插件</span>
+        <span class="d">在要写文档的那个文件里启动</span>
+      </div>
+    </div>
+    <figcaption>四步走完就能开工。中间任何一步跳过，后面都会以「渲染失败」的形式冒出来。</figcaption>
+  </figure>
+
+  <ol class="steps">
+    <li>
+      <h3>把这个仓库装进来</h3>
+      <p>引擎和 skill 都在同一个仓库里，一次装完。命令按顺序跑，最后回到仓库根目录。</p>
+      <div class="code"><pre><code>git clone &lt;仓库地址&gt;
+cd game-interaction-sop
+cd packages/figma-mcp-server
+npm install
+npm run build
+cd ../..
+npm run install-skill -- --agent codemaker</code></pre></div>
+      <p>skill 会复制到 <code>~/.codemaker/skills/game-interaction-sop</code>，新开一个会话才生效。想知道它会装到哪，加 <code>--dry-run</code> 再跑一次。</p>
+      <p class="ok"><b>成功标志</b>：出现 <code>packages/figma-mcp-server/dist/server/index.js</code>，且 skill 安装命令打印了目标目录和文件数。</p>
+    </li>
+
+    <li>
+      <h3>在 CodeMaker 里加一个 MCP 服务</h3>
+      <p>打开 CodeMaker 的 MCP 配置，新建自定义服务，字段照这张表填。Args 里的路径就是上一步产出的那个文件。</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>字段</th><th>填什么</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Name</td><td><code>figma-interaction-doc-engine</code></td></tr>
+            <tr><td>Type</td><td><code>stdio</code></td></tr>
+            <tr><td>Command</td><td><code>node</code></td></tr>
+            <tr><td>Args</td><td><code>&lt;仓库绝对路径&gt;/packages/figma-mcp-server/dist/server/index.js</code></td></tr>
+            <tr><td>Env</td><td><code>FIGMA_BACKEND=figma-console</code></td></tr>
+            <tr><td>Env</td><td><code>FIGMA_ACCESS_TOKEN=&lt;第 3 步拿到的 Token&gt;</code></td></tr>
+            <tr><td>AutoApprove</td><td><code>true</code></td></tr>
+            <tr><td>Timeout</td><td><code>120</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small">配置界面长这样：</p>
+      <p><img src="img/codemaker-mcp-setup.png" alt="CodeMaker 里新增 MCP 服务的配置界面" style="max-width:100%;height:auto;border:1px solid var(--rule);border-radius:3px"></p>
+      <div class="note warn">
+        <span class="label">两条必须遵守</span>
+        <p>只配一个 MCP 服务。以前单独配过 <code>figma-console</code> 的，要把那条删掉，否则端口会被占住。</p>
+        <p><code>FIGMA_BACKEND=figma-console</code> 不能省。缺了它，引擎不会拉起子进程，渲染会一直报 <code>V2_BACKEND_UNAVAILABLE</code>，工具列表里也不会出现任何 <code>figma_</code> 开头的代理工具。</p>
+      </div>
+      <p class="ok"><b>成功标志</b>：改完重启 CodeMaker，工具列表里能看到 <code>render_v2_markdown_to_figma</code> 和一批 <code>figma_</code> 工具。</p>
+    </li>
+
+    <li>
+      <h3>拿一个 Figma Token</h3>
+      <ol>
+        <li>打开 Figma，点左上角头像，进 Settings。</li>
+        <li>切到 Security，找到 Personal access tokens。</li>
+        <li>点 Generate new token，权限只勾 <code>File content: Read only</code>。</li>
+        <li>复制生成的串，形如 <code>figd_xxxxxxx</code>，填回第 2 步的 <code>FIGMA_ACCESS_TOKEN</code>。</li>
+      </ol>
+      <p class="ok"><b>成功标志</b>：Token 以 <code>figd_</code> 开头。只读权限够用，不需要给写权限。</p>
+    </li>
+
+    <li>
+      <h3>在要写文档的那个文件里启动连接插件</h3>
+      <p>引擎不能直接操作 Figma，要靠一个连接插件。这里说的「那个文件」，就是你打算让文档落进去的 Figma 文件。每次用之前都要确认插件还开着。</p>
+      <ol>
+        <li>在 Figma 里打开你要写文档的那个文件。</li>
+        <li>从顶部菜单进 Community，搜索本组上传的连接插件，点 Run，选中这个文件。</li>
+        <li>插件窗口保持打开。中途关掉就断连。</li>
+      </ol>
+      <p class="small">社区插件在网页端就能跑，不必装 Figma 客户端。不确定搜什么，问一下组里已经装过的人，或者让他们把插件页链接发你。</p>
+      <p class="small">实在起不来时，回退到本地 Desktop Bridge：Figma 桌面端，Plugins，Development，Import plugin from manifest，选 <code>node scripts/install-mcp.mjs --dry-run</code> 打印出来的 manifest 路径。</p>
+      <p class="ok"><b>成功标志</b>：插件窗口显示已连接，不是一直转圈。</p>
+    </li>
+  </ol>
+
+  <div class="note">
+    <span class="label">到这一步就装完了</span>
+    <p>想确认一下，就让 AI 调一次列出打开的文件，看返回里有没有你刚打开的那个。不想验证也行，直接说需求开始做，有问题它会当场告诉你。</p>
+  </div>
+
+  <h2>第一次跑通</h2>
+
+  <p>环境通了，拿一份真需求走一遍。开场只说一句话就够：</p>
+
+  <div class="code"><pre><code>用 game-interaction-sop 处理这份需求：&lt;策划文档路径或内容&gt;
+设计稿：&lt;Figma 链接，有就给&gt;</code></pre></div>
+
+  <p>接下来会依次发生五件事。每件事都写了「你会看到什么」，对不上就说明卡住了。</p>
+
+  <h3>1. 它先问有没有设计稿</h3>
+  <p>有图就以图提问，没图就读策划文档。这一步它会连着问你几轮，包括触发条件、状态、反馈、边界，以及几处需要你拍板的冲突。</p>
+  <p class="ok"><b>你会看到</b>：几轮提问，然后它说澄清完成，并把结果写进 <code>.interaction-sop/phase1-signoff.json</code>。冲突没清零时它不会往下走。</p>
+
+  <h3>2. 它把 Markdown 全文贴给你审</h3>
+  <p>文档按固定结构写：文件头四行、设计总览、按序号排的界面章节，每个语义簇第一行是角色标记。</p>
+  <p class="ok"><b>你会看到</b>：一整份 Markdown 贴在对话里，末尾问你要不要保存、存哪。你确认后它才落盘，同时复制一份到 <code>.interaction-sop/snapshots/</code>，留给最后一步做文风对比。</p>
+
+  <h3>3. 它跟你确认配图</h3>
+  <p>每条「配图：」条目会映射到一个截图区域或设计稿节点。它把清单连同截图发给你确认。</p>
+  <p class="ok"><b>你会看到</b>：一张清单，每行一个配图键，形如 <code>01/2/低血量示意</code>，后面跟着来源和截图。找不到来源的那几张会写「保留占位」。你说这次不配图也可以，整步会跳过。</p>
+
+  <h3>4. 它写进 Figma</h3>
+  <p>写之前先探模板，读完再渲染。新文档默认落在页面左上角，会压在设计稿上，所以它会问你要一个位置，或者自动放在已有内容下方。</p>
+  <p class="ok"><b>你会看到</b>：目标文件里出现一份按模板排好的文档，带气泡标号、说明块和配图占位。返回里有这次用了哪个模板包。</p>
+
+  <h3>5. 它回头核对配图，问你文风要不要收</h3>
+  <p>渲染完会核对每张配图是不是真的贴上去了，缺的逐条点名。然后看你这次有没有改过文档里的表述：改过就问你要不要把这些写法收进文风，没改就直接跳过。</p>
+  <p class="ok"><b>你会看到</b>：一份缺图清单。改过表述的话，再加一份文风条目清单，每条带「原来怎么写，改成什么」，一次最多五条，你可以只收其中几条。这次不想动文风，直接说不用。</p>
+
+  <p>跑完一轮，拿 <a href="02-focus.html">02 验收清单</a> 对一遍再交付。</p>
+
+  <h2>其他事项</h2>
+
+  <p>下面三件事跟安装主线无关，用到时再看。</p>
+
+  <details class="item">
+    <summary><span class="symptom">我用的是 Claude Desktop、Cursor 或 Cline</span></summary>
+    <div class="body">
+      <p>流程一样，只是配置写法不同。在对应 agent 的配置文件里合并这段，路径换成你的仓库位置，重启 agent。</p>
+      <div class="code"><pre><code>{
+  "mcpServers": {
+    "figma-interaction-doc-engine": {
+      "command": "node",
+      "args": [
+        "C:\\\\Users\\\\yourname\\\\game-interaction-sop\\\\packages\\\\figma-mcp-server\\\\dist\\\\server\\\\index.js"
+      ],
+      "env": {
+        "FIGMA_BACKEND": "figma-console",
+        "FIGMA_ACCESS_TOKEN": "&lt;你的 Token&gt;"
+      }
+    }
+  }
+}</code></pre></div>
+      <p>配置文件位置：Claude Desktop 在 <code>%APPDATA%\Claude\claude_desktop_config.json</code>，Cursor 在 <code>~/.cursor/mcp.json</code>，Cline 在扩展设置里。装 skill 时把 <code>--agent</code> 换成 <code>claude</code>、<code>cursor</code> 或 <code>cline</code>。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">想用自己的模板文件，不用内置默认</span></summary>
+    <div class="body">
+      <p>不配也能用，不配时引擎回落到内置默认模板。要用自己的副本，写一份配置到 <code>~/.game-interaction-sop/template.json</code>：</p>
+      <div class="code"><pre><code>{
+  "template": { "fileKey": "你的文件 key", "nodeId": "1:14" },
+  "roleBlock": { "componentSetId": "1:2" }
+}</code></pre></div>
+      <p>模板内部结构必须和 <code>packages/skill/references/template-1-14.md</code> 对得上，只换地址不改结构。</p>
+      <p class="small">项目级的模板包怎么编译、怎么登记，见 <a href="03-assets.html">03 项目资产</a>。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">仓库更新了，怎么同步到本地</span></summary>
+    <div class="body">
+      <p>先 <code>git pull</code>，再看这次改了什么：</p>
+      <div class="code"><pre><code>git log --oneline -5</code></pre></div>
+      <ul>
+        <li>改了引擎代码：重新 <code>npm run build</code>，然后重启 MCP 服务进程。</li>
+        <li>改了 skill 文件：重新跑 <code>npm run install-skill -- --agent codemaker --force</code>。</li>
+        <li>两者都改了：两件都做。</li>
+      </ul>
+      <p class="small">只新开一个对话不算重启，必须把 MCP 服务禁用再启用。</p>
+    </div>
+  </details>
+
+  <div class="pager">
+    <a href="index.html">
+      <span class="dir">上一页</span>
+      这是什么
+    </a>
+    <a href="02-focus.html">
+      <span class="dir">下一页</span>
+      02 验收清单
+    </a>
+  </div>
+
+</main>
+
+<footer class="site-foot">
+  <dl>
+    <dt>对应版本</dt><dd>仓库 2.3.3 / skill 2.4.1 / 引擎 0.4.2</dd>
+    <dt>说明书日期</dt><dd>2026-11-04</dd>
+  </dl>
+  <p>说明会滞后于代码。发现对不上时，以仓库里的实现为准。</p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

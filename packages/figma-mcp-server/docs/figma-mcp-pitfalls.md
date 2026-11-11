@@ -490,7 +490,7 @@ figma_execute failed: Cannot connect to Figma Desktop … ws://localhost:9223
 
 ## 来源
 
-本文从 `C:\Users\miaochengming\.codex\skills\_archive\game-interaction-doc.bak\SKILL.md` 抢救并整理。原 SKILL 的"Layout Safety Rules"完整章节、`trigger_undo` 警告章节、Role-tag TEXT 数组规则、Numbered Callouts 与 Default Callout positions 等技术性内容均移入本文，由引擎代码承接。
+本文从 `<用户目录>\.codex\skills\_archive\game-interaction-doc.bak\SKILL.md` 抢救并整理。原 SKILL 的"Layout Safety Rules"完整章节、`trigger_undo` 警告章节、Role-tag TEXT 数组规则、Numbered Callouts 与 Default Callout positions 等技术性内容均移入本文，由引擎代码承接。
 
 ---
 

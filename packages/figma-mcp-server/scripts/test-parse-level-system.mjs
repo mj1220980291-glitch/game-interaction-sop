@@ -2,8 +2,11 @@
 import { readFileSync } from 'node:fs';
 import { parseV2 } from '../dist/v2/parser.js';
 
-const MD_PATH =
-  'H:\\kk8项目文件\\局内交互\\interaction-projects\\玩家等级系统\\02-design\\玩家等级系统_交互文档.md';
+const MD_PATH = process.argv[2];
+if (!MD_PATH) {
+  console.error('usage: node scripts/test-parse-level-system.mjs <markdown path>');
+  process.exit(1);
+}
 
 const md = readFileSync(MD_PATH, 'utf8');
 const result = parseV2(md);

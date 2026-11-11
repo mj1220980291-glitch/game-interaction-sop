@@ -12,10 +12,20 @@
 |---|---|---|---|
 | 1 | 安装片段改 node 绝对路径（脚本 + SETUP） | 无 | **已做**，真机待验（tasks 1.3） |
 | 2 | 两套基线包重编（官方 1.14 补 4 字段 + 蛋仔新建）+ `captureGeometryFromKeys` 透传 | **Figma 真机** | 未做，分享前的硬卡点 |
-| 3 | 已知限制写进文档（左列 HUG / badgeAnchors 手工 / 10s 抖动会自愈）+ `docs/onboarding.md` | 无 | 未做 |
-| 4 | LICENSE + THIRD-PARTY-NOTICE（vendor 里 figma-console-mcp 1.23.0 是 MIT） | 无 | 未做 |
-| 5 | 分享前自查（token / 私有 key / 教程与架构图仍是未提交 WIP） | 无 | 未做 |
+| 3 | 已知限制写进文档（左列 HUG / badgeAnchors 手工 / 10s 抖动会自愈）+ `docs/onboarding.md` | 无 | **已做**（2026-11-11） |
+| 4 | LICENSE + THIRD-PARTY-NOTICE（vendor 里 figma-console-mcp 1.23.0 是 MIT） | 无 | **用户决定跳过**（内部使用，不做） |
+| 5 | 分享前自查（token / 私有 key / 教程与架构图仍是未提交 WIP） | 无 | 5.1 / 5.2 **已做**；5.3（提交 `docs/`）待定 |
 | 6 | 找人按接入文档独立走一遍（真正的验收） | 1–5 | 未做 |
+
+**2026-11-11 / 3 + 5 落地明细**：
+
+- `template-contract.md` 新增「三·六、章节几何：左列只到「标题 + 主图」高」
+- `INSTALL.md` 新增「看起来像 bug、其实是设计」表（左列 HUG / 标号网格 / 10s 抖动）
+- `phase4-figma.md`：`badgeAnchors` 未传时**只补表走同步、不动版面**（两处）；`V2_W_RENDER_RETRIED`
+  的「上限 2 次」更正为 0.4.8 的「3 次、退避 3s / 9s」
+- 新增 `docs/onboarding.md`（四步接入 + 三条限制 + demo 用 `tests/v2/fixtures/buzhong.md` + 卡点分流）
+- 清掉 4 处个人路径；`scripts/test-parse-level-system.mjs` 改 argv 入参；
+  `assets/packs/README.md` 标注 `default.json` 的 key 属公司内库、团队外需自备
 
 **三条已知限制**（写文档时别漏）：左列只到「标题+主图」高，剩余空白是卡片底色（设计如此）；
 `badgeAnchors` 未传时标号走模板网格并告警；偶发 `Unable to establish connection … 10 seconds`

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="安装与首次运行常见报错的定位顺序、错误码含义与修法。">
+<title>常见问题 - 游戏交互文档 SOP 使用说明</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <span class="mark"><a href="index.html">游戏交互文档 SOP</a></span>
+    <span class="crumb">使用说明 / <b>常见问题</b></span>
+    <span class="page-no">04</span>
+  </div>
+</header>
+
+<aside class="sidenav">
+  <ul>
+    <li><a href="index.html">这是什么</a></li>
+    <li><a href="01-quickstart.html">01 最快上手</a></li>
+    <li><a href="02-focus.html">02 验收清单</a></li>
+    <li><a href="03-assets.html">03 项目资产</a></li>
+    <li><a href="04-troubleshoot.html" aria-current="page">04 常见问题</a></li>
+    <li><a href="appendix-markdown.html">附录 写法速查</a></li>
+  </ul>
+</aside>
+
+<main class="wrap">
+
+  <h1>报错先分四类</h1>
+
+  <p class="lede">看到红字先别改 Markdown。大部分报错跟文档内容无关，跟进程、连接、模板有关。先定位在哪一层，能省掉一半折腾。</p>
+
+  <h2 id="first">先判断是哪一类</h2>
+
+  <figure class="diagram">
+    <div class="flow row">
+      <div class="node key">
+        <span class="k">第一看</span>
+        <span class="t">引擎在不在</span>
+        <span class="d">工具列表里有没有 render 和 figma_ 开头的工具</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node">
+        <span class="k">第二看</span>
+        <span class="t">连没连上</span>
+        <span class="d">插件开没开，要写文档的那个文件在不在列表里</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node">
+        <span class="k">第三看</span>
+        <span class="t">模板对不对</span>
+        <span class="d">文件 key、节点 id、模板包有没有</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node">
+        <span class="k">最后看</span>
+        <span class="t">内容合不合规</span>
+        <span class="d">Markdown 结构、角色标记、配图键</span>
+      </div>
+    </div>
+    <figcaption>按顺序查。工具列表是空的，后面三层的检查都是白费。</figcaption>
+  </figure>
+
+  <p>工具列表里没有 <code>render_v2_markdown_to_figma</code>，也没有任何 <code>figma_</code> 开头的工具，说明 MCP 服务根本没起来。这时候让人重开插件没有用。</p>
+  <p>工具都在，调用才报错，才继续往下查。看返回里的 <code>code</code> 字段，不要只看消息文本。</p>
+
+  <h2 id="codes">按现象查</h2>
+
+  <details class="item">
+    <summary><span class="symptom">工具列表里一个 figma 工具都没有</span></summary>
+    <div class="body">
+      <p>这是进程级失败，不是插件、不是模板、也不是 Markdown。两个典型原因：</p>
+      <ul>
+        <li>启动命令写错，进程起不来。常见是 <code>spawn npx ENOENT</code>，Node 不在 PATH 里。</li>
+        <li>端口被别的条目占着。以前单独配过一个 <code>figma-console</code> 服务，它占住了 9223，引擎抢不到。</li>
+      </ul>
+      <p>先把多余的 MCP 条目删掉，只留 <code>figma-interaction-doc-engine</code>，然后禁用再启用这个服务。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">渲染一直失败，也看不到 figma 代理工具</span> <span class="code-tag">V2_BACKEND_UNAVAILABLE</span></summary>
+    <div class="body">
+      <p>少了环境变量 <code>FIGMA_BACKEND=figma-console</code>。缺了它引擎不会拉起子进程。</p>
+      <p>补上这个变量，重启 MCP 服务，然后看工具列表里是不是多出了 <code>figma_</code> 开头的工具。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">明明开着 Figma，却说没有连接的文件</span> <span class="code-tag">V2_BRIDGE_DOWN</span></summary>
+    <div class="body">
+      <p>连接插件没在要写文档的那个文件里运行。打开要写文档的那个文件，启动社区插件，保持窗口开着。</p>
+      <p>插件没装：在 Figma 顶部菜单进 Community，搜索本组上传的连接插件，Run 到当前文件。搜不到就问组里已经装过的人要插件页链接。</p>
+      <p>网页端就能跑，不需要装客户端。启动后调一次 <code>figma_list_open_files</code>，返回里有要写文档的那个文件才算连上。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">文件读不到，或读到的不是你以为的那个</span> <span class="code-tag">V2_TARGET_FILE_UNREACHABLE</span></summary>
+    <div class="body">
+      <p>两种常见情况：要写文档的那个文件没在 Figma 里打开，或者插件开在了另一个文件里。</p>
+      <p>把插件切到要写文档的那个文件。写文档和读设计稿，必须在同一个文件里。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">模板节点对不上，或找不到模板根</span> <span class="code-tag">V2_TEMPLATE_NODE_MISMATCH</span> <span class="code-tag">V2_ROOT_NOT_FOUND</span></summary>
+    <div class="body">
+      <p>要写文档的那个文件里那个 id 不是模板，或者干脆没有这个节点。</p>
+      <ul>
+        <li>核对模板节点 id 是不是 <code>1:14</code>。</li>
+        <li>如果你的文件里模板放在别处，改用文件 key 加节点 id 的方式指定。</li>
+        <li>项目已经编译过模板包的，改用模板包，不用再猜节点 id。</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">模板在另一个文件里，跨不过去</span> <span class="code-tag">V2_TEMPLATE_OTHER_FILE</span> <span class="code-tag">V2_TEMPLATE_FILE_UNREACHABLE</span></summary>
+    <div class="body">
+      <p>Figma 不能跨文件克隆节点。模板文件和要写文档的那个文件不是同一个时，这条必然出现。</p>
+      <p>唯一的可靠解法是改用已发布的模板组件 key。要写文档的那个文件里不需要放模板，引擎按库引用去取。跨文件时不要反过来试文件 key 加节点 id，那条路走不通。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">找不到项目模板包</span> <span class="code-tag">V2_TEMPLATE_PACK_MISSING</span></summary>
+    <div class="body">
+      <p>四个查找位置都没有本项目的模板包。返回里会带一份候选列表，每个位置标明是没有文件、读不出来，还是缺字段。</p>
+      <ul>
+        <li>没有文件：正常。走库引用或同文件模式即可，不要为了消掉这条去手写一份配置。</li>
+        <li>读不出来：删掉那份坏配置，或者按契约重写。</li>
+        <li>缺字段：缺顶部、章节、簇三个 key 里的某一个。补齐，或者改用库引用。</li>
+      </ul>
+      <p class="small">手写模板包不是可接受的临场动作。它需要真实发布过的组件 key，写错只会换来下一条错误。要么用编译工具产出，要么用库引用。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">用了 @职能 标记，渲染时报角色块不可用</span> <span class="code-tag">V2_ROLE_BLOCK_UNAVAILABLE</span> <span class="code-tag">V2_ROLE_BLOCK_SET_NOT_IN_TARGET_FILE</span></summary>
+    <div class="body">
+      <p>Markdown 里有「@职能：」条目，但要写文档的那个文件里没有职能标记组件集，或者组件集不在要写文档的那个文件里。</p>
+      <ul>
+        <li>跨库：改用已发布的变体 key。</li>
+        <li>同文件：确认组件集就在渲染要写文档的那个文件内。</li>
+        <li>这次不需要标角色：把文风里的角色标注改成 <code>never</code>，一条都不写，就不需要这个组件集。</li>
+      </ul>
+      <p>配置缺失时应该在渲染前就告诉你，不要先渲染再报错。没提前说的，回一句「先检查角色块配置」。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">写完 Markdown，进不了下一步</span> <span class="code-tag">V2_SIGNOFF_*</span></summary>
+    <div class="body">
+      <p>澄清没真正完成。四种具体报错：冲突没清零、还有待定问题、四个维度没全绿、声明文件不合法。文件不存在时报 <code>V2_SIGNOFF_FILE_MISSING</code>。</p>
+      <p>回去继续问，不要改声明凑数。校验只认四件事：冲突为空、待定为空、四个维度全为 <code>true</code>、版本号为 1。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">Markdown 被拒，提示输入不合法</span> <span class="code-tag">V2_VALIDATE_INPUT_SCHEMA</span> <span class="code-tag">V2_RENDER_INPUT_SCHEMA</span></summary>
+    <div class="body">
+      <p>结构没过硬校验。按这个顺序自查：</p>
+      <ol>
+        <li>文件头四行是否齐全，顺序对不对。</li>
+        <li>第一个 <code>#</code> 是否只有一个。</li>
+        <li>「设计总览」是否只包含功能背景和核心交互两块。</li>
+        <li>章节序号是否从 01 连续，没有跳号。</li>
+        <li>每个语义簇第一行是否有角色标记。</li>
+      </ol>
+      <p>如果模板包声明不支持簇分组，还要检查有没有四级标题。写了会在建画布前被拒。对应文件是项目里的 <code>.interaction-sop/md-contract.md</code>。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">渲染成功，但有几张图没贴上</span> <span class="code-tag">V2_W_FIGURE_ASSET_MISSING</span></summary>
+    <div class="body">
+      <p>这是提醒，不是失败。Markdown 里声明了配图，但资产表里没有这一项，槽位保留成灰色占位。</p>
+      <p>逐条看提醒里的章节、簇和键，补上来源，或者明确说这次不要这张。用户说过「配图先不贴」的，后续不再提醒。</p>
+    </div>
+  </details>
+
+  <details class="item">
+    <summary><span class="symptom">报错里出现 ws://localhost:923x，数字每重启一次加一</span></summary>
+    <div class="body">
+      <p>端口漂移，不是插件问题。旧引擎进程没退，僵尸进程占满了 9223 到 9232。</p>
+      <p>新版引擎会自己抢回 9223 并重拉子进程。仍失败时返回 <code>E_BRIDGE_PORT_CONFLICT</code>，详情里有端口和各进程号，照着清理即可。处理办法写在 <code>packages/figma-mcp-server/docs/INSTALL.md</code> 的重启段落里。</p>
+      <p>不要反复重开插件，那样只会多占一个端口。</p>
+    </div>
+  </details>
+
+  <h2 id="silent">不报错但会卡住的三件事</h2>
+
+  <figure class="diagram">
+    <div class="flow row">
+      <div class="node">
+        <span class="k">改完代码</span>
+        <span class="t">没重启服务</span>
+        <span class="d">编译过了，跑的仍是旧进程</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node">
+        <span class="k">更新了 skill</span>
+        <span class="t">忘了加 --force</span>
+        <span class="d">目录里还是上一版内容</span>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node">
+        <span class="k">开了两个窗口</span>
+        <span class="t">插件连错文件</span>
+        <span class="d">文档写进了另一个文件</span>
+      </div>
+    </div>
+    <figcaption>三个都不报错，表现都是「怎么没反应」。检查顺序从上到下。</figcaption>
+  </figure>
+
+  <ul>
+    <li>编译完必须重启 MCP 服务进程。只新开一个对话不够。CodeMaker 里是扳手图标，MCP Servers，禁用再启用。</li>
+    <li>更新 skill 要加 <code>--force</code>，否则不会覆盖旧文件。命令是 <code>npm run install-skill -- --agent codemaker --force</code>。</li>
+    <li>同时开着两个 Figma 窗口时，确认插件开在你想要的那个文件里。判断方法：让 AI 列一次打开的文件，看列表里是哪个。</li>
+  </ul>
+
+  <h2 id="more">没收录在这里的错误</h2>
+
+  <p>这份清单只收了安装和第一次运行最常撞的。其余错误码在两处：</p>
+  <ul>
+    <li><code>packages/figma-mcp-server/docs/figma-mcp-pitfalls.md</code>，按坑分类，带引擎的防护说明。</li>
+    <li><code>packages/skill/references/anti-patterns.md</code>，八条实战反模式，每条带自检问题。</li>
+  </ul>
+
+  <div class="note">
+    <span class="label">从老版本升级过来的人注意</span>
+    <p>以前给 Figma 单独配过一个 <code>figma-console</code> MCP 服务的，现在要删掉，只保留 <code>figma-interaction-doc-engine</code>。两个都留着会抢端口，表现为随机连不上。</p>
+  </div>
+
+  <div class="pager">
+    <a href="03-assets.html">
+      <span class="dir">上一页</span>
+      03 项目资产怎么管
+    </a>
+    <a href="appendix-markdown.html">
+      <span class="dir">下一页</span>
+      附录 写法速查
+    </a>
+  </div>
+
+</main>
+
+<footer class="site-foot">
+  <dl>
+    <dt>对应版本</dt><dd>仓库 2.3.3 / skill 2.4.1 / 引擎 0.4.2</dd>
+    <dt>说明书日期</dt><dd>2026-11-04</dd>
+  </dl>
+  <p>说明会滞后于代码。发现对不上时，以仓库里的实现为准。</p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

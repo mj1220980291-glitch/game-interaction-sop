@@ -78,9 +78,9 @@
 
 ## 9. SKILL 同步与发布
 
-- [x] 9.1 把 `C:\Users\miaochengming\.codex\skills\game-interaction-doc\SKILL.md` 备份为 `legacy/SKILL.v3.md`
+- [x] 9.1 把 `<用户目录>\.codex\skills\game-interaction-doc\SKILL.md` 备份为 `legacy/SKILL.v3.md`
 - [x] 9.2 重写 v4 SKILL：~80 行，含 DSL 速查、5 个常见错误码、`generate_interaction_doc` 标准 prompt、deprecated 兜底说明
-- [x] 9.3 同步更新 `h:\kk8项目文件\game-interaction-doc-kit\skill\SKILL.md`
+- [x] 9.3 同步更新 `<本地项目目录>\game-interaction-doc-kit\skill\SKILL.md`
 - [x] 9.4 写「MCP 注册指南」`figma-interaction-doc-engine/docs/INSTALL.md`：CodeMaker 配置、figma-console 共启注意事项
 - [x] 9.5 README 回填：定位、快速上手、与 figma-console-mcp 的关系图
 

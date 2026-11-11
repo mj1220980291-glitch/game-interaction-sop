@@ -38,7 +38,7 @@ checkpoint / pipeline / executor 的实现与一代原始设计文档已留档�
 
 ### Removed Capabilities
 
-以下 capability 随一代管道移除。它们的 spec 存在于旧仓库 `H:\kk8项目文件\openspec\changes\build-figma-interaction-doc-engine\specs\`，从未同步进本仓库 `openspec/specs/`，因此本仓库无需删除 spec 文件：
+以下 capability 随一代管道移除。它们的 spec 存在于旧仓库 `<旧仓库>\openspec\changes\build-figma-interaction-doc-engine\specs\`，从未同步进本仓库 `openspec/specs/`，因此本仓库无需删除 spec 文件：
 
 - `interaction-doc-dsl`、`dsl-parser`、`layout-planner`、`figma-executor`、`engine-checkpoint`、`engine-test-harness`
 

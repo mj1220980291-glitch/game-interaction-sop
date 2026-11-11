@@ -194,6 +194,7 @@ Phase 4 只用得到三个工具：
     - 找不到 → 退回网格并报 `V2_W_BADGE_ANCHOR_TEXT_NOT_FOUND`（主图是位图时没有可匹配 TEXT，这种情况必须用坐标）
   - 坐标锚点：`{ "01/2": { "x": 0.28, "y": 0.52, "note": "输入框左侧" } }`，主图归一化 0–1
   - 整表不传 → 全部按网格并报 `V2_W_BADGE_ANCHOR_DEFAULTED`（**不再静默**）。看到这条就该补锚点，别当成功交付
+    - 补锚点只有一条路：**往 `badgeAnchors` 填表再跑同步重排**。不要手工拖标号、不要改模板网格、不要调章节尺寸——手拖的坐标下次同步不会被保留，改模板网格还会把模板本身压坏
   - 同步模式的文案是「本次未重排标号」而不是「按网格摆放」：同步只重排变更章节，adopt 模式连重排都跳过，标号保持画布现状
   - **主图换了，坐标就作废**：引擎在每次摆放前重算文本锚点；但如果有人用 `figma_execute` 手工换过主图 / 改过实例，旧坐标锚点不会自己更新——要么改用文本锚点，要么跑一次同步重排标号再截图确认
   - 传了表但某簇没给 → 该簇退回网格并报 `V2_W_BADGE_ANCHOR_MISSING`；坐标越界 → 夹取并报 `V2_W_BADGE_ANCHOR_OUT_OF_RANGE`
@@ -233,7 +234,7 @@ Phase 4 只用得到三个工具：
 - `bubbles` — 逐章气泡清单（`section` / `cluster` / `nodeId`）。`bubbles.length` 必须等于 `summary.bubbleCount`；不等就是引擎漏摆了，按清单点名缺哪几号，**不要**报成功
 - `figureSlots` — 配图槽清单（`path` / `title` / `nodeId`）。用户问"这张图按哪个键"时直接按清单答，不要回头数 `配图：`
 - `warnings` 里出现 `V2_W_BADGE_COUNT_MISMATCH` → 标号数量与簇数不符，按 message 里的缺号重跑同步（只重排标号）
-- `warnings` 里出现 `V2_W_BADGE_ANCHOR_DEFAULTED` → 本次没给锚点，标号是模板网格位置。**在报告里明说"标号是示意位"**，并给出补锚点的下一步
+- `warnings` 里出现 `V2_W_BADGE_ANCHOR_DEFAULTED` → 本次没给锚点，标号是模板网格位置。**在报告里明说"标号是示意位"**，并给出补锚点的下一步（补 `badgeAnchors` 表 → 同步重排）；**不要动版面**
 
 `figure_opt_out` 为真时跳过本节：配图类软告警（`V2_W_FIGURE_ASSET_MISSING` / `V2_W_FIGURE_FILL_FAILED`）一律不提，只在审计位置写一句「按你要求本次不配图」。否则按下面逐条说明：
 
@@ -242,7 +243,7 @@ Phase 4 只用得到三个工具：
 - `V2_W_FIGURE_FILL_FAILED` — 某张配图没贴上（message 带键名和 nodeId，常见原因：源节点不在目标文件 / 被删 / 导出失败）。该占位保留了描述文案，告诉用户是哪张、为什么，问要不要修好 `asset_map` 后用同步模式（带 `rootId`，`assetMap` 只写这一张）补上
 - `V2_W_FIGURE_ASSET_MISSING` — md 写了 `配图：` 但 `assetMap` 没有对应键，图位留灰板。问用户：补图，还是删掉这条 `配图：`
 - `V2_W_ASSET_KEY_UNMATCHED` — `asset_map` 里某个键在文档里找不到对应章节/配图，多半是编键时数错了 C 或 K。回 `phase3-asset.md` 核对编键
-- `V2_W_RENDER_RETRIED` — 首轮撞上瞬时连接错误，引擎**整轮重试后成功**（上限 2 次）。产物完整，**无需人工干预、不要因此重跑**，只需在报告里说明「已自动重试成功」；只有重试也失败才会 `ok:false`
+- `V2_W_RENDER_RETRIED` — 首轮撞上瞬时连接错误，引擎**整轮重试后成功**（0.4.8 起上限 3 次，退避 3s / 9s）。产物完整，**无需人工干预、不要因此重跑**，只需在报告里说明「已自动重试成功」；只有重试也失败才会 `ok:false`
 - `V2_W_SCREENSHOT_FAILED` — 渲染成功但附带截图失败（长渲染后插件连接抖一下，0.4.6 起截图自带 3 次重试）。**画布内容是好的**，让用户手动看一眼即可，不要重渲染
 - `V2_W_PACK_GEOMETRY_DEFAULTED` — 模板包缺观感字段（`docBackground` / `sectionShell`），本次走默认白底 / 无外框。**不是错误**：先确认用户是不是换机器后重造了包（缺 geometry），再决定补包
 - `V2_W_TEXT_CONTRAST_LOW` — 正文与最近实心背景对比度低于阈值（默认 3.0）。按顺序查：① 包有没有 geometry；② 模板本身是不是低对比设计。**若出现这条，先别交付，让用户确认可读性**

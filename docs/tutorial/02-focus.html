@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="交互文档交付前的验收清单：内容、配图、Figma 成品三组，逐项勾完即可交付。">
+<title>验收清单 - 游戏交互文档 SOP 使用说明</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <span class="mark"><a href="index.html">游戏交互文档 SOP</a></span>
+    <span class="crumb">使用说明 / <b>验收清单</b></span>
+    <span class="page-no">02</span>
+  </div>
+</header>
+
+<aside class="sidenav">
+  <ul>
+    <li><a href="index.html">这是什么</a></li>
+    <li><a href="01-quickstart.html">01 最快上手</a></li>
+    <li><a href="02-focus.html" aria-current="page">02 验收清单</a></li>
+    <li><a href="03-assets.html">03 项目资产</a></li>
+    <li><a href="04-troubleshoot.html">04 常见问题</a></li>
+    <li><a href="appendix-markdown.html">附录 写法速查</a></li>
+  </ul>
+</aside>
+
+<main class="wrap">
+
+  <h1>交付前，照这张清单勾一遍</h1>
+
+  <p class="lede">不用记流程。文档写完、写进 Figma 之后，从下面三组里逐项勾。全勾上就是能交的文档，勾不上的地方就是还要改的地方。</p>
+
+  <h2>先确认走的是哪条路</h2>
+
+  <figure class="diagram">
+    <div class="flow three">
+      <div class="node key">
+        <span class="k">最常见</span>
+        <span class="t">有设计稿</span>
+        <span class="d">以图提问，验收时对着图看。</span>
+      </div>
+      <div class="node">
+        <span class="k">次常见</span>
+        <span class="t">只有策划文档</span>
+        <span class="d">验收时以文字结论为准，图只做示意。</span>
+      </div>
+      <div class="node">
+        <span class="k">改已有文档</span>
+        <span class="t">走同步</span>
+        <span class="d">改完 Markdown 要再跑一次同步，Figma 不会自己变。</span>
+      </div>
+    </div>
+    <figcaption>三种情况用的是同一张清单，区别只在于「对照什么」。</figcaption>
+  </figure>
+
+  <h2>一、内容与结构</h2>
+
+  <div class="checklist">
+    <div class="row head">
+      <span></span><span>勾什么</span><span>怎么判断</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">文件头四行齐全</span>
+      <span class="how">跟进UI、需求组、易协作链接、最后更新时间，<b>顺序没变</b></span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">设计总览只有一个</span>
+      <span class="how">里面只有功能背景和核心交互两块，没有第三个小标题</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">章节编号连续</span>
+      <span class="how">01、02、03 不跳号，名字里带界面关键词</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">每个簇第一行有角色标记</span>
+      <span class="how">角色和实际负责的职能对得上，不是全写成一个</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">每条规则都能在图上找到落点</span>
+      <span class="how">指着这条规则，能在设计稿上指出对应的控件或状态</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">状态行没有被打断</span>
+      <span class="how">同一控件连续写状态，中间没夹进普通规则</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">反馈写了</span>
+      <span class="how">提示、音效、特效，实际会有的那几个都在</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">边界写了</span>
+      <span class="how">满了、冷却中、断线、重复点击，至少覆盖这次会遇到的</span>
+    </div>
+  </div>
+
+  <h2>二、配图</h2>
+
+  <div class="checklist">
+    <div class="row head">
+      <span></span><span>勾什么</span><span>怎么判断</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">每条配图都能对上来源</span>
+      <span class="how">清单里每行都有节点或截图，写「保留占位」的也算对上了</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">图里没有画外内容</span>
+      <span class="how">截的区域只包含这条规则要说明的东西，没带进别的界面</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">主图是真实实例或清晰设计稿</span>
+      <span class="how">不是低分辨率截图，放大后文字还清楚</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">没图的簇写明了理由</span>
+      <span class="how">写的是「配图：无（理由：…）」，不是空着</span>
+    </div>
+  </div>
+
+  <h2>三、Figma 成品</h2>
+
+  <div class="checklist">
+    <div class="row head">
+      <span></span><span>勾什么</span><span>怎么判断</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">文档没压在设计稿上</span>
+      <span class="how">先看位置和图层顺序，再看内容</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">每个簇都有说明块</span>
+      <span class="how">没有哪个簇只有气泡、没有文字说明</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">标号指向正确控件</span>
+      <span class="how">逐个看图上的数字，对不上就调锚点，别改文字</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">没有多余空图框</span>
+      <span class="how">画布上没有剩下的小灰框</span>
+    </div>
+    <div class="row">
+      <span class="box" aria-hidden="true"></span>
+      <span class="q">缺图提醒处理完了</span>
+      <span class="how">每条要么补图，要么明确说这次不要</span>
+    </div>
+  </div>
+
+  <div class="note">
+    <span class="label">三处最容易漏</span>
+    <ul>
+      <li>标号位置：默认按网格摆，会排成一条斜线，要逐章给锚点。</li>
+      <li>状态行：写状态时容易顺手插一条普通规则进去，整段识别会乱。</li>
+      <li>同步：改完 Markdown 再跑一次同步，Figma 里那份不会自动更新。</li>
+    </ul>
+  </div>
+
+  <div class="pager">
+    <a href="01-quickstart.html">
+      <span class="dir">上一页</span>
+      01 最快上手
+    </a>
+    <a href="03-assets.html">
+      <span class="dir">下一页</span>
+      03 项目资产
+    </a>
+  </div>
+
+</main>
+
+<footer class="site-foot">
+  <dl>
+    <dt>对应版本</dt><dd>仓库 2.3.3 / skill 2.4.1 / 引擎 0.4.2</dd>
+    <dt>说明书日期</dt><dd>2026-11-04</dd>
+  </dl>
+  <p>说明会滞后于代码。发现对不上时，以仓库里的实现为准。</p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

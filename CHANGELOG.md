@@ -100,6 +100,34 @@ structure:
 - 单文件离线打开，支持全屏展示、高清图片导出与展开讲解备注；配套 `leadership-preview.png`、`leadership-4k.png` 可用于汇报。
 - 本次仅新增介绍材料，不改变引擎、skill 或版本契约。
 
+## 未发布（文档 / 自查）— 2026-11-11
+
+**分享前把三条已知限制从「口头知道」变成「文档里能查到」，并清掉个人路径。** 无代码行为改动。
+
+### 1. 已知限制写进三个落点
+
+| 现象 | 写在哪 |
+|---|---|
+| 左列只到「标题 + 主图」高，下方空白是卡片底色 | `template-contract.md` 新增「三·六、章节几何」；`INSTALL.md` 新增「看起来像 bug、其实是设计」表 |
+| 标号走模板网格（未传 `badgeAnchors`） | `phase4-figma.md` 两处补口径：**只补表走同步重排，不要手拖标号 / 改模板网格 / 调章节尺寸** |
+| 偶发 `Unable to establish connection … 10 seconds` | `INSTALL.md` 同表（渲染 3 次 / 退避 3s·9s，同步仍 2 次 / 5s）；`phase4-figma.md` 的 `V2_W_RENDER_RETRIED` 由「上限 2 次」更正为「0.4.8 起 3 次、退避 3s / 9s」 |
+
+### 2. 新增 `docs/onboarding.md`
+
+一页接入：装编译 → 配 MCP（只配一个）→ 起插件 → 渲染 demo（用
+`tests/v2/fixtures/buzhong.md`），四步各带验证点；附三条已知限制、模板包选用
+（`audit_template_pack`）、卡点分流表。
+
+### 3. 分享前自查
+
+- 清掉 4 处个人路径（`C:\Users\…` / `H:\kk8…`）→ `<用户目录>` / `<旧仓库>`
+- `scripts/test-parse-level-system.mjs` 的硬编码 md 路径改成 argv 入参
+- `assets/packs/README.md` + `docs/onboarding.md` 标注：`default.json` 的 key 属公司内
+  「官方 1.14」库，团队外需自备模板包
+- 全仓无 `figd_` token、无 `.env` / `mcps.json` 实例
+
+---
+
 ## 未发布（工具链 / 文档）— 2026-11-11
 
 **准备对外分享：安装片段改 node 绝对路径。** `scripts/install-mcp.mjs` 原先输出

@@ -8,6 +8,10 @@ Figma interaction document — end-to-end in a single conversation.
 
 > **首次配置？请把 [SETUP.md](./SETUP.md) 交给你的 AI Agent，让它引导你完成安装。**
 
+> **第一次用？先看图文说明书：[docs/tutorial/index.html](./docs/tutorial/index.html)** — 这是什么、怎么装通、哪里容易出错。
+
+> **新团队接入：[docs/onboarding.md](./docs/onboarding.md)** — 30 分钟四步走通，附三条已知限制与卡点分流。
+
 > **v2（SOP 2.0 / 引擎 0.2）能力汇总：[V2.md](./V2.md)** — 库引用模式、真实实例主图、`- @职能：` 条目、文风 mod 与学习回写。变更记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---

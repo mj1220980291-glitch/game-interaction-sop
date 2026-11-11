@@ -21,6 +21,10 @@
 | `default.json` | 官方 1.14，可用；缺 `placeholder` / `bubbleGrid` / `docPadding` / `footerGap`（原值未留档，靠引擎默认值） |
 | `蛋仔派对.json` | **未提供**，需从蛋仔组件库重编后补入 |
 
+> **对外分享注意**：`default.json` 里的 `components.*` 是**公司内「官方 1.14」组件库**的发布 key，
+> 团队外无法 import。外部团队必须按下面的流程编自己模板的包；只想看流程时可用
+> `$GISOP_BUNDLED_PACKS=off` 关掉基线包，避免误以为是自己的模板。
+
 ## 怎么产出（不要手写）
 
 ```

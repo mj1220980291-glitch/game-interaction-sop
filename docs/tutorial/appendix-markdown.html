@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="v2 Markdown 的硬校验、bullet 粒度、配图与角色标记写法速查。">
+<title>写法速查 - 游戏交互文档 SOP 使用说明</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <span class="mark"><a href="index.html">游戏交互文档 SOP</a></span>
+    <span class="crumb">使用说明 / <b>写法速查</b></span>
+    <span class="page-no">附录</span>
+  </div>
+</header>
+
+<aside class="sidenav">
+  <ul>
+    <li><a href="index.html">这是什么</a></li>
+    <li><a href="01-quickstart.html">01 最快上手</a></li>
+    <li><a href="02-focus.html">02 验收清单</a></li>
+    <li><a href="03-assets.html">03 项目资产</a></li>
+    <li><a href="04-troubleshoot.html">04 常见问题</a></li>
+    <li><a href="appendix-markdown.html" aria-current="page">附录 写法速查</a></li>
+  </ul>
+</aside>
+
+<main class="wrap">
+
+  <h1>写法速查</h1>
+
+  <p class="lede">平时不用看这一页。要手改文档，或者想看懂 AI 写出来的东西时再翻。这份格式不是普通 Markdown，引擎按结构解析，错一处就整份拒绝。</p>
+
+  <h2 id="template">最小可用示例</h2>
+
+  <p>这是能通过校验的最小结构。复制改内容即可，不要删掉其中的固定部分。</p>
+
+  <div class="code"><pre><code># 局内快捷栏
+
+跟进UI：姓名
+需求组：组名
+易协作链接：链接或 #待补充
+最后更新时间：2026.11.04
+
+## 设计总览
+
+### 功能背景
+
+一段说明：这个功能解决什么问题，玩家在哪里看到它。
+
+### 核心交互
+
+一段说明：核心交互结论和关键规则总结。
+
+## 01. 快捷栏面板
+
+### 使用规则
+@GUI @程序
+
+- 点击快捷栏道具即使用，长按展开详情，冷却中显示环形遮罩与剩余秒数
+- 配图：快捷栏常规态与冷却态
+- 背包已满时按钮禁用，点击弹出提示
+- @策划：容量上限按等级解锁，1 至 3 级各加一格
+
+## 02. 丢弃确认弹窗
+
+### 确认流程
+@GUI
+
+- 拖出快捷栏后弹出确认弹窗，确认才丢弃，取消则回原位
+- 配图：无（理由：与主图重叠，无独立视觉对象）</code></pre></div>
+
+  <p>注意三个固定点：文件头四行、设计总览里的两块小标题、每个语义簇第一行的角色标记。这三样缺一样就进不了渲染。</p>
+
+  <figure class="diagram">
+    <div class="flow stack">
+      <div class="node">
+        <span class="k">整份文件，只有一份</span>
+        <span class="t">文件头四行</span>
+        <span class="d">跟进UI、需求组、易协作链接、最后更新时间。顺序不能换。</span>
+      </div>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <div class="node">
+        <span class="k">整份文件，只有一份</span>
+        <span class="t">设计总览</span>
+        <span class="d">里面只放功能背景和核心交互两块，不许多也不许少。</span>
+      </div>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <div class="node">
+        <span class="k">可以有多个，编号连续</span>
+        <span class="t">界面章节</span>
+        <span class="d">从 01 起两位补零，名字要含界面关键词。</span>
+      </div>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <div class="node key">
+        <span class="k">每章至少一个</span>
+        <span class="t">语义簇</span>
+        <span class="d">第一行是角色标记，然后才是规则。</span>
+      </div>
+      <div class="arrow" aria-hidden="true">↓</div>
+      <div class="node">
+        <span class="k">每条规则</span>
+        <span class="t">bullet 加配图</span>
+        <span class="d">配图紧跟在它说明的那条规则下面，位置就是含义。</span>
+      </div>
+    </div>
+    <figcaption>从上往下是包含关系。出错时按层往回找，比逐行读快。</figcaption>
+  </figure>
+
+  <h2 id="hard">硬校验</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>规则</th><th>要求</th><th>违反的后果</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>文件头</td><td>跟进UI、需求组、易协作链接、最后更新时间，四行齐全，顺序固定</td><td>拒绝渲染</td></tr>
+        <tr><td>一级标题</td><td>第一行是需求名，整份只有一个</td><td>拒绝渲染</td></tr>
+        <tr><td>设计总览</td><td>存在且唯一，内部正好是功能背景加核心交互</td><td>拒绝渲染</td></tr>
+        <tr><td>章节序号</td><td>从 01 起，两位补零，连续不跳号</td><td>拒绝渲染</td></tr>
+        <tr><td>章节命名</td><td>含界面关键词，或命中白名单</td><td>拒绝渲染</td></tr>
+        <tr><td>簇的数量</td><td>每个章节至少一个语义簇</td><td>拒绝渲染</td></tr>
+        <tr><td>角色标记</td><td>除设计总览外，每个簇第一行是角色，至少一个</td><td>拒绝渲染</td></tr>
+        <tr><td>子分类标题</td><td>四级标题只能出现在簇内部，长度不超过 24 显示宽度，同簇不重名</td><td>拒绝渲染</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>界面关键词是这些：界面、面板、页、窗、卡、弹窗、弹层、区、条、栏、区域、版、入口、反馈、场景。除此之外，全局、规范、组件、汇总、流程、结算也算合格的名字。</p>
+
+  <h2 id="bullet">一条 bullet 写一件事</h2>
+
+  <p>一条 bullet 是一个完整行为，同一个控件的常规规则可以串在一句里。需要强调或有风险的点单独成条。</p>
+
+  <div class="compare">
+    <div class="bad">
+      <div class="head">拆得太碎，读者要自己拼</div>
+      <pre>- W/A/S/D 四键移动角色
+- 按住 Shift 加速跑
+- 按空格跳
+- 滑动鼠标转动镜头视角</pre>
+    </div>
+    <div class="good">
+      <div class="head">一句说完，动作之间的关系清楚</div>
+      <pre>- W/A/S/D 四键移动角色，按住 Shift 加速跑，按空格跳，滑动鼠标转动镜头视角
+- 按住左键锁定朝向，按住期间移动不改变角色朝向</pre>
+    </div>
+  </div>
+
+  <h2 id="figure">配图怎么写</h2>
+
+  <ul>
+    <li>「配图：」写在它所说明的那条规则下面，位置就是含义。</li>
+    <li>一个簇可以有多张。状态类的内容，一态一张。</li>
+    <li>没有视觉对象时，写「配图：无」并给理由。不给理由，事后没人知道是真没有还是忘了。</li>
+    <li>主图已经覆盖的，写「配图：本界面主图，区域描述」，不要重复贴整张。</li>
+  </ul>
+
+  <p>写完之后，这些条目会被映射成配图键，键的写法是章节号、簇序号、再加描述原文。描述改了，键就跟着变，所以渲染后看到未匹配的提醒，先回去看描述有没有被动过。</p>
+
+  <h2 id="role">角色怎么写</h2>
+
+  <p>两处会用到角色，含义不一样，别混。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>写法</th><th>位置</th><th>作用</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>@GUI @程序</code></td>
+          <td>语义簇第一行，空格分隔</td>
+          <td>标出这一簇主要涉及谁。必须有，至少一个。</td>
+        </tr>
+        <tr>
+          <td><code>- @策划：内容</code></td>
+          <td>簇内任意一行 bullet</td>
+          <td>标出某一条规则专属谁。渲染成图上的职能标记，比正文更醒目。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>簇首的角色要从固定名单里选，名单见 <code>packages/skill/references/role-tags.md</code>。写得随意不会中断渲染，但会收到一条提醒。</p>
+  <p>簇内的职能条目需要要写文档的那个文件里存在职能标记组件集。没有又非要写，渲染会报角色块不可用。这次不需要，就在文风里把角色标注设成 <code>never</code>，一条都不写。</p>
+
+  <h2 id="naming">命名要避开什么</h2>
+
+  <p>簇名和子分类名不要用这些死分类词，它们会把多个功能的同类规则拍平到一起：显示规则、操作规则、反馈表现、异常与边界、功能定位、配图说明、注意事项、待确认。</p>
+  <p>也不要用「时机、规则、层级、限制、边界、兼容、表现」这类后缀收尾，读起来像规则属性而不是界面上的东西。</p>
+
+  <div class="compare">
+    <div class="bad">
+      <div class="head">死分类</div>
+      <pre>### 显示规则
+### 操作规则
+### 异常与边界</pre>
+    </div>
+    <div class="good">
+      <div class="head">界面上的东西</div>
+      <pre>### 拾取提示
+### 快捷栏槽位
+### 背包已满
+### 冷却表现</pre>
+    </div>
+  </div>
+
+  <h2 id="real">一段真实文档</h2>
+
+  <p>节选自 <code>samples/蛋仔派对-局内道具拾取.md</code>，看行文密度和配图位置：</p>
+
+  <div class="code"><pre><code>### 拾取反馈
+
+- 点击拾取按钮后，道具沿抛物线飞入快捷栏对应格子 @动效
+- 背包已满时拾取按钮变为禁用态，点击弹出「背包已满」提示 @GUI
+- 配图：靠近提示与拾取反馈对比</code></pre></div>
+
+  <p>三条规则，一条配图，配图紧跟在它要说明的两条后面。角色写在行尾也能被识别，但推荐放在簇首第一行，更稳。</p>
+
+  <div class="note warn">
+    <span class="label">这份样例不能直接当模板用</span>
+    <p>它是一份简化稿，缺设计总览，也没有簇首的角色行。按现在的要求会被硬校验拦下。要复制结构，用本页开头的那个最小示例。</p>
+  </div>
+
+  <h2>写之前看一眼 md-contract</h2>
+
+  <p>项目里如果有 <code>.interaction-sop/md-contract.md</code>，先读它。它写明这个项目的模板支持哪些结构。不支持簇分组时，上面示例里的四级标题一个都不能写。</p>
+  <p class="small">这份文件由模板包推导，没变过就不用重生成。具体见 <a href="03-assets.html#contract">03 项目资产怎么管</a>。</p>
+
+  <div class="pager">
+    <a href="04-troubleshoot.html">
+      <span class="dir">上一页</span>
+      04 常见问题
+    </a>
+    <a href="index.html">
+      <span class="dir">回到</span>
+      这是什么
+    </a>
+  </div>
+
+</main>
+
+<footer class="site-foot">
+  <dl>
+    <dt>对应版本</dt><dd>仓库 2.3.3 / skill 2.4.1 / 引擎 0.4.2</dd>
+    <dt>说明书日期</dt><dd>2026-11-04</dd>
+  </dl>
+  <p>说明会滞后于代码。发现对不上时，以仓库里的实现为准。</p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>
