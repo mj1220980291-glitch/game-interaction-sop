@@ -4,8 +4,8 @@
 
 **状态**：引擎 `0.4.10`、skill `2.5.1`。
 
-本轮把「模板里画在部件之外、以前没人记录」的东西补齐，change 见
-`openspec/changes/pack-doc-geometry-and-roleblock/`：
+本轮把「模板里画在部件之外、以前没人记录」的东西补齐；change 已归档到
+`openspec/changes/archive/2026-11-12-pack-doc-geometry-and-roleblock/`：
 
 | 项 | 之前 | 现在 |
 |---|---|---|

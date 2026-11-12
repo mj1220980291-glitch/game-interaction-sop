@@ -7,7 +7,7 @@
 ## 2. 两套基线包（P0，依赖 Figma）
 
 - [x] 2.1 `captureGeometryFromKeys` 透传 `sectionSourceId` / `sourceRootId` / `badgeSourceId`；缺原稿 id 时写 `gaps`（2026-11-11，引擎 0.4.9）
-- [ ] 2.2 官方 1.14 重编：`compile → 发布 → verify → audit_template_pack(deep)` → 覆盖 `assets/packs/default.json`，补齐 `placeholder` / `bubbleGrid` / `docPadding` / `footerGap`（`_staging` 里已有「官方1.14 模板」，可量 placeholder + bubbleGrid；docPadding / footerGap 仍需重编）
+- [x] 2.2 官方 1.14 的 4 个缺值 —— **决策变更（2026-11-11）**：逐层比对后确认 1.14 原稿的 `docPadding` / `rootGap` / `footerGap` 本来就是 0；`placeholder` / `bubbleGrid` 明确不采（占位灰用默认值；标号位置属每篇文档的 `badgeAnchors`）。理由与采集口径落在 `pack-doc-geometry-and-roleblock`（已归档）与 `template-contract.md`
 - [x] 2.3 蛋仔派对重编：**不需要重编**——库内组件仍在，按 key 直接生成 `assets/packs/蛋仔派对.json`（`110:74/86/114/119`），README 状态表已更新
 - [x] 2.4 两套包 `audit_template_pack` findings 为空（或仅可接受项），`deep:true` 全 ok——蛋仔 4/4 key ok，仅 `sectionShell` 缺（蛋仔黑边在文档根，属预期）
 - [x] 2.5 单测：`deep` 缺 key 时不崩、`gaps` 里有「缺原稿章节 id」的话术
