@@ -61,6 +61,9 @@
     根因：拿到的是**填好的正式稿**（含「审核情况组件」「↓↓↓下文内容由拍照活动需求制作」等真实内容），
     不是可复用母版；探针把隐藏的 `活动1` 当章节母版、把评论单元格 `cell_comment` 当簇母版。
     → 需要对方提供**空白模板/母版文件**，或确认这两处可作为母版
-- [ ] 8.3 `figma_compile_template(phase=compile)` 干跑 → 真跑（只读对方文件，部件落我们的 `_staging`）
+- [ ] 8.3 **抽模板（本轮新增的关键缺口）**：外部团队的起点是「填好的交互稿」，不是干净模板。
+  需要 `正式稿 → 抽出 chapter/cluster/top/footer 样板 → compile(staged)` 这条链。
+  两条候选：**A** 人工指定一章一簇 + 干跑 `compile` 体检；**B** 新增只读工具
+  `suggest_template_sources` 给建议 id + 每簇体检明细。建议先 A 验证可行性再决定 B
 - [ ] 8.4 人工在 Figma 发布库 → `phase=verify` 回填 key / 几何 / 文档级留白
 - [ ] 8.5 `audit_template_pack(deep)` + 沙盒渲染一份样例；落 `assets/packs/<项目>.json`

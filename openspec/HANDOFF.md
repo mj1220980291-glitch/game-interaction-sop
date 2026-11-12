@@ -1,34 +1,100 @@
 # 交接说明（2026-11-03）
 
-## 换对话先读（2026-11-12 下午：新用户沙盒 + 0.4.11）
+## 换对话先读（2026-11-12 15:20 交接：目标是「能推广给别的设计团队」）
 
-**状态**：引擎 `0.4.11`、skill `2.5.1`。两个 change：`add-newuser-sandbox`（已归档到
-`archive/2026-11-12-add-newuser-sandbox`）、`sop-sharing-readiness`（分享前清单）。
+### 一句话状态
 
-**沙盒怎么用**（详见 `docs/pilot/README.md`）：
+引擎 `0.4.11` / skill `2.5.1`。**工具装得上、渲染对、可重复验证都已证明**；
+现在卡在最后一环：**外部团队的模板是从「填好的交互稿」里抽出来的，而引擎没有「抽模板」这一步**。
+
+### 本次目标（别跑偏）
+
+让这套工具有资格推广到其他设计团队。三份证据缺一不可：
+
+| 证据 | 状态 |
+|---|---|
+| 别人装得上、装完能渲染 | ✅ 蛋仔/1.14 真机 + 新用户沙盒 8/8 通过 |
+| 改动不会悄悄破坏上面这条 | ✅ `npm run sandbox:newuser` 可重复跑，报告可 diff |
+| 别人**自己的模板**能接进来 | ❌ 卡住：需要「正式稿 → 模板」的抽取能力 |
+
+写文档、补数值都只是手段；判断任何工作该不该做，先问它服务哪条证据。
+
+### 当前卡点与下一步（从这里继续）
+
+借来的「燕云模板」已经贴在我们库 `_staging` 页：`燕云模板` `173:15842`（5400×25743）。
+
+只读探针结论 `non-conformant`，但**不是他们模板不行，是拿错了对象**：
+
+- 那是一篇**填好的正式稿**（`审核情况组件`、`↓↓↓下文内容由拍照活动需求制作`、`活动页修改内容`…）
+- 探针只能硬猜母版：章节猜成隐藏的 `活动1` `173:16021`，簇猜成评论单元格 `cell_comment` `173:15954`
+- F4 不过（编号 7/9）；节点 4w+，探针截断在 1w，8 项能力全是 `inferred`
+
+**结论：正确流程是「正式稿 → 抽出章节/簇样板 → 编译部件 → verify」，探针应该跑在抽取结果上，不是跑在正式稿上。**
+`compile` 已经能吃 `staged:{chapter, cluster, top, footer}`，缺的是「抽取前的体检 + 给出建议 id」。
+
+两条路，**已建议先走 A 验证再决定是否做 B**：
+
+- **A（快）**：人在 Figma 里选中「一个典型章节 + 一个典型簇」，我用这两个 nodeId 干跑 `compile`，
+  看哪些槽位认得出、哪些簇缺编号。跑到问题再设计工具，避免方向错。
+- **B（半天）**：新增只读工具 `suggest_template_sources({nodeId})`，输出建议母版 + 每簇体检明细
+  （有编号/标题/内容行吗 + 为什么推荐），`compile` 直接吃这份建议。
+
+继续时要做的第一件事：让用户在 Figma 里选中一章一簇（或先做 A 的干跑），然后
+`npm run figma -- sel <fileKey>` 读选区。
+
+### 库存资产（直接能用，别重造）
 
 ```bat
-npm run sandbox:newuser                :: 8 步，约 15 秒（依赖已缓存时）
-npm run sandbox:newuser -- --keep      :: 复用代码副本，用户目录仍重置
+:: 新用户沙盒（8 步，可重复；报告落 docs/pilot/reports/）
+npm run sandbox:newuser
+npm run sandbox:newuser -- --keep            :: 复用代码副本，HOME/TEMP 仍重置
 npm run sandbox:newuser -- --path-mode no-node
+
+:: 临时调 Figma（本会话重写了三次的那个脚本，已固化）
+npm run figma -- status                      :: 已连的文件
+npm run figma -- sel <fileKey>               :: 当前选区
+npm run figma -- exec <file.js> [fileKey]    :: 执行 JS
+npm run figma -- call <tool> <args.json> [fileKey]
 ```
 
-报告落 `docs/pilot/reports/`；改完代码对比每步 `status` / `firstError` 即可判断有没有回归。
+`npm run figma` 前先 `node scripts/cleanup-orphan-mcp.mjs --force`，否则引擎抢不到 9223。
 
-**沙盒一上来就抓出 4 个问题（全部已修）**：
+### 关键事实（省你两小时）
 
-| # | 问题 | 性质 |
-|---|---|---|
-| 1 | `phase=contract` 明明不连 Figma 却要求后端，新用户没连 Figma 时契约重建不可用 | **产品 bug**（0.4.11） |
-| 2 | 引擎子进程没设 `cwd`，沙盒里命中了宿主仓库的 `.interaction-sop/template.json` | 沙盒失真 |
-| 3 | worktree 复制把 gitignore 的本地草稿也带进沙盒 | 沙盒失真 |
-| 4 | Windows 上 `spawn npm.cmd` 抛 `EINVAL`；`--keep` 连用户目录也保留 | 脚本 bug |
+| 事 | 结论 |
+|---|---|
+| 端口的坑 | CodeMaker 里**已禁用**的独立 `figma-console` 条目可能仍在跑，占着 9223 → 引擎退 9224 → 插件连的却是旧的 → 一律 `Cannot connect`。删条目 + `cleanup-orphan-mcp.mjs --force` |
+| 跨文件 import 卡 30s | 在**渲染目标文件**里 `Assets → Libraries` 关开一次「交互SOP模板库」 |
+| `@GUI` 不变彩色 | 只认 `- @GUI：文本` 条目写法；独立一行 `@GUI` 只是普通文字（本次样例就是这种，所以这条链路**没真机验证过**） |
+| 构建/测试 | `npx tsc -p tsconfig.json`；`npx vitest run --no-file-parallelism`（并行会撞 Windows 临时文件锁） |
+| node/npm 不在 PATH | 一律用绝对路径：`C:\Program Files\nodejs\node.exe`、`node <nodeDir>\node_modules\npm\bin\npm-cli.js`（直接 `spawn npm.cmd` 在 Windows 上抛 `EINVAL`） |
+| 版本三处一致 | `package.json` / `src/v2/version.ts` / `packages/skill/manifest.json`（skill 仍 `2.5.1`，引擎 `0.4.11`） |
 
-**当前引导链已修**：README 的「你需要一份主模板副本」是 0.4.4 之前的说法，已重写为
-「仓库自带基线包、零配置可渲染 + 自己模板怎么接入」；`docs/onboarding.md` 新增第 0 步
-「你会拿到什么」与三个坑（9223 被禁用条目占用 / 跨文件 import 要关开库 / `@职能` 写法）。
+### 已完成（本轮，按提交）
 
-**还没做**：真人试点（sharing 6.1）、借用外部团队模板的完整链路（sharing 8.x）。
+| 提交 | 内容 |
+|---|---|
+| `476fc60` | 已知限制落文档（左列 HUG / badgeAnchors / 重试退避）+ 新增 `docs/onboarding.md` + 分享前自查 |
+| `2dcef3d` | 蛋仔基线包随仓库分发（key `110:74/86/114/119`）+ verify 采几何修透传（0.4.9） |
+| `76d61a8` | 蛋仔包补 `docPadding`/`rootGap`/`footerGap`（60/60/200） |
+| `e76f9ef` | 编译期自动采文档级留白 + `roleBlock` 随包分发（0.4.10） |
+| `710686c` | 归档 `pack-doc-geometry-and-roleblock` |
+| `6fc2ed7` | 新用户沙盒 + `contract` 不再要求 Figma 后端（0.4.11） |
+| `95bb15a` | 归档 `add-newuser-sandbox` |
+| `dc4d16c` | 记录燕云首轮探针结论 |
+
+### 未完成清单
+
+- **sharing 8.x**：外部模板接入（当前卡点，见上）
+- **sharing 6.1–6.3**：找真人独立走一遍（唯一还缺的「真人证据」）
+- **sharing 1.3**：在 PATH 无 node 的**另一台机器**上验安装片段（沙盒只验了本机 `no-node` 模式）
+- **sharing 4**：LICENSE / THIRD-PARTY-NOTICE —— 用户明确决定跳过（内部使用）
+- 沙盒 `--with-figma` 模式写了但没真机跑过
+
+### 工作区与远端
+
+干净，`main` 与 `origin/main` 同步；`git push` 一次推 GitHub + 内网 GitLab 两个仓库。
+
 
 
 ## 换对话先读（2026-11-11 晚：模板「包外数据」补齐，引擎 0.4.10）
