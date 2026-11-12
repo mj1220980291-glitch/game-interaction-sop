@@ -56,6 +56,11 @@
 
 - [ ] 8.1 拿到对方模板的 Figma 链接（fileKey + 根节点 id），文件打开、插件连着
 - [ ] 8.2 `figma_probe_template` 只读探针；`non-conformant` 则停下来要求对方改模板
+  - **2026-11-12 首轮（燕云）**：`non-conformant`。F1/F2/F3/F5/F6 通过，**F4 未通过（编号 7/9）**；
+    且探针被截断（上限 4w 节点只扫到 1w，整棵扫描超时），能力全为 `inferred`。
+    根因：拿到的是**填好的正式稿**（含「审核情况组件」「↓↓↓下文内容由拍照活动需求制作」等真实内容），
+    不是可复用母版；探针把隐藏的 `活动1` 当章节母版、把评论单元格 `cell_comment` 当簇母版。
+    → 需要对方提供**空白模板/母版文件**，或确认这两处可作为母版
 - [ ] 8.3 `figma_compile_template(phase=compile)` 干跑 → 真跑（只读对方文件，部件落我们的 `_staging`）
 - [ ] 8.4 人工在 Figma 发布库 → `phase=verify` 回填 key / 几何 / 文档级留白
 - [ ] 8.5 `audit_template_pack(deep)` + 沙盒渲染一份样例；落 `assets/packs/<项目>.json`
