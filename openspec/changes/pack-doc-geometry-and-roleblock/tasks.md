@@ -33,6 +33,6 @@
 ## 6. 两套包回归（P1）
 
 - [x] 6.1 蛋仔三项留白由编译采集，数值与手工值一致（60 / 60 / 200）
-- [ ] 6.2 蛋仔渲染：无 `V2_W_PACK_GEOMETRY_DEFAULTED`；`@GUI` 彩色 —— **待真机**（沙盒跨文件 import 再次超时，需在 Figma 里 Assets→Libraries 关开一次后复跑）
-- [ ] 6.3 1.14 渲染 `ok:true` —— **待真机**（同上）
+- [x] 6.2 蛋仔渲染：`ok:true`、根 `142:6379`、**无 `V2_W_PACK_GEOMETRY_DEFAULTED`**（之前每次必出）
+- [x] 6.3 1.14 渲染：`ok:true`、根 `142:8254`、无观感告警；三项留白为 0 时不误报
 - [x] 6.4 `npx tsc` + `npx vitest run --no-file-parallelism` 全绿；版本 `0.4.9 → 0.4.10`

@@ -44,6 +44,8 @@
 
 - 新增 `compile-doc-spacing.spec.ts`（3）、`role-block-pack.spec.ts`（3），`pack-audit.spec.ts` +1
 - 87 files / 676 tests 通过（`--no-file-parallelism`），`tsc` 通过；版本 `0.4.9 → 0.4.10`
+- 真机复测（2026-11-12）：蛋仔 `ok:true` 根 `142:6379`、1.14 `ok:true` 根 `142:8254`，
+  两者均**不再出现** `V2_W_PACK_GEOMETRY_DEFAULTED`
 
 
 ## 0.4.9（引擎，skill 仍 2.5.1）— 2026-11-11
