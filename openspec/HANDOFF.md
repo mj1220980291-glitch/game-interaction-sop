@@ -2,8 +2,8 @@
 
 ## 换对话先读（2026-11-12 下午：新用户沙盒 + 0.4.11）
 
-**状态**：引擎 `0.4.11`、skill `2.5.1`。两个 change 在跑：
-`add-newuser-sandbox`（可重复的从零验证）、`sop-sharing-readiness`（分享前清单）。
+**状态**：引擎 `0.4.11`、skill `2.5.1`。两个 change：`add-newuser-sandbox`（已归档到
+`archive/2026-11-12-add-newuser-sandbox`）、`sop-sharing-readiness`（分享前清单）。
 
 **沙盒怎么用**（详见 `docs/pilot/README.md`）：
 
