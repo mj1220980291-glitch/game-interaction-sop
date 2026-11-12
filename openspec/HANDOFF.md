@@ -1,5 +1,36 @@
 # 交接说明（2026-11-03）
 
+## 换对话先读（2026-11-12 下午：新用户沙盒 + 0.4.11）
+
+**状态**：引擎 `0.4.11`、skill `2.5.1`。两个 change 在跑：
+`add-newuser-sandbox`（可重复的从零验证）、`sop-sharing-readiness`（分享前清单）。
+
+**沙盒怎么用**（详见 `docs/pilot/README.md`）：
+
+```bat
+npm run sandbox:newuser                :: 8 步，约 15 秒（依赖已缓存时）
+npm run sandbox:newuser -- --keep      :: 复用代码副本，用户目录仍重置
+npm run sandbox:newuser -- --path-mode no-node
+```
+
+报告落 `docs/pilot/reports/`；改完代码对比每步 `status` / `firstError` 即可判断有没有回归。
+
+**沙盒一上来就抓出 4 个问题（全部已修）**：
+
+| # | 问题 | 性质 |
+|---|---|---|
+| 1 | `phase=contract` 明明不连 Figma 却要求后端，新用户没连 Figma 时契约重建不可用 | **产品 bug**（0.4.11） |
+| 2 | 引擎子进程没设 `cwd`，沙盒里命中了宿主仓库的 `.interaction-sop/template.json` | 沙盒失真 |
+| 3 | worktree 复制把 gitignore 的本地草稿也带进沙盒 | 沙盒失真 |
+| 4 | Windows 上 `spawn npm.cmd` 抛 `EINVAL`；`--keep` 连用户目录也保留 | 脚本 bug |
+
+**当前引导链已修**：README 的「你需要一份主模板副本」是 0.4.4 之前的说法，已重写为
+「仓库自带基线包、零配置可渲染 + 自己模板怎么接入」；`docs/onboarding.md` 新增第 0 步
+「你会拿到什么」与三个坑（9223 被禁用条目占用 / 跨文件 import 要关开库 / `@职能` 写法）。
+
+**还没做**：真人试点（sharing 6.1）、借用外部团队模板的完整链路（sharing 8.x）。
+
+
 ## 换对话先读（2026-11-11 晚：模板「包外数据」补齐，引擎 0.4.10）
 
 **状态**：引擎 `0.4.10`、skill `2.5.1`。

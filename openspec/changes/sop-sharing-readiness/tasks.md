@@ -1,3 +1,10 @@
+## 0. 引导链审计（P0，2026-11-12 新增）
+
+- [x] 0.1 README：模板段落重写 —— 仓库自带基线包、零配置可渲染；自己模板走 compile→发布→verify
+- [x] 0.2 README：Quick start 补 `npm run install-mcp` 生成配置片段
+- [x] 0.3 `docs/onboarding.md`：新增第 0 步「你会拿到什么」+ 零配置说明 + 自备/借用模板路径
+- [x] 0.4 `docs/onboarding.md`：补三个坑（禁用条目占 9223 / 跨文件 import 要关开库 / `@职能` 写法）
+
 ## 1. 安装入口（P0，已做）
 
 - [x] 1.1 `scripts/install-mcp.mjs`：`command` 一律输出 `process.execPath`（codemaker 表格 / codex TOML / JSON 片段 / default 提示四处）
@@ -36,9 +43,19 @@
 - [ ] 6.1 找一位没用过本 SOP 的设计同学，按 `docs/onboarding.md` 独立走一遍，中途不提问
 - [ ] 6.2 记录卡点（每条：在哪一步、卡了多久、文档哪句没说清），回写文档
 - [ ] 6.3 试点产物：`ok:true` + 无 `V2_BRIDGE_DOWN` / `CONTRAST_LOW`（正常配置下）
+- [ ] 6.4 **可重复沙盒跑通并留基线报告**（`docs/pilot/reports/`，见 change `add-newuser-sandbox`）
 
 ## 7. 回归
 
 - [ ] 7.1 `npx tsc -p tsconfig.json` + `npx vitest run --no-file-parallelism` 全绿
 - [ ] 7.2 `node scripts/install-mcp.mjs --agent <all five>` 输出检查（脚本化 grep `command`）
 - [ ] 7.3 CHANGELOG + `openspec/HANDOFF.md` 同步
+- [ ] 7.4 **每次改动后重跑 `npm run sandbox:newuser`，与基线报告 diff（status / firstError 必须一致）**
+
+## 8. 借用外部团队模板（P1，2026-11-12 新增）
+
+- [ ] 8.1 拿到对方模板的 Figma 链接（fileKey + 根节点 id），文件打开、插件连着
+- [ ] 8.2 `figma_probe_template` 只读探针；`non-conformant` 则停下来要求对方改模板
+- [ ] 8.3 `figma_compile_template(phase=compile)` 干跑 → 真跑（只读对方文件，部件落我们的 `_staging`）
+- [ ] 8.4 人工在 Figma 发布库 → `phase=verify` 回填 key / 几何 / 文档级留白
+- [ ] 8.5 `audit_template_pack(deep)` + 沙盒渲染一份样例；落 `assets/packs/<项目>.json`

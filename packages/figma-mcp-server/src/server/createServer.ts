@@ -697,14 +697,14 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
     },
     handler: async (args) => {
       try {
-        if (!opts.v2Backend) {
+        const phase =
+          args?.phase === 'verify' ? 'verify' : args?.phase === 'contract' ? 'contract' : 'compile';
+        if (phase !== 'contract' && !opts.v2Backend) {
           return errorResult(
             ServerErrorCodes.V2_BACKEND_UNAVAILABLE,
             'v2Backend 未配置；本工具需要在 createServer({ v2Backend }) 初始化时传入。'
           );
         }
-        const phase =
-          args?.phase === 'verify' ? 'verify' : args?.phase === 'contract' ? 'contract' : 'compile';
         const nodeId = String((args?.source as { nodeId?: string })?.nodeId ?? '').trim();
         const library = args?.library as { fileKey?: string; pageId?: string } | undefined;
         if (phase !== 'contract' && (!nodeId || !library?.fileKey || !library?.pageId)) {
@@ -728,7 +728,7 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
               ? undefined
               : library?.fileKey;
         const bound =
-          targetFileKey && typeof opts.v2Backend.withFileKey === 'function'
+          targetFileKey && opts.v2Backend && typeof opts.v2Backend.withFileKey === 'function'
             ? opts.v2Backend.withFileKey(targetFileKey)
             : opts.v2Backend;
 

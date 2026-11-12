@@ -16,7 +16,8 @@
     "watch": "node scripts/watch.mjs",
     "release": "node scripts/release.mjs",
     "test-parse": "node scripts/test-parse.mjs",
-    "cleanup-mcp": "node scripts/cleanup-orphan-mcp.mjs"
+    "cleanup-mcp": "node scripts/cleanup-orphan-mcp.mjs",
+    "sandbox:newuser": "node scripts/sandbox/newuser.mjs"
   },
   "engines": {
     "node": ">=20.0.0"

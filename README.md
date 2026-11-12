@@ -34,7 +34,7 @@ wording edits into the project style file; Phase 6 maintains the pattern library
 
 - Node.js ≥ 20
 - An AI agent with MCP support: **Claude Desktop / Codex / Cursor / Cline / ...**
-- A duplicated copy of the **master Figma template** (see below)
+- 不需要准备模板：仓库自带基线模板包（见下节），装完就能渲染
 
 The [figma-console MCP plugin](https://github.com/southleft/figma-console-mcp)
 runtime (v1.23.0, MIT) ships bundled in this repo at
@@ -44,39 +44,42 @@ prints the config snippet to paste into your agent's MCP config file.
 
 ## The Figma template
 
-The engine no longer hard-codes the template. It resolves, in order:
+**开箱即用：仓库自带基线模板包**，随引擎分发、换机器不会丢：
 
-0. **`template: { componentKey }`** — published library component; the only
-   reliable cross-file addressing (target file does not need the template)
-1. `template: { fileKey, nodeId }` — same-file mode only; `fileKey` must equal
-   `target.fileKey` (cross-file now fails with `V2_TEMPLATE_OTHER_FILE` /
-   `V2_TEMPLATE_FILE_UNREACHABLE` instead of silently probing `1:14` in the
-   target file)
-2. env `FIGMA_TEMPLATE_FILE_KEY` / `FIGMA_TEMPLATE_NODE_ID`
-3. `~/.game-interaction-sop/template.json`
-4. the `figma` block of `~/.game-interaction-sop/config.local.json`
-5. built-in default (`UYCJok3MXTWITMfeJSqEF6` / `1:14`)
+| 文件 | 内容 |
+|---|---|
+| `packages/figma-mcp-server/assets/packs/default.json` | 官方 1.14 |
+| `packages/figma-mcp-server/assets/packs/蛋仔派对.json` | 蛋仔派对（深色底） |
 
-```json
-{
-  "template": { "fileKey": "your-file-key", "nodeId": "1:14" },
-  "roleBlock": { "componentSetId": "1:2" }
-}
+没有做任何模板配置时，引擎按下面的顺序查找，最后两级就是这两份基线包：
+
+1. `$GISOP_TEMPLATE_PACK`（显式路径）
+2. `<项目根>/.interaction-sop/template.json`
+3. `~/.game-interaction-sop/templates/<项目>.json`（项目名取 `$GISOP_PROJECT`）
+4. `~/.game-interaction-sop/templates/default.json`
+5. 引擎包内 `assets/packs/<项目>.json`
+6. 引擎包内 `assets/packs/default.json`
+
+渲染前可以先体检一次：`audit_template_pack`（`deep: true` 会做 key 冒烟）。
+
+### 用自己的模板
+
+**不要手写模板包**——`componentKey` 是库发布快照的产物，手抄必错。走这条路：
+
+```
+figma_compile_template(phase=compile)   # 把源模板的部件编译进我们库的 _staging
+  → 在 Figma 里人工发布（没有发布 API）
+  → figma_compile_template(phase=verify)  # 回填 4 个 key + 几何 + 文档级留白
+  → 落 assets/packs/<项目>.json
 ```
 
-**Only the address is configurable** — the template's internal node names /
-slots must stay compatible with `packages/skill/references/template-1-14.md`.
+基线包里的 key 指向**公司内部「官方 1.14」组件库**，团队外无法 import ——
+外部团队需要按上面流程编自己模板的包。逐项说明见
+[`packages/figma-mcp-server/assets/packs/README.md`](./packages/figma-mcp-server/assets/packs/README.md)
+与 [`docs/onboarding.md`](./docs/onboarding.md)。
 
-`roleBlock.componentSetId` points at the `职能标记` COMPONENT_SET (variants
-`职能标记=#策划` / `职能标记=策划` …) inside the same file. Markdown bullets
-written as `- @策划：…` render as instances of that component instead of plain
-text; without the set the render fails with `V2_ROLE_BLOCK_UNAVAILABLE`.
-
-1. Open the template file (see link in the GitHub release notes)
-2. `File → Save as` / duplicate into your own team
-3. Make sure the template COMPONENT (and, if you use `@职能` bullets, the
-   `职能标记` component set) is accessible in the duplicate
-4. Point `~/.game-interaction-sop/template.json` at your copy
+`roleBlock`（`@职能` 用的 7 个彩色标签变体 key）同样随包分发：包里有就用包里的，
+没有才读 `~/.game-interaction-sop/template.json`。
 
 ---
 
@@ -141,10 +144,10 @@ cd packages/figma-mcp-server && npm install && npm run build
 # 2. 安装 SOP Skill
 cd ../.. && npm run install-skill -- --agent codemaker   # 或 claude/cursor/cline
 
-# 3. 配置 MCP（仅一个 server）
-#    在 agent 的 MCP 配置里指向：
-#    packages/figma-mcp-server/dist/server/index.js
-#    并设置环境变量 FIGMA_ACCESS_TOKEN=<你的 Figma Token>
+# 3. 生成 MCP 配置片段（只配一个 server）
+npm run install-mcp -- --agent codemaker
+#    把打印出来的片段贴进 agent 的 MCP 配置；`command` 是 node 的绝对路径，
+#    如果打印成裸 `node`，宿主在 PATH 没 node 的机器上会报 spawn ENOENT
 ```
 
 新开 Agent 会话后直接喂策划文档即可，Skill 会全程引导（Phase 0–6）。

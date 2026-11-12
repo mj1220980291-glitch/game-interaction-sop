@@ -94,6 +94,49 @@ describe('compileTemplate phase=contract', () => {
     }
   });
 
+  it('不传 backend 也能生成（contract 是纯本地的）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gisop-contract-nobackend-'));
+    const prev = process.cwd();
+    const prevPack = process.env.GISOP_TEMPLATE_PACK;
+    try {
+      process.env.GISOP_TEMPLATE_PACK = '';
+      mkdirSync(join(dir, '.interaction-sop'), { recursive: true });
+      writeFileSync(
+        join(dir, '.interaction-sop', 'template.json'),
+        JSON.stringify({
+          schema_version: 1,
+          project: '蛋仔派对',
+          components: { top: 'k1', chapter: 'k2', cluster: 'k3', footer: null },
+          capabilities: {}
+        }),
+        'utf8'
+      );
+      process.chdir(dir);
+      const r = await compileTemplate({
+        phase: 'contract',
+        project: '蛋仔派对',
+        source: { nodeId: '1:14' },
+        library: { fileKey: 'lib', pageId: '0:1' }
+      });
+      expect(r.mdContract?.content).toContain('书写契约');
+    } finally {
+      process.chdir(prev);
+      process.env.GISOP_TEMPLATE_PACK = prevPack ?? '';
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('compile 阶段不传 backend 时明确报错', async () => {
+    await expect(
+      compileTemplate({
+        phase: 'compile',
+        project: '蛋仔派对',
+        source: { nodeId: '1:14' },
+        library: { fileKey: 'lib', pageId: '0:1' }
+      })
+    ).rejects.toMatchObject({ code: 'V2_BACKEND_UNAVAILABLE' });
+  });
+
   it('未登记项目返回明确错误', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gisop-contract-empty-'));
     const prev = process.cwd();

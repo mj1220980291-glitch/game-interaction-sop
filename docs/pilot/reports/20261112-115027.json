@@ -1,0 +1,125 @@
+{
+  "when": "2026-11-12T03:50:27.869Z",
+  "root": "C:\\Users\\MIAOCH~1\\AppData\\Local\\Temp\\gisop-nu-2",
+  "source": "worktree",
+  "pathMode": "normal",
+  "node": "v26.13.0",
+  "steps": [
+    {
+      "id": "env",
+      "title": "环境自检：新机器该有什么",
+      "status": "pass",
+      "durationMs": 59,
+      "firstError": "",
+      "assertions": [
+        {
+          "name": "node 绝对路径可用",
+          "ok": true,
+          "detail": "C:\\Program Files\\nodejs\\node.exe → v26.13.0\r\n"
+        },
+        {
+          "name": "用户目录无历史配置",
+          "ok": true,
+          "detail": "C:\\Users\\MIAOCH~1\\AppData\\Local\\Temp\\gisop-nu-2\\home\\.game-interaction-sop"
+        },
+        {
+          "name": "仓库根有 README.md",
+          "ok": true
+        },
+        {
+          "name": "仓库根有 SETUP.md",
+          "ok": true
+        },
+        {
+          "name": "仓库根有 docs/",
+          "ok": true
+        },
+        {
+          "name": "仓库根有 packages/",
+          "ok": true
+        }
+      ],
+      "detail": "根目录：AGENTS.md / CHANGELOG.md / docs / openspec / package-lock.json / package.json / packages / README.md / samples / scripts / SETUP.md / V2.md / vendor / 引擎问题反馈.md"
+    },
+    {
+      "id": "install",
+      "title": "装依赖（npm install）",
+      "status": "skipped",
+      "durationMs": 0,
+      "firstError": "",
+      "assertions": [],
+      "detail": "filtered by --only"
+    },
+    {
+      "id": "build",
+      "title": "编译引擎（npm run build）",
+      "status": "skipped",
+      "durationMs": 0,
+      "firstError": "",
+      "assertions": [],
+      "detail": "filtered by --only"
+    },
+    {
+      "id": "install-mcp",
+      "title": "生成 MCP 配置片段",
+      "status": "skipped",
+      "durationMs": 0,
+      "firstError": "",
+      "assertions": [],
+      "detail": "filtered by --only"
+    },
+    {
+      "id": "engine-boot",
+      "title": "宿主拉起引擎（MCP 握手 + 工具清单）",
+      "status": "skipped",
+      "durationMs": 0,
+      "firstError": "",
+      "assertions": [],
+      "detail": "filtered by --only"
+    },
+    {
+      "id": "pack-resolution",
+      "title": "空用户目录下命中仓库自带基线包",
+      "status": "skipped",
+      "durationMs": 0,
+      "firstError": "",
+      "assertions": [],
+      "detail": "filtered by --only"
+    },
+    {
+      "id": "contract",
+      "title": "书写契约能从包重建（丢了也不怕）",
+      "status": "skipped",
+      "durationMs": 0,
+      "firstError": "",
+      "assertions": [],
+      "detail": "filtered by --only"
+    },
+    {
+      "id": "guidance",
+      "title": "新用户第一眼看到的信息是准的",
+      "status": "pass",
+      "durationMs": 2,
+      "firstError": "",
+      "assertions": [
+        {
+          "name": "README 提到仓库自带基线包（零配置可渲染）",
+          "ok": true
+        },
+        {
+          "name": "README 提到 install-mcp 生成配置片段",
+          "ok": true
+        },
+        {
+          "name": "onboarding 有「拿到的是什么」这一步",
+          "ok": true
+        },
+        {
+          "name": "onboarding 写明零配置可渲染",
+          "ok": true
+        }
+      ],
+      "detail": ""
+    }
+  ]
+}

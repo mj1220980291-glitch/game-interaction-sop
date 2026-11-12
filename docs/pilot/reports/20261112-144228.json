@@ -1,0 +1,44 @@
+{
+  "when": "2026-11-12T06:42:28.210Z",
+  "root": "C:\\Users\\MIAOCH~1\\AppData\\Local\\Temp\\gisop-nu-nonode",
+  "source": "worktree",
+  "pathMode": "no-node",
+  "node": "v26.13.0",
+  "steps": [
+    {
+      "id": "env",
+      "title": "环境自检：新机器该有什么",
+      "status": "pass",
+      "durationMs": 343,
+      "firstError": "",
+      "assertions": [
+        {
+          "name": "node 绝对路径可用",
+          "ok": true,
+          "detail": "C:\\Program Files\\nodejs\\node.exe → v26.13.0\r\n"
+        },
+        {
+          "name": "用户目录无历史配置",
+          "ok": true,
+          "detail": "C:\\Users\\MIAOCH~1\\AppData\\Local\\Temp\\gisop-nu-nonode\\home\\.game-interaction-sop"
+        },
+        {
+          "name": "PATH 里没有 node 时直接调用失败（复现 spawn ENOENT 现场）",
+          "ok": true,
+          "detail": "spawn node ENOENT"
+        },
+        {
+          "name": "PATH 里没有 node 时 npm.cmd 也跑不起来（文档据此要求绝对路径）",
+          "ok": true,
+          "detail": "'C:\\Program' �����ڲ����ⲿ���Ҳ���ǿ����еĳ���"
+        },
+        {
+          "name": "用 node 绝对路径调 npm 能恢复（不依赖 PATH）",
+          "ok": true,
+          "detail": "11.20.0"
+        }
+      ],
+      "detail": "no-node 模式只验文档承诺的三句话，不跑安装"
+    }
+  ]
+}

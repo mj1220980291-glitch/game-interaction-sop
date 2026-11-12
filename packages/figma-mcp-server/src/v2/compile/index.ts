@@ -65,7 +65,8 @@ export interface CompileInput {
   /** `verify` 阶段：编译产出的 key（人工可在报告里抄，或由上层传入）。 */
   components?: ComponentKeys;
   write?: boolean;
-  backend: FigmaBackend;
+  /** 编译 / 回填需要；`contract` 阶段纯本地，可不传。 */
+  backend?: FigmaBackend;
 }
 
 export interface CompileReport {
@@ -99,6 +100,21 @@ export async function compileTemplate(input: CompileInput): Promise<CompileRepor
   if (input.phase === 'verify') return verifyPhase(input);
   if (input.phase === 'contract') return contractPhase(input);
   return compilePhase(input);
+}
+
+/**
+ * `contract` 是纯本地的（只按包推导书写契约），不该要求 Figma 后端——
+ * 新用户还没连 Figma 时，正是最需要重建契约的时候（2026-11-12 沙盒实测）。
+ */
+function requireBackend(input: CompileInput): FigmaBackend {
+  if (!input.backend) {
+    const err = new Error(
+      '编译/回填需要 Figma 后端（createServer({ v2Backend })）；只有 phase=contract 不需要'
+    ) as Error & { code?: string };
+    err.code = 'V2_BACKEND_UNAVAILABLE';
+    throw err;
+  }
+  return input.backend;
 }
 
 /** 给编译各阶段加前缀：真机出错时能直接看出卡在哪一步。 */
@@ -174,19 +190,21 @@ async function stageRetry<T>(name: string, fn: () => Promise<T>, attempts = 4): 
   throw last;
 }
 
-async function verifyPhase(input: CompileInput): Promise<CompileReport> {
+async function verifyPhase(raw: CompileInput): Promise<CompileReport> {
+  const backend = requireBackend(raw);
+  const input = { ...raw, backend };
   const keys = input.components ?? {};
-  const verified = await verifyPublished({ backend: input.backend, keys });
+  const verified = await verifyPublished({ backend, keys });
 
   // 几何只能在库文件里量（部件在那儿），底色在源模板文件里抄：
   // verify 的后端绑在「非库文件」上做 import 冒烟，所以这里再绑两次。
   const libraryBackend =
-    input.backend.withFileKey && input.library.fileKey
-      ? input.backend.withFileKey(input.library.fileKey)
+    backend.withFileKey && input.library.fileKey
+      ? backend.withFileKey(input.library.fileKey)
       : undefined;
   const sourceBackend =
-    input.backend.withFileKey && input.source.fileKey
-      ? input.backend.withFileKey(input.source.fileKey)
+    backend.withFileKey && input.source.fileKey
+      ? backend.withFileKey(input.source.fileKey)
       : undefined;
   const geoGaps: CompileGap[] = [];
   let geometry: TemplateGeometry | undefined = readGeometrySidecar(input.project);
@@ -204,7 +222,7 @@ async function verifyPhase(input: CompileInput): Promise<CompileReport> {
     geoGaps.push(...captured.gaps);
 
     const spacing = await captureDocSpacing({
-      backend: sourceBackend ?? input.backend,
+      backend: sourceBackend ?? backend,
       ...(input.source.nodeId ? { sourceRootId: input.source.nodeId } : {}),
       ...(input.sectionSourceId ? { sectionSourceId: input.sectionSourceId } : {})
     });
@@ -285,7 +303,7 @@ async function contractPhase(input: CompileInput): Promise<CompileReport> {
 }
 
 async function compilePhase(input: CompileInput): Promise<CompileReport> {
-  const { backend, project } = input;
+  const { backend, project } = { ...input, backend: requireBackend(input) };
   const staged = input.staged ?? {};
   const plan = planParts({ project, staged });
   const gaps: CompileGap[] = [];

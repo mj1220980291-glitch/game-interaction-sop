@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## 0.4.11（引擎，skill 仍 2.5.1）— 2026-11-12
+
+**`phase=contract` 明明不连 Figma，却要求 Figma 后端。** 新用户沙盒首跑抓到的：
+沙盒里没有 Figma，`figma_compile_template({phase:"contract"})` 直接返回
+`V2_BACKEND_UNAVAILABLE` —— 而文档承诺「契约丢了重跑一次就能重建」，正好在最需要它的
+场景（还没连上 Figma）失效。
+
+### 改动
+
+- `CompileInput.backend` 变可选；`contract` 阶段不再要求后端
+- `compile` / `verify` 缺失后端时抛 `V2_BACKEND_UNAVAILABLE`，文案写明「只有 phase=contract 不需要」
+- 工具处理器：`v2Backend` 判空移到「非 contract」分支内；`withFileKey` 探测前加空值保护
+- 单测 +2：不传 backend 能出契约；compile 不传 backend 明确报错
+
+### 顺带（沙盒本身的两处失真，已修）
+
+- 引擎子进程没设 `cwd` → 继承了宿主仓库目录，模板包命中宿主的 `.interaction-sop/template.json`（`origin: cwd`）。现在显式 `cwd = 沙盒仓库`
+- worktree 复制用整目录 `cpSync` → 把 gitignore 的本地草稿也带进沙盒。改成按 `git ls-files` 复制**只有 git 跟踪的文件**（含未提交修改）
+- `--keep` 原先连用户目录也保留，导致下一次不再是「新机器」；现在只复用代码，`HOME`/`TEMP`/npm cache 每次重建
+
+### 回归
+
+- 87 files 测试通过（`--no-file-parallelism`），`tsc` 通过；版本 `0.4.10 → 0.4.11`
+- 沙盒连续两次全 8 步通过；`--path-mode no-node` 通过
+
+
 ## 0.4.10（引擎，skill 仍 2.5.1）— 2026-11-11
 
 **模板里「画在部件之外」的那部分，以前从来没人记。** 逐层比对原稿与产物后确认：
