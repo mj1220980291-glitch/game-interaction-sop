@@ -1,9 +1,9 @@
 ## 1. 立表与基线（不改行为）
 
-- [ ] 1.1 新建 `packages/figma-mcp-server/src/v2/capability-contract.ts`：定义 `CapabilityRule`、`RULES`（8 项 × 全部取值），规则内容按现有 36 处分支逐条抄写
-- [ ] 1.2 导出 `ruleFor(caps, key)` 等只读访问器；消费点禁止直接读枚举再分支
-- [ ] 1.3 补 characterization 测试：对现有两套基线包（官方 1.14、蛋仔）与 `roleAnnotation=none` 样例，断言表推导结果与当前实际行为一致
-- [ ] 1.4 `npx tsc` + 全量串行测试全绿（基线 87 文件 / 737 测试），此步不改任何行为
+- [x] 1.1 新建 `packages/figma-mcp-server/src/v2/capability-contract.ts`：定义 `CapabilityRule`、`RULES`（8 项 × 全部取值），规则内容按现有 36 处分支逐条抄写
+- [x] 1.2 导出 `ruleFor(caps, key)` 等只读访问器；消费点禁止直接读枚举再分支（本阶段仅新增，不改消费者）
+- [x] 1.3 补 characterization 测试：完整性（每个取值有规则、无多余键、必要规则段非空）、解析等价（roleAnnotation / overview）、契约文案等价（8 项 × 全部取值）
+- [x] 1.4 `npx tsc` + 全量串行测试全绿：88 文件 / 743 测试（基线 737 + 新增 6），本阶段未改任何行为
 
 ## 2. 解析闸门切表 + 修 none 漏判
 

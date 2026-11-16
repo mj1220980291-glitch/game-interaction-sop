@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## 未发布 — 能力契约表落地（阶段 1：锁现状，不改行为）
+
+- 新增 `src/v2/capability-contract.ts`：8 项能力 × 全部取值，每项声明 `parse`（解析闸门）/ `contract`（契约文案）/ `render`（渲染行为）三段规则；表按枚举穷尽定义（`Record<CapabilityKey, Record<ValueOf<K>, Rule>>`），枚举加值不补表即 `tsc` 报错。
+- 规则逐条抄自现有实现（含已知 bug：`roleAnnotation=none` 仍要求 `@角色` 行，注释标注阶段 2 修）；本阶段**未改任何消费者**，行为零变化。
+- 新增 6 条 characterization 测试：完整性（无缺键/无多余键/必要段非空）、解析等价（roleAnnotation/overview）、契约文案等价（8 项全取值）。
+- `tsc` 通过；全量串行 **88 文件 / 743 测试**（基线 737 + 6）。本阶段不碰 Figma、不改模板包。
+
 ## 未发布 — 旧稿清洗路径首次跑通（版本不变，仅验证）
 
 - 清洗：A 章节副本 `205:42223`（源 `173:15935` 未动）——标题/状态/簇标题/正文占位，两块 2400×1350 业务截图换灰板+文案，移除隐藏职能容器，字体统一 Noto Sans SC；扫描 `imageFills/hidden/hyperlink` 均为空。
