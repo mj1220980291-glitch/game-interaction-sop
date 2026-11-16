@@ -36,12 +36,12 @@
 
 ## 6. 真机验收（清洗路径）
 
-- [ ] 6.1 人工发布清洗出的四原子（发布只能人工），记录发布时刻与回执
-- [ ] 6.2 独立沙盒 `phase=verify`（`write:false` 先行）：四原子 real import + geometry + spacing，gaps/diffs 空
-- [ ] 6.3 生成 pack（显式 `roleBlock.variantKeys`）+ `audit_template_pack(deep)` 全 ok
-- [ ] 6.4 渲染最小 2 章 3 簇：覆盖长短文本、配图、合法职能条目；示例簇不出现
-- [ ] 6.5 同稿连续两次同步 `changes: []` 且 `conflicts: []`；改单条正文只 1 处 update
-- [ ] 6.6 全链回执落 `docs/pilot/reports/`：各阶段状态分开记录，不用前一阶段通过替代
+- [x] 6.1 人工发布清洗出的四原子（发布只能人工），记录发布时刻与回执 → 用户发布 3 组件：top `207:49788` / chapter `207:49798` / cluster `207:49809`
+- [x] 6.2 独立沙盒 `phase=verify`（`write:false` 先行）：四原子 real import + geometry + spacing，gaps/diffs 空 → 通过，`gaps: []`，几何 `chapterWidth 4694` / `mainImage 2400×1350` / `docPadding 140`
+- [x] 6.3 生成 pack（显式 `roleBlock.variantKeys`）+ `audit_template_pack(deep)` 全 ok → 本项目 `roleAnnotation=none` 无需 roleBlock；deep 3/3 key ok，findings 空
+- [x] 6.4 渲染最小 2 章 3 簇：覆盖长短文本、配图、合法职能条目；示例簇不出现 → `191:289`，2 章 3 簇 3 气泡；本模板 `figure=none` 无配图槽、`roleAnnotation=none` 无职能槽（视觉偏差见回执第 7 节）
+- [x] 6.5 同稿连续两次同步 `changes: []` 且 `conflicts: []`；改单条正文只 1 处 update → 两次均空；改 `02/1` 首条只 `02/1/#1 update`
+- [x] 6.6 全链回执落 `docs/pilot/reports/`：各阶段状态分开记录，不用前一阶段通过替代 → `legacy-clean-receipt-20261116.md` 第 7 节
 
 ## 7. 回归与文档
 

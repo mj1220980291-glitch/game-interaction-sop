@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 未发布 — 旧稿清洗路径首次跑通（版本不变，仅验证）
+
+- 清洗：A 章节副本 `205:42223`（源 `173:15935` 未动）——标题/状态/簇标题/正文占位，两块 2400×1350 业务截图换灰板+文案，移除隐藏职能容器，字体统一 Noto Sans SC；扫描 `imageFills/hidden/hyperlink` 均为空。
+- 编译：最小顶部 `206:49728`（5 个命名 TEXT）+ 章节结构对齐（`sect` HORIZONTAL、`img`→`舞台`、内层帧→`主图占位`）+ `badgeContainerSourceId=188:38122` → `written:true`，产出 top `207:49788` / chapter `207:49798` / cluster `207:49809`，`Tag`→`Number` 收编。
+- 全链：人工发布后 `verify(write:false)` 通过（gaps 空，几何 `4694 / 2400×1350 / padding 140`）；pack deep 3/3 key ok；渲染 `191:289` 2 章 3 簇；同步两次 `changes: [] / conflicts: []`；改单条只 `02/1/#1 update`。
+- 新增记录（不修，后续统一优化）：旧稿非四部件结构、头部 5 槽需新建、编号锁在实例内、章节缺外层留白、无结尾块、借用燕云气泡导致标号落主图区；另发现契约自相矛盾——mdContract 写「不写 `@职能`」，解析器却要求每簇 `@角色` 行（`V2_C2_ROLE_LINE_MISSING`）。
+- 渲染期间临时切换 `.interaction-sop/template.json`，旧燕云 pack 备份为 `template.燕云.json` 并已恢复。无代码改动、无提交版本号变更。
+
 ## 未发布 — parts 同步不再把簇级职能注记当多余条目（版本不变）
 
 - 真机（`185:1278`）新建正确但首轮同步报 3 个 delete 并把 6 个职能载体全部置 hidden：`reconcile/plan.ts` 把「簇级 `@GUI` 注记」落成的实例当成条目序列成员——`expectedItems` 只认 `- @角色：正文` 子弹，两边对不上，正文清空后 `itemClean` 放行 → 判为多余删除。

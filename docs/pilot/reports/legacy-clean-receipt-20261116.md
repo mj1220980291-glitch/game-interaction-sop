@@ -75,7 +75,32 @@
 **下一步（人工）**：在库文件 `旧稿清洗验证 20261116` 页发布上述 3 个组件，之后测 key → `phase=verify` → pack → 渲染 → 同步。
 
 
-## 7. 环境注记（下次直接照做）
+## 7. 全链验收结果（2026-11-16）
+
+| 阶段 | 结果 |
+|---|---|
+| 发布 | 用户人工发布 3 个组件；key：top `e2112768…`、chapter `ad871654…`、cluster `a5231020…` |
+| verify（`write:false`） | 通过：3 部件 import 成功，`gaps: []`；几何 `chapterWidth 4694`、`mainImage 2400×1350`、`docBackground #F5F5F5`、`docPadding 140`、`rootGap 140` |
+| pack | `.interaction-sop/template.json`（origin=cwd）写入本项目；`audit_template_pack(deep)`：3/3 key ok，findings 空 |
+| 渲染 | `191:289`（沙盒 `159:2927`），2 章 3 簇、3 个气泡；warnings 仅 phase1Signoff 缺失与 badgeAnchors 默认 |
+| 同步 ×2 | 均 `changes: []` / `conflicts: []`；两章 `状态说明占位` 按 foreign 保留 |
+| 单条修改 | 改 `02/1` 第一条 → 仅 `02/1/#1 update`，冲突 0 |
+
+### 本轮新增的两个坑
+
+1. **契约自相矛盾**：`mdContract` 第 7 节写「不写 `@职能`（模板不表达职能）」，但解析器仍要求每个簇首行有 `@角色`，否则报 `V2_C2_ROLE_LINE_MISSING`。本次只能把 `@GUI / @策划 / @程序` 加回去才渲染通过。要么放宽解析器，要么改契约文案。
+2. **借用燕云「气泡」的副作用**：标号容器沿用 `188:38122`（坐标/尺寸属于燕云章节），渲染出的 ①② 落在主图区左上角，而不是簇标题旁。属脚手架副作用，正式清洗要按旧稿自己的标号布局生成容器。
+
+### 视觉偏差（脚手架导致，非渲染缺陷）
+
+- 顶部是 5 个 28px 小字堆叠，不像正式抬头；
+- 章节第二块 2400×1350 占位显示为空白（`buildChapterShell` 只重建了 `主图占位`，第二块未被当作槽）；
+- 标号位置如上。
+
+这些都记在「后续统一优化」里：旧稿 → 四部件拆分、头部槽位新建、标号容器按旧稿生成。
+
+
+## 8. 环境注记（下次直接照做）
 
 1. 截图要求**目标文件在前台**：先 `figma_navigate(url, lock:true)`，否则 `figma_capture_screenshot` 会报 `Unable to establish connection after 10 seconds`（不是桥断）。
 2. `figma_execute` 偶发 `Cannot connect to Figma Desktop.`，**并不代表脚本没执行**：本次文本替换其实已生效，只有建文案那步断了。重试前先 `figma_get_status(probe:true)`，再用小步脚本补差，不要整段重放。
