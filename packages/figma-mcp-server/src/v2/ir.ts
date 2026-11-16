@@ -192,6 +192,8 @@ export const SOFT_WARNING_CODES = {
   /** render — 隐藏备用池没删干净（Bridge 超时），节点仍隐藏，不影响成图 */
   /** render — 模板自带的职能行没能按 md 角色隐藏/清空（Bridge 超时） */
   W_ROLE_CARRIER_LEFT: 'V2_W_ROLE_CARRIER_LEFT',
+  /** markdown — 模板不表达职能（roleAnnotation = none），写了 `@角色` 行会被忽略 */
+  W_ROLE_LINE_IGNORED: 'V2_W_ROLE_LINE_IGNORED',
   W_HIDDEN_POOL_LEFT: 'V2_W_HIDDEN_POOL_LEFT',
   /**
    * render — 模板包已命中，但调用方仍传了 `template.fileKey/nodeId`。

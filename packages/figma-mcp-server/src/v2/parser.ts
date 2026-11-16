@@ -394,8 +394,10 @@ interface ParseClustersOpts {
 export interface ParseV2Opts extends ParseClustersOpts {
   /** `capabilities.overview = none`：不要求 `## 设计总览`。 */
   overviewOptional?: boolean;
-  /** `capabilities.roleAnnotation = inline-suffix`：不要求簇首行 `@角色`。 */
+  /** `roleAnnotation` 为 `inline-suffix` / `none`：不要求簇首行 `@角色`。 */
   roleLineOptional?: boolean;
+  /** `roleAnnotation = none`：写了 `@角色` 也没有意义，只给软警告。 */
+  roleLineIgnored?: boolean;
 }
 
 function parseClusters(
@@ -441,6 +443,13 @@ function parseClusters(
       continue;
     }
     const roleLineText = hasRoleLine ? firstNonEmpty.trim() : '';
+    if (hasRoleLine && opts?.roleLineIgnored) {
+      warnings.push({
+        code: SOFT_WARNING_CODES.W_ROLE_LINE_IGNORED,
+        message: `\`### ${b.title}\` 写了 \`@角色\`，但这份模板不表达职能，该行会被忽略`,
+        context: b.title
+      });
+    }
 
     const roles = hasRoleLine ? parseRoleLine(firstNonEmpty) : [];
     // W1: unknown role

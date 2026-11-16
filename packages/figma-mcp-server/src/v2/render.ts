@@ -41,6 +41,7 @@
  */
 
 import { parseV2 } from './parser.js';
+import { parseOptsFor } from './capability-contract.js';
 import {
   HEADER_SLOTS,
   OVERVIEW_SLOTS,
@@ -65,6 +66,7 @@ import {
 } from './template-config.js';
 import { renderFromParts, type PartsSummary } from './render/parts/index.js';
 import type { TemplatePack } from './template/schema.js';
+import { DEFAULT_CAPABILITIES } from './template/schema.js';
 import { stampPartsDoc, type PartsDocLayout } from './render/parts/stamp-parts.js';
 import { isRoleFrame } from './template-slots.js';
 import { splitRuns, runMemberIds } from './template/runs.js';
@@ -440,8 +442,7 @@ export async function renderV2MarkdownToFigma(
     // 让人以为「少配了东西」。命中时仍回显 pack（用来判断文档是按哪套部件渲染的）。
     sync: Boolean(input.target?.rootId)
   });
-  const packCaps = packResolution.hit?.pack.capabilities;
-  const runId = Math.random().toString(36).slice(2, 10);
+  const packCaps = packResolution.hit?.pack.capabilities;  const runId = Math.random().toString(36).slice(2, 10);
   const engineFields: Pick<
     RenderResult,
     'configPath' | 'enginePid' | 'runId' | 'engineVersion' | 'bridge'
@@ -470,10 +471,7 @@ export async function renderV2MarkdownToFigma(
 
   // Phase A — Parse + hard-validate.
   // 校验松紧要跟模板走：没有总览区 / 职能写句尾的模板，按官方形状要求会一律拒收。
-  const parsed = parseV2(input.markdown, {
-    ...(packCaps?.overview === 'none' ? { overviewOptional: true } : {}),
-    ...(packCaps?.roleAnnotation === 'inline-suffix' ? { roleLineOptional: true } : {})
-  });
+  const parsed = parseV2(input.markdown, parseOptsFor(packCaps ?? DEFAULT_CAPABILITIES));
   if (!parsed.ok || !parsed.ir) {
     return {
       ok: false,

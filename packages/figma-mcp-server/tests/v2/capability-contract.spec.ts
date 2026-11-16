@@ -115,13 +115,23 @@ describe('capability-contract：解析闸门等价（现状基线）', () => {
       const r = parseV2(MD_NO_ROLE, parseOptsFor(caps));
       const requiresRoleLine = rule.parse.roleLineOptional !== true;
       if (requiresRoleLine) {
-        // 现状：none 也被强制要求（阶段 2 会改成可选，本断言随之翻转）
         expect(r.ok).toBe(false);
         expect(r.errors.map((e) => e.code)).toContain(HARD_ERROR_CODES.C2_ROLE_LINE_MISSING);
       } else {
         expect(r.ok).toBe(true);
       }
     }
+  });
+
+  it('roleAnnotation=none：不写角色行可解析；写了只给软警告', () => {
+    const caps: Capabilities = { ...DEFAULT_CAPABILITIES, roleAnnotation: 'none', overview: 'none' };
+    const noRole = parseV2(MD_NO_OVERVIEW, parseOptsFor(caps));
+    expect(noRole.ok).toBe(true);
+
+    const withRoleMd = MD_NO_OVERVIEW.replace('### 入口规则\n', '### 入口规则\n@GUI\n');
+    const withRole = parseV2(withRoleMd, parseOptsFor(caps));
+    expect(withRole.ok).toBe(true);
+    expect(withRole.warnings.map((w) => w.code)).toContain('V2_W_ROLE_LINE_IGNORED');
   });
 
   it('overview 的总览要求与解析器一致', () => {

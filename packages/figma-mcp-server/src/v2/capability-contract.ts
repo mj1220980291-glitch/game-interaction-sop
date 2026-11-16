@@ -30,6 +30,8 @@ export interface ParseRule {
   overviewOptional: boolean;
   /** 是否要求簇首行 `@角色` 列表。 */
   roleLineOptional: boolean;
+  /** 写了 `@角色` 也没有意义时（模板不表达职能）：只给一条软警告。 */
+  roleLineIgnored: boolean;
 }
 
 /** 契约文案：由 `md-contract` 直接取用，不再手写三元分支。 */
@@ -152,8 +154,8 @@ export const CAPABILITY_RULES: RuleTable = {
       render: { roleBlocks: 'suffix' }
     },
     none: {
-      // BUG（阶段 2 修）：契约说不写 @职能，这里却仍要求角色行。
-      parse: { roleLineOptional: false },
+      // 契约说「不写 @职能」：角色行可选；写了只给软警告（之前这里错配成 required）。
+      parse: { roleLineOptional: true, roleLineIgnored: true },
       contract: { roles: '不写 `@职能`（模板不表达职能）。' },
       render: { roleBlocks: 'strip' }
     }
@@ -204,14 +206,17 @@ export function ruleOf<K extends CapabilityKey>(caps: Capabilities, key: K): Cap
   return ruleFor(key, caps[key]);
 }
 
-/** 解析期两个开关的统一来源；其它闸门（分组、配图）暂由渲染侧判定。 */
+/** 解析期开关的统一来源；其它闸门（分组、配图）暂由渲染侧判定。 */
 export function parseOptsFor(caps: Capabilities): {
   overviewOptional?: boolean;
   roleLineOptional?: boolean;
+  roleLineIgnored?: boolean;
 } {
-  const opts: { overviewOptional?: boolean; roleLineOptional?: boolean } = {};
+  const opts: { overviewOptional?: boolean; roleLineOptional?: boolean; roleLineIgnored?: boolean } = {};
   if (ruleOf(caps, 'overview').parse?.overviewOptional) opts.overviewOptional = true;
-  if (ruleOf(caps, 'roleAnnotation').parse?.roleLineOptional) opts.roleLineOptional = true;
+  const role = ruleOf(caps, 'roleAnnotation').parse;
+  if (role?.roleLineOptional) opts.roleLineOptional = true;
+  if (role?.roleLineIgnored) opts.roleLineIgnored = true;
   return opts;
 }
 

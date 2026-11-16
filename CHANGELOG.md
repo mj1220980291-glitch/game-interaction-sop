@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## 未发布 — 能力契约表接入解析闸门（阶段 2：修 none 漏判）
+
+- `render.ts` 的 parse 开关改为 `parseOptsFor(packCaps ?? DEFAULT_CAPABILITIES)`，不再手写 `overview === 'none'` / `roleAnnotation === 'inline-suffix'` 两个分支——解析松紧从此只有一个来源。
+- 修复 `roleAnnotation = none`：`@角色` 行不再强制；写了会给软警告 `V2_W_ROLE_LINE_IGNORED`（此前契约写「不写 @职能」却被解析器拒收，旧稿清洗模板因此只能把 `@角色` 加回去）。
+- `ParseV2Opts` 新增 `roleLineIgnored`；`component-variant` 仍强制、`inline-suffix` 仍可选，行为未变。
+- 回归：新增 none 两条用例（不写可解析 / 写了只警告）；全量串行 **88 文件 / 744 测试**。未碰 Figma、未改模板包。
+
 ## 未发布 — 能力契约表落地（阶段 1：锁现状，不改行为）
 
 - 新增 `src/v2/capability-contract.ts`：8 项能力 × 全部取值，每项声明 `parse`（解析闸门）/ `contract`（契约文案）/ `render`（渲染行为）三段规则；表按枚举穷尽定义（`Record<CapabilityKey, Record<ValueOf<K>, Rule>>`），枚举加值不补表即 `tsc` 报错。

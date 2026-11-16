@@ -7,10 +7,10 @@
 
 ## 2. 解析闸门切表 + 修 none 漏判
 
-- [ ] 2.1 `parser.ts`：`overviewOptional / roleLineOptional` 改为从表推导（新增 `subgroup`/`figureBullet` 闸门同样读表）
-- [ ] 2.2 `render.ts:471-476`：不再手写两个开关，统一由表生成 parse opts
-- [ ] 2.3 修复 `roleAnnotation=none`：`@角色` 行可选；写了只给软警告（新增 `V2_W_ROLE_LINE_IGNORED`）
-- [ ] 2.4 回归：none 不写 / 写了、component-variant 缺行、inline-suffix 句尾，四条路径各一条用例
+- [x] 2.1 `parser.ts`：`ParseV2Opts` 保持布尔开关（消费方按表推导）；新增 `roleLineIgnored` 供 `none` 使用。分组/配图闸门仍在渲染侧，阶段 4 读表
+- [x] 2.2 `render.ts:471-476` 改为 `parseOptsFor(packCaps ?? DEFAULT_CAPABILITIES)`，不再手写两个 `===` 开关
+- [x] 2.3 修复 `roleAnnotation=none`：`@角色` 行可选；写了只给 `V2_W_ROLE_LINE_IGNORED` 软警告
+- [x] 2.4 回归：none 不写 / 写了、component-variant 缺行、inline-suffix 句尾全部通过；全量串行 88 文件 / 744 测试
 
 ## 3. 契约文案切表
 
