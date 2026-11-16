@@ -1,46 +1,273 @@
 # 交接说明（2026-11-03）
 
-## 换对话先读（2026-11-12 15:20 交接：目标是「能推广给别的设计团队」）
+## 换对话先读（2026-11-16 最终交接：先查 worker 生命周期，别再盲目重启/verify）
 
-### 一句话状态
+### 新会话最短接续指南
 
-引擎 `0.4.11` / skill `2.5.1`。**工具装得上、渲染对、可重复验证都已证明**；
-现在卡在最后一环：**外部团队的模板是从「填好的交互稿」里抽出来的，而引擎没有「抽模板」这一步**。
+**目标不变**：向其他设计团队推广，必须同时支持「正规模板直接接入」与「旧正式稿抽取清洗后接入」。当前在燕云真实接入验收，不是已经交付了自动清洗功能。用户要求能直接做的直接推进，只有人工发布等必须人工的环节才找用户。
 
-### 本次目标（别跑偏）
+**当前状态**：模板候选已在独立项目 Page「燕云」，用户已人工发布四原子+三职能组件；四原子跨文件导入有历史成功证据，完整 verify/pack/render/sync 尚未完成。worker 生命周期已只读查清（2026-11-16 诊断，见下），下一步补 design/spec 再最小修复，不要重新抽模板或要求再次发布。
 
-让这套工具有资格推广到其他设计团队。三份证据缺一不可：
+#### 先读这些
 
-| 证据 | 状态 |
+1. 本节及下方最新两轮 2026-11-16 快照。
+2. `docs/pilot/reports/yanyun-deeper-focused-20261113.json`，`lifecycleDiagnosis20261116`（本轮只读定位）+ `postReadPaintsReloadAcceptance.latestBoundedVerify`（最新结果）；`readPaintsFocusedFix` 保存已证实挂起根因；其他字段是历史，不混用。
+3. 活跃变更 `openspec/changes/sop-sharing-readiness/` 下 proposal/design/specs/tasks。
+
+#### 2026-11-16 生命周期诊断结论（只读复核版，已推翻上一轮的因果判断）
+
+- **确认的事实**
+  - 整个服务被替换（不只是 worker）：supervisor 56408 由 Code.exe 36616 于 10:54:05 拉起，worker 31560 10:54:06，`supervisor.lock` startedAt `02:54:06.328Z`；旧对 56344/48852 已不存在。
+  - 不是本地动作触发：10:52:54.192（最后一次成功 execute 0.012s）到 10:54:14.763 之间没有任何 terminal/edit 调用；`dist/server/*.js` 仍是 11-14 20:53，排除 supervisor 的 fs.watch 换 worker；Windows Application/System 日志无崩溃、无休眠事件。
+  - **dispatch 不等就绪**：新 bridge 子进程 10:54:07、figma-console 10:54:09，四个 import 10:54:09.9 就派发；两插件 `connectedAt` 都是 `02:54:13.578Z/13.598Z`。启动就绪只有一次 `healthCheck('return 1')`（5s），失败仅写 stderr。
+  - 两次 verify 的错误都是 `figma_execute failed: Cannot connect to Figma Desktop.`，带我们自己的 `[importComponentByKey key=… file=0eoR…]` 前缀、**没有插件侧 `stage=` 标记**；verify#1 文本里是 56344/48852，verify#2 文本里是 31560/56408。
+  - 插件在 verify#1 之前就已在连（`connectedAt` 1794795369830 ≈ 02:15:53Z，由 10:47:00 的 `figma_list_open_files` 反算），不是「当时没开插件」。
+  - figma-console-mcp **1.46.0** 语义（读 npx 缓存 dist）：`getDesktopConnector()` 在 `isClientConnected()` 为 false 时**立即抛错**；`isClientConnected()` 还要求 `lastPongAt < 90s`；心跳 30s，错过 pong 会被 terminate。所以 `Cannot connect` = 按该规则没有活客户端，属于**快路径，不是等待**。
+  - 2026-11-16 14:20 现场复探：`figma_get_status(probe:true)` 8ms，绑定 `0eoR7aPlpzIva8IdWATWkL` 的只读 execute 约 2ms。桥现在是好的。
+  - 环境漂移：插件 `pluginVersion=1.39.0`，`bundledPluginVersion=1.41.5`，`pluginUpdateAvailable=true`。
+- **未证实（不要当结论写）**
+  - supervisor 为何在 10:54:05 退出。宿主没有 MCP 生命周期日志（`BrainMaker Cowork.log` 无相关行，`mcp-proxy.log` 停在 11-13），所以「宿主 60s 请求超时 → self-heal」只是 59.8s 偏移推出来的**假设**。
+  - 该假设无法解释 verify#1：它也花了 64.166s，却由旧 worker 应答（错误文本 56344/48852），且旧引擎在 10:49:32.418Z 仍活着（探活 0.029s 刷新了 checkedAt）。
+  - 两次 verify 内部那 ~64s 到底花在哪。既然 figma-console 的 no-client 是快路径，「4 × ~16s」说不通；当前无 per-dispatch 时间戳、无 figma-console 文件日志，无法拆分。
+- **已推翻**
+  - 「每部件 ~16s 是 figma-console 等回连」——错，无客户端时它立即抛错。
+  - 「插件在 import 期间沉默」——只能说 figma-console 判定没有活客户端；「插件忙 / socket 陈旧 / 被心跳 terminate」三者当前证据分不开。
+
+#### 下一个要解决的问题
+
+- **观测已落地（8.22，D9）**：import 冒烟逐部件记 `{part, key, startedAt, elapsedMs, errorKind}` 并进错误 `details`；`errorKind` 分 `no-client`/`no-reply`/`busy`/`not-published`/`other`；桥级失败短路并列未尝试部件；失败信息附只读桥快照；`phase=verify` 前有 `verify.bridge` 有界探活（`return 1`，5s）；worker 启动追加 `~/.game-interaction-sop/worker-lifecycle.log`。tsc + 全量串行 87 文件 / 734 测试通过。未操作 Figma。
+- **真机已通过（8.23）**：重启 MCP 后新构建生效（supervisor 32572 / worker 19624，`worker-lifecycle.log` 首条即 boot `probe failed`，插件 10–20s 后重连）。两文件重开插件后一次 `phase=verify`（`write:false`）全过：四原子真实 import、geometry、spacing，gaps/diffs 空，宿主 cost **3.72s**。插件上报版本仍是 1.39.0（磁盘 code.js 已是 1.41.5，Figma 侧加载缓存），另查。
+- **pack / 渲染 / 同步已留证（8.9e 部分）**：pack 在 `f:\vibecoding\game-interaction-sop\.interaction-sop\template.json`（origin=cwd，deep 4 key ok，roleBlock 三角色）；渲染 root `182:625`（2 章 3 簇、图 1 + 占位 1）；同步两次 `changes: []`；改单条正文只 1 处 update。
+- **职能行问题已闭环（8.24–8.26）**：新建 `187:2759` 视觉只留标注角色（01/1 只 GUI、01/2 无、02/1 程序+拼接）；同步两次均 `changes: []` 且 `conflicts: []`；改单条正文只 1 处 update、冲突 0；两章 状态说明按 foreign 保留。修复点在 `render/parts/index.ts` 的 `syncRoleCarriers`（D10）+ `reconcile/plan.ts`（parts 且 md 无职能子弹时把 role 条目剔出序列）。
+- **下一个要解决的问题（8.27）**：章节母版自带示例簇仍随章出现（①簇标题 + 正文占位 + 程序/GUI/CCS 三行 + 配图占位），就是 8.8 记过的「章节与独立簇重复」。需先补 design 明确口径（删/隐藏示例簇、空说明栏保留），再改代码 + 回归 + 重渲染。
+- 另：宿主在空闲后会整轮重启 MCP（今日多次：10:54 / 14:50 / 16:32 / 16:49 / 16:54 / 16:55），冷启动窗口内首次 Figma 调用会被 `V2_BRIDGE_DOWN` 挡住；lifecycle 文件已记录每次启动，重试前先 `figma_get_status(probe:true)` 确认桥通即可。
+- 另：期间宿主又整轮替换过 MCP（32572→55500），冷启动时渲染被新 `V2_BRIDGE_DOWN` 预检挡住、未误报四键；两次启动均在 lifecycle 文件里。readPaints 修复已在该次 verify 的 geometry 阶段真实走到；不扩全局重试、不延长超时、不加 worker、不动配置/凭据。
+
+#### 资产与输入（先现场确认仍在）
+
+| 项 | 位置 |
 |---|---|
-| 别人装得上、装完能渲染 | ✅ 蛋仔/1.14 真机 + 新用户沙盒 8/8 通过 |
-| 改动不会悄悄破坏上面这条 | ✅ `npm run sandbox:newuser` 可重复跑，报告可 diff |
-| 别人**自己的模板**能接进来 | ❌ 卡住：需要「正式稿 → 模板」的抽取能力 |
+| 库 fileKey | `jQf7zj33pzOGsGKO4d73OO` |
+| 项目Page「燕云」 | `188:38085`；后续library.pageId/partsPageId都用它，不用_staging |
+| 当前隔离Section / 预览 | `185:6265` / `185:6266` |
+| staged top / chapter / cluster / footer | `185:6268` / `185:6291` / `185:6499` / `185:6532` |
+| 已发布四组件 top / chapter / cluster / footer | `188:38114` / `188:38135` / `188:38152` / `188:38156` |
+| 职能set；程序 / GUI / 拼接 | `185:37833`；`185:37824` / `185:37827` / `185:37830` |
+| sectionSourceId / badgeSourceId | `185:6291` / `185:37811`（气泡容器） |
+| 沙盒fileKey | `0eoR7aPlpzIva8IdWATWkL` |
+| 沙盒专页 / 旧四导入证据Section | `159:2927` / `159:2928`，保护原证据，不改其他Page |
+| 旧原稿与正规模板 | 库_staging `173:15842` / `176:48625`，不修改 |
 
-写文档、补数值都只是手段；判断任何工作该不该做，先问它服务哪条证据。
+keys以回执和现场已发布组件读取为准，不凭记忆重抄。verify显式能力：overview=none、clusterGroups=none、badgeSlot=container、numberBadge=text、roleAnnotation=component-variant、figure=named-group、hiddenPool=ignore、column=right；docBackground `#e0e0e0`；verifyFileKey=沙盒。**CCS=拼接（用户确认，仅项目映射）**。职能运行期组件为规范变体、直接子级标签TEXT「文本」+正文TEXT「正文」，不要倒退用纯标签组件。
 
-### 当前卡点与下一步（从这里继续）
+#### 已完成的修复与边界
 
-借来的「燕云模板」已经贴在我们库 `_staging` 页：`燕云模板` `173:15842`（5400×25743）。
+- 嵌套完整章节识别/外壳保留、ABSOLUTE父级约束、状态误命名Text：已有真机验证。
+- 嵌套正文/职能/配图顺序、打标与同步规划：已补代码和测试，尚未真实整篇渲染及applyOps验收。
+- 编译排列只限本轮新资产：已有真机既有Section坐标尺寸零变化证据。
+- 桥状态缓存失真：已修且有真机更新true证据；不是两套client分离，不用旧false反复归因。
+- readPaints直接查询活实例后代ID挂起：已现场复现，根实例遍历替代路径成功，已修后端；**完整verify尚未越过smoke，不能说修复已全链路通过**。
+- 最近实际全量基线 **87文件/725测试通过、tsc通过**；最新两轮只更新回执/交接，没有重跑测试。版本沿用engine0.4.11/skill2.5.1。未commit/push；工作区多轮改动需保留，不重置。
+- 用户多次重启未解决全链路，下一会话先分析根因，不再重复“请重启再试”。MCP如暂不可发现，应区分会话工具接入与Bridge连接，不能混为一谈。REST凭据曾过期，未证实与插件import超时相关，勿输出或改密钥。
 
-只读探针结论 `non-conformant`，但**不是他们模板不行，是拿错了对象**：
+以下为逐轮历史证据，最新状态以上述指南和2026-11-16快照为准。
 
-- 那是一篇**填好的正式稿**（`审核情况组件`、`↓↓↓下文内容由拍照活动需求制作`、`活动页修改内容`…）
-- 探针只能硬猜母版：章节猜成隐藏的 `活动1` `173:16021`，簇猜成评论单元格 `cell_comment` `173:15954`
-- F4 不过（编号 7/9）；节点 4w+，探针截断在 1w，8 项能力全是 `inferred`
 
-**结论：正确流程是「正式稿 → 抽出章节/簇样板 → 编译部件 → verify」，探针应该跑在抽取结果上，不是跑在正式稿上。**
-`compile` 已经能吃 `staged:{chapter, cluster, top, footer}`，缺的是「抽取前的体检 + 给出建议 id」。
+### 2026-11-16 接续一次有界 verify：smoke 失败，失败现场 worker 已换，随后被动连接恢复
 
-两条路，**已建议先走 A 验证再决定是否做 B**：
+- 最新结果：JSON `postReadPaintsReloadAcceptance.latestBoundedVerify`；旧字段留作历史。先读最新 JSON/本快照，再只读显式库文件核对四原子 keys，全部匹配。requirements 前读仍为 worker56344/supervisor48852、bridge=true/3ms，checkedAt02:49:32.418Z；这是历史缓存，不是本轮新内部 roundtrip。库 proxy execute 本轮成功。
+- **本轮 verify 恰好一次**，完整原输入、四实时keys、caps、source185:6266/librarypage188:38085/section185:6291/badge185:37811、沙盒verifyFileKey、write=false。原始 `V2_COMPILE_VERIFY_UNAVAILABLE` / `[verify.smoke]`，四 key 均为绑定沙盒的 `[importComponentByKey key=… file=0eoR7aPlpzIva8IdWATWkL] figma_execute failed: Cannot connect to Figma Desktop.`。错误内 worker **31560/supervisor56408**，不同于前读；无 import/create/actualFile 成功阶段返回。四错误来自一次verify聚合，非调用者循环。
+- 失败后立即只读requirements：checkedAt **2026-11-16T02:54:09.872Z**、bridge=false、worker31560/supervisor56408、9223/fallback=false。随后仅一次 `status(probe:false)`：两文件已连接，沙盒connectedAt **02:54:13.578Z**、库 **02:54:13.598Z**，均晚于失败快照约3.7秒。未新发roundtrip/import/verify。证据支持新worker烟测dispatch时无插件会话、稍后连接出现；**worker为何更换未知**，不能断言具体宿主生命周期根因，亦不能用后续连接覆盖失败现场。没有逐dispatch时间戳/socket trace。
+- **geometry/readPaints/spacing 均未到**；根实例遍历修复仍未完整真机验收，725 tests仅历史。pack未生成；render/sync/局部更新未跑，newSection/root/packPath均null。未截图；没有调用者沙盒场景写入，159:2927/159:2928不动；本轮未重测其bounds，不能声称前后几何复核通过。
+- 仅更新既有JSON与本快照，无代码/测试/发布/原稿/配置凭据/进程操作/重启/新增worker/commit/push。一次有界verify及精确stage结束条件已满足，**主代理不要重复任何Figma调用**。不因随后被动恢复追加verify，不请求重启；后续另轮需稳定同worker dispatch证据，不能自动循环。
 
-- **A（快）**：人在 Figma 里选中「一个典型章节 + 一个典型簇」，我用这两个 nodeId 干跑 `compile`，
-  看哪些槽位认得出、哪些簇缺编号。跑到问题再设计工具，避免方向错。
-- **B（半天）**：新增只读工具 `suggest_template_sources({nodeId})`，输出建议母版 + 每簇体检明细
-  （有编号/标题/内容行吗 + 为什么推荐），`compile` 直接吃这份建议。
+### 2026-11-16 readPaints 加载后验收：一次 verify 停在 smoke，随后同 worker 内部只读成功
 
-继续时要做的第一件事：让用户在 Figma 里选中一章一簇（或先做 A 的干跑），然后
-`npm run figma -- sel <fileKey>` 读选区。
+- 先读 AGENTS/本快照/JSON readPaintsFocusedFix；schema 后只 list 一次，两文件均在线。显式库读取八个组件/set 节点，四原子与三职能 keys 全匹配既有回执。沙盒专页159:2927已选中并锁定目标；保留159:2928四导入证据，调用前后页面子级、Section bounds及四实例ID/位置/尺寸完全一致。
+- 截图本次成功：159:2928 运行时 PNG，6200×5857，scale0.2529032258，78418bytes；图像随调用返回，无本地路径。仅旧四导入证据截图，不是新文档视觉通过。
+- **verify仅一次**，原输入/显式caps/#e0e0e0/沙盒verifyFileKey/write=false。返回 `V2_COMPILE_VERIFY_UNAVAILABLE`、`[verify.smoke]`；四原子各报绑定沙盒的 `[importComponentByKey key=… file=0eoR7aPlpzIva8IdWATWkL] figma_execute failed: Cannot connect to Figma Desktop.`，worker56344/supervisor48852。四错由一次verify聚合，未调用三职能import。**geometry/readPaints/spacing均未到；不能声称readPaints修复已真机验收，也不是上轮geometry错误复发。**
+- 失败后仅一次有界内部只读probe：沙盒159:2927/maxNodes2返回真实页名及截断扫描（non-conformant不用于判模板）。随后requirements同worker56344记录bridge=true、3ms、checkedAt2026-11-16T02:49:32.418Z、9223/fallback=false。故不能断言持续内部断连、分离client、端口争抢、旧缓存或凭据根因；失败瞬间dispatch连接状态仍未知。没有重复verify/import/旧节点诊断，不按工具错误内泛化提示再次重启。
+- 无新Section/root/pack/样例；真实render/两次sync/局部更新未执行。无场景半成品需清理。仅更新既有JSON `postReadPaintsReloadAcceptance` 与本快照；未改代码/测试/发布/原稿/配置凭据/进程/worker/commit/push，725 tests仅历史基线。
+- 最少下一步：沿用已有成功内部roundtrip的同worker，不再加载/重启。下一次有界验收按已核验keys执行verify一次；若smoke再现，留失败瞬间dispatch/连接证据，不循环import。geometry/readPaints/spacing通过后才持久化真pack并显式选用，再在专页新命名Section真实渲染。职能导入根因仍未知。
+
+### 2026-11-13 readPaints focused：活实例 ID 查询挂起已复现，最小行为修复完成
+
+- 本轮先读 AGENTS/HANDOFF/JSON；显式库定向，两文件在线。截图库 Page 后创建临时命名 Section `195:38281`（x0/y20517）和章节实例 `195:38282`，源组件只读。**未查旧194节点、未重复 verify/三职能 import**。
+- 同一活后代 `I195:38282;188:38121`：原 readPaints 脚本精确复现 `Unable to establish connection to Figma after 10 seconds`；getNode-only 5000ms 超时。根实例查询/树内定位同 ID 成功，fills Array、mixed=false、SOLID .9599999785，stroke .75，JSON copy 成功。用运行时 child.id 再查，1500ms Promise.race 得 timedOut=true。根查询+树内精确匹配+hex 成功返回 #F5F5F5/#BFBFBF；actualFile 全程库。证据已定位到实例后代 getNodeByIdAsync pending，早于 paints/return，不是 mixed/structuredClone/JSON 或错误 file target；readPaints 无网络 API。**Figma 内部为何挂起仍未知，不把兼容修复说成修好了 Figma 内核。**
+- 先补 sharing D8/delta/正式 spec；最小只改 readPaints：实例后代解析根 ID，异步查根 + 子树按完整 ID 匹配，20000 节点预算，超限明确报错；普通 ID/缺失/hex 契约不变，无重试/网络/写入。未扩到全局 API 查询。
+- 新增4测试，执行真实生成脚本并令实例后代直查永久 pending；覆盖嵌套精确匹配、mixed/隐藏/非SOLID、普通/缺失、预算内最后节点/超预算和文件原错上下文。tsc 通过，全量串行 **87/87 文件、725/725 测试（33.79s）**。dist 已构建，真机替代路径成功；**新 backend 完整调用与全局 verify 尚未验收**，运行中进程未证明热加载，正式验收前需加载新构建，不是重启治疗。
+- 临时 Section 截图后，在最后诊断脚本 finally remove，返回 sectionRemoved=true；随后页面树确认 probe 名与两ID残留均空。一次合并查询已删普通 ID 的cleanup核查10000ms超时，后改页面树核查成功，不能拿已删ID重试。沙盒159:2928无调用/写入，原证据不动。未发布/改原稿/配置凭据/杀进程/开worker/版本/commit/push。新详情 JSON `readPaintsFocusedFix`。
+
+### 2026-11-13 重启后新诊断实测：一次 verify，精确阻塞 geometry.readPaints
+
+- 已接受主代理现场 status(probe:true) 3ms、双文件在线事实，没有重复连接排查。激活 schema 后只读沙盒 Page `159:2927` / Section `159:2928`；原四实例完整。截图尝试一次失败，原文 `Unable to establish connection to Figma after 10 seconds. Please check your internet connection.`；截图工具无 fileKey，不能据此判定显式绑定文件断连，未保存图片。
+- **verify 仅一次**，使用既有四 key/caps/staged/source 输入、verifyFileKey=沙盒、write=false。新诊断已现场生效，原错完整保存在 JSON `liveStageDiagnosticVerify.verify.error`：`[verify.geometry library=jQf7zj33pzOGsGKO4d73OO chapterKey=60b71f757f34be862d57da26350911d5cb14c434] [readPaints nodes=I194:38266;188:38121 file=jQf7zj33pzOGsGKO4d73OO] figma_execute failed: Error: Unable to establish connection to Figma after 10 seconds. Please check your internet connection.`，code=INTERNAL_ERROR。
+- 调用链证据：四原子 smoke 已越过 → 库章节临时实例 `194:38266` 创建/读取及 subtree scan → `geometry.ts:187` 对主图实例子节点 `I194:38266;188:38121` 调 readPaints → 错误 → finally 删除。spacing 未到；三个职能 key 未消费/未重试。这不是 smoke 导入失败，也不能再笼统报桥断连或凭据根因。
+- 针对性只读：首次合读临时实例/子节点/本地主图/章节 5s 超时，无逐节点结果，不能指认某个 ID（临时实例已被 finally 删除，亦非原现场复现）。随后独立读取本地主图 `188:38121` RECTANGLE 与章节 `188:38135` 成功，主图 SOLID #F5F5F5，四 key 现场匹配。库 Page 无 `__geometry_probe__` 残留。沙盒调用前后 Page 子级、Section bounds、四实例 ID/位置/尺寸零变化。
+- **未知仍保留**：readPaints 当前只有外层上下文，无脚本内部阶段；尚不能区分 dispatch、活实例 descendant 的 getNodeByIdAsync、paint 返回/序列化。没有证据支持最小行为修复；本轮未冒险改代码。真实 pack/render/sync 未执行，新 Page/root/pack 均无。仅更新既有 JSON/HANDOFF；未跑 tsc/tests（721 是前轮基线），未发布/改配置凭据/杀进程/commit/push。verify 自身库临时实例写入已由引擎清理，无额外手动库写入。
+- 最少下一步：不重启、不循环 verify/import。若继续改诊断，先补 design/spec，再为 readPaints 加内部 dispatch/getNode/paint/return 与 actualFile 证据，保留原错，测试+tsc；复现原活实例需要库临时写入，应先确认权限，或先设计把几何量测迁到沙盒而源读取仍绑库。截图仍未验收，不能宣称视觉通过。
+
+### 2026-11-13 用户确认重启后的接续：当前会话缺 Figma MCP，未执行 verify
+
+- 已读本快照与既有 JSON 的 `stageDiagnosticPass`。先检索 `figma_list_open_files figma_compile_template`、`+figma_execute` schema，返回仅无关 gcp/Chrome 工具，未发现可调用的 Figma 引擎/代理工具；因此无法 list 连接、读取现场 key、截图或确认新诊断已加载。**工具不可用不等于插件断连**，用户确认重启也不等于本会话已证明加载。
+- 本次 verify 调用 **0 次**；没有新的 smoke/geometry/spacing/file/key 原始错误，不能据历史错误判定本次具体阶段。保留沙盒 Page `159:2927` / 证据 Section `159:2928`，无 Figma 操作；root/pack 仍无。历史 721 tests 仅沿用已记录基线，本次未跑测试。
+- 未用 `scripts/dev/figma-call.mjs` 绕行：它会启动额外 worker，并循环探活，与本轮不得擅自重启/新增重试边界不符。未改配置/凭据、未杀进程、未 commit/push；仅更新既有 JSON `resumedStageDiagnosticAttempt` 与本快照。
+- 最少下一步：将已重启的现有 Figma 引擎 MCP 暴露给当前会话（不是再次重启治疗）。拿到 schema 后只 list 一次两文件；齐全才检查并截图旧证据、现场读 keys、执行一次 verify。失败按新 stage/file/key 定位；成功再 genuine pack 与真实引擎渲染。本次未达到「verify 成功或具体阶段可行动根因」，阻塞在调用工具之前。
+
+### 2026-11-13 deeper focused：verify 可定位诊断已构建，待一次加载
+
+- 以回执 postCacheFixAcceptance 为当前事实：桥缓存修复已真机 true，四原子沙盒 remote import 3–5ms；三个职能独立超时未知，本轮不重试。verify 只循环四原子 keys，不导入职能。`backfill.ts` 聚合所有 smoke 异常为 VERIFY_UNAVAILABLE；历史裸 INTERNAL_ERROR 没有聚合前缀，代码证据更指向 smoke 后的 geometry/spacing，尚不能指定哪次调用。
+- 文件绑定已逐层核对：createServer 将 verify 后端绑沙盒；withFileKey 复用同 client，geometry 重新绑库，source 重新绑源（本次同库）。geometry 仍 import chapter → createInstance → serialize → getNodeInfo/祖先链/readPaints/scanSubtree → finally delete；这比四 key 直接导入多了库内实例化与源数据读取，不能混为同一实验。instantiate 旧 catch 把所有错误都标 stale，清理失败旧版静默，均已收窄。
+- 本轮只读现场：职能 set `185:37833` 的真实 key `5271f51b070b67b81af49fa017cbb58635dbfff2`，三个变体 keys 与回执一致，variantProperties 为 #程序/#GUI/#拼接，均本地 remote=false（不是未发布证据）。REST 发布详情查询返回 **401 Token has expired**，故发布快照/变体 key 是否匹配仍未知；不是插件导入根因。源/章节/气泡祖先链可读；库 Page 没有 __geometry_probe__ 残留。本轮无 Figma 写入，原四实例证据未动。
+- 先补 sharing D7/delta/正式 spec，再增加 verify.smoke/geometry/spacing 前缀；backend 错误附绑定文件与读节点，import/instantiate 含 key 与脚本 import/create/parent/serialize/actualFile；保留 code/原错，不输出 token/脚本。创建后失败删除本轮实例；几何清理失败记 gap。未扩展重试，未发布/改配置/杀进程/改版本/commit/push。
+- 新增 7 回归；tsc 通过，最终全量串行 **87/87 文件，721/721 测试通过（33.33s）**。两轮中间失败分别是明确 stale 缺旧重取提示、smoke 文案断言；已保留兼容提示修正，无放宽测试。dist 已更新。
+- 构建后只读状态仍 worker `50256` / supervisor `56640`，checkedAt `10:06:14.735Z`，未自动加载新诊断。不在旧快照重复 verify。**最少用户动作：仅重启引擎一次加载新构建，两文件插件保持开着；不是治疗桥断连。** 加载后沙盒截取原 Section `159:2928`，一次 verify 使用原回执输入；报错应含 verify.smoke/geometry/spacing + 实际绑定 file/key。若成功再持久化 genuine pack；若失败按单个 stage 排查，不循环职能导入。REST 发布详情如需继续，另由用户更新过期凭据（本轮不改 mcps）。
+
+### 2026-11-13 17:57 deeper focused：桥状态缓存修复，导入阻塞尚未归因
+
+- 关键纠正：不是已证实的「外部桥正常、内部 backend 断连」。同一 worker 7908 的内部 `figma_probe_template(fileKey=沙盒,nodeId=0:0,maxNodes=2)` 已返回真实 `SOP 校验沙盒` 名称；外部 execute 对库/沙盒亦成功。9223 owner 29376 的父链为 56536→29572→24684→7908→32108；worker.ts 将同一 client 传给 proxy 与 backend，没有证据支持隔离 client/端口争抢/插件版本根因。
+- 已证实根因：get_skill_requirements.bridge 只读启动探活缓存，checkedAt 一直是 09:39:44.830Z（早于 status 显示插件 09:39:46 重连）；backend 普通 execute 成功不刷新状态，故内部 probe 成功后仍报 false。verify 的脚本调用 importComponentByKeyAsync；其 “Unable to establish connection to Figma after 10 seconds” 不能证明桥无客户端。实际导入网络/库状态原因仍未知，本轮未重跑 verify/import 或修改 Figma。
+- 先补 sharing D6 与 delta/正式 spec，再最小修复：每次成功内部 execute 更新状态；明确 Cannot connect 才置 false；脚本错误保留最近成功证据；兼容无 _mcp 的 success/error 与 MCP isError；healthCheck 必须返回 1，不凭超时猜已连接。外部代理保持原样透传，不添加自动重连/进程处置。
+- 新增 7 测试，覆盖缓存恢复、导入错误不误报桥断连、error envelope、isError、空探活、同 client 外部/内部并发双文件与重绑定隔离；旧超时测试改为无证据不推断 true。tsc 通过，全量串行 **87/87 文件、714/714 测试通过（38.96s）**。首轮 713/714 的一项失败是旧超时断言要求凭超时置 true，已按证据契约修正。
+- 构建已更新，但现有 7908/32108 读取快照仍旧，未确认自动重载；未杀进程/另起 worker/改 mcps.json/改版本/commit/push。**需用户仅重启引擎一次**，保持两文件插件打开；主代理先分别对两文件做只读内部 probe，再确认 bridge=true 与 checkedAt 更新。随后独立沙盒 verify 一次；若仍导入报错，应查具体组件导入/库网络状态，不再循环重启或把它归因桥断连。发布/render/同步仍未验收。
+
+### 2026-11-13 17:20 排列修复真机验证与发布闸门
+
+- 燕云Page `188:38085` 使用项目名「燕云」重编：top `188:38114`、chapter `188:38135`、cluster `188:38152`、footer `188:38156`。作为下一轮待发布候选，勿误选旧「燕云清洗验证20261113」组件。
+- 编译前后既有Section `185:6265` x/y/width/height对比零变化；新四组件排在其下方，无重叠。本次真机证明排列白名单修复生效。
+- 编译入口已有可见标号1，回执不再报缺标号/N或顶部四字段；产物保留隐藏标号母版，真实点位/几何仍须verify回填。剩余gaps为大尺寸职能实例跳过收编及能力未实测；实际三实例依赖都指向本库自有程序/GUI/拼接组件，不是未知外部资产。
+- 章节截图4694×2183、状态与右列正确。簇透明底截图不可读，已加白底验收预览 `188:38166`（本库实例，不需发布）截图，正文/三职能长文无重叠；配图槽视觉很淡，仍须后续真实资产渲染验证。
+- 人工发布清单：四原子组件 `188:38114/188:38135/188:38152/188:38156` + 运行期职能set `185:37833` 下三变体 `185:37824/185:37827/185:37830`；不要全选发布旧实验组件。原稿/staged/预览无需发布。
+- 发布后需用户打开独立校验沙盒文件并启动Bridge，才可跨文件verify和渲染；当前未执行发布/import/Markdown渲染/同步，不能认定完整接入成功。
+
+### 2026-11-13 编译排列副作用修复（代码完成，未操作 Figma）
+
+- 已先补 sharing design 与 template-compile 规范，再最小实现：compile 只传本轮 built/adopted/set ID，按 Page 合并去重；后端只排直属 COMPONENT / COMPONENT_SET，空/缺失白名单零写入，嵌套成员不提升祖先。新产物排既有根节点包围区下方；新建收编变体集内部另排并撑开尺寸。没有按名字猜项目，也没有因燕云迁到 `188:38085` 就视为修复。
+- 新增 6 回归，实际执行生成插件脚本，比较源稿/旧组件/旧 Section/嵌套资产的 x/y/width/height/parent 快照；同页合并一次、异页分开、空/未知/嵌套 ID 和换行均覆盖，原收编用例增加内部变体坐标断言。tsc 通过；相关 **3/3 文件、33/33 测试**；全量串行 **87/87 文件、707/707 测试通过（37.12s）**，历史基线 701 + 本轮 6。
+- 未操作 Figma、未删除用户资产、未 commit/push、未改远端/版本（仍 0.4.11 / 2.5.1）。tsc 已更新 dist，**需重启引擎加载本次修复**。主代理仅做发布前只读审计，不重复代码调查；本轮快照证明来自脚本回归，不等于真机编译/发布/同步验收。
+
+### 2026-11-13 16:52 项目页面结构纠正（用户要求）
+
+- 库按项目独立 Page 管理，燕云产物不应长期放 `_staging`。已创建并切到 Page「燕云」`188:38085`；将完整验证 Section `185:6265` 移入，位置归零，改名「燕云 / 模板接入验证（未发布）」。所有预览、staged、自有职能 set、四编译组件随迁，原节点 ID/组件引用保留。
+- 后续燕云编译的 `library.pageId` / `partsPageId` 应使用 `188:38085`，不能继续写 `3:10`。原始参考稿 `燕云正文` 和 `燕云模板` 仍留 `_staging`，与既有项目 staging/项目产物分离口径一致；其他项目未移动。
+- 已截图新页全景及预览 `185:6266`：分区无重叠；预览标题→状态→左主图/右正文职能配图→END 顺序正常，卡片/内边距保留，文本可读。这仅证明迁移后结构与预览未损坏，不等于真实引擎 Markdown 渲染/发布/同步验收。
+
+### 2026-11-13 14:20 重建验证区（用户确认旧区已清理，允许重建）
+
+- 旧 178/179/181/183 验证节点已不存在，切勿继续引用。原稿 `173:15842` 与正规模板 `176:48625` 仍在。
+- 新 Section `185:6265`（x6600/y26490，22000×14000）；预览 `185:6266`，staged 区 `185:6267`。staged top/chapter/cluster/footer：`185:6268` / `185:6291` / `185:6499` / `185:6532`。
+- 新编译四组件 `186:38023` / `186:38039` / `186:38056` / `186:38060`。独立职能 set `185:37833`，程序/GUI/拼接组件 `185:37824` / `185:37827` / `185:37830`，规范变体名职能标记=#角色；标签 TEXT 名文本、正文 TEXT 名正文，二者均直接子级。CCS视觉保留，映射拼接。均未发布，本地key不代表可跨文件import。
+- 截图/结构：章节4694×2183，状态未误命名，唯一Text为FRAME；配图GROUP内矩形+提示；统一Noto Sans SC Regular/Bold。已知业务词/邮箱/文本链接清理，IMAGE仅logo与基础操作图标。长职能正文两行可撑高。
+- 新发现副作用：compile触发页面根自动排列，移动既有七个根资产；已按调用前快照恢复全部原始位置并核对尺寸。不能宣称过程未触碰源位置。再次同页compile前先修复排列范围，避免重犯。
+- 首轮缺标号/N，随后向staged/预览补可见标号1（staged `186:38070`），母版正文改#Number；尚未重编重采bubbleGrid，旧gap不应删。18个大职能实例未被收编，但实际引用本轮自有运行期组件；需发布四原子组件+三个职能组件。
+- 下一步：先定位自动排列副作用并最小修复，再决定重编；人工发布后独立沙盒verify、2章3簇图文职能长文渲染、两次同步与单条更新仍未执行。清洗功能自动化尚未交付。
+
+### 2026-11-13 嵌套 none 簇渲染支持（本轮代码完成，真机待验）
+
+- 用户选择保留 Number FRAME + text FRAME，不扁平化样板；章节已真机通过，本轮未改章节编译。先补 sharing design/delta，再改渲染。
+- `fillBlockContent` 在正文唯一宿主内复用 appendBulletsInOrder，无图/多正文/职能/多配图均按 IR 顺序；清掉旧正文、旧配图与模板职能标签，承载正文/标题的职能同名容器受保护。多正文宿主明确 V2_TEMPLATE_STRUCTURE_INVALID。扁平与 slot-run 兼容，无 caps none 降级，CCS 不加全局别名。
+- 深挖发现第二处同步缺口：parts clusterItems 只记正文/配图，漏职能；scanSubtree 是 BFS，深度不同会错序。现按父子树 DFS 收集，职能实例记录规范 role 与独立正文；规划只对已有职能 item 的 parts 启用职能对账，旧未打标文档保持兼容。嵌套无图也 flush 已标记原图种子，扁平 loose 语义不变。mock instantiateByKey 修为真实 INSTANCE 类型。
+- 新增 10 回归：单/多正文、长文、图文交错、图开头、GUI/程序/拼接交错、同名宿主保护、多宿主拒绝、缺变体失败、打标后同稿两次规划零 changes/conflicts + 职能正文修改仅一条更新。tsc 通过；最终全量串行 **87/87 文件、701/701 测试通过（35.42s）**。首次全量 1 项失败为旧 clusterItems 夹具省略 parentId，已兼容无 parentId 视作直接子级后全绿。
+- 版本维持引擎 0.4.11 / skill 2.5.1；未操作 Figma、未 commit/push、未改远端。已更新 dist，**需重启引擎加载**。运行期职能组件由主代理另做，须标签 TEXT + 独立正文 TEXT，variantKeys 映射 GUI/程序/拼接；不把纯标签当正文。
+- 未完成：发布、独立沙盒跨文件导入、2章3簇长文视觉、真实两次同步及局部更新。自动测试仅证明渲染/打标/规划，未验证实际 applyOps；完整清洗功能、推广试点仍未交付。正文与配图共同宿主之外的跨容器编排不在本轮支持范围。
+
+### 2026-11-13 10:28 职能语义确认
+
+- 用户明确：燕云「CCS」就是规范职能「拼接」。项目标签 `CCS注意 / ccs注意` 映射到 `拼接`，保留源稿视觉名称，不将此项目标签擅自推广为所有项目的全局规则。
+- 后续职能样板按 程序 / GUI / 拼接 验证，CCS 不再是待澄清项。仍需补齐职能条目正文载体及嵌套正文消费问题；仅标签变体可收编，不代表职能条目可渲染。
+
+### 2026-11-13 10:15 真机复验：状态槽修复通过，未发布
+
+- 最新 compile 项目名「燕云清洗槽位复验」，四部件 top `183:6194`、chapter `183:6210`、cluster `183:6229`、footer `183:6233`，自有零件集 `183:6252`；均移入隔离 Section `178:56735` 下方，原稿未动。
+- renamed 不再包含状态说明；结构实测唯一 `Text` 为 sect 内 FRAME `183:6209`。状态 TEXT 保留「状态说明」，卡片 4694×2183；截图确认标题/状态/主图区域与圆角外壳正常。主图无业务资产且右栏为空是组件母版预期，不是整篇渲染验收。
+- 簇保留两条嵌套正文、职能实例，配图已是 GROUP（矩形+占位文案）。职能当前变体仍为「职位=程序注意 / GUI注意 / ccs注意」，不等于引擎规范职能条目组件；CCS 语义未确认，不能擅自映射。
+- 仍有明确 gaps：隐藏标号母版存在，但无可见标号/N；顶部缺设计师/需求组/工单/更新时间槽；多项能力沿用输入而非实测。尚未人工发布/跨文件 verify/渲染。下一步先查职能条目的实际组件契约及标号母版消费方式，再补齐可验收部件，不以 written:true 代表完整通过。
+
+### 重启后真机 compile 成功，normalize 状态误改名（历史修复记录）
+
+- 主代理反馈：章节 `181:6124` 为 4694×2183，外壳/标题/状态/舞台/气泡均保留，说明栏为空属组件正常。normalize 却将状态 TEXT `181:6113` 从「状态说明」改为 `Text`；真实右列是 sect 横排内的 `Text` FRAME（1974×1）。
+- 根因：normalizeChapter 只在根直接子级找明确 Text，未找到嵌套右列；图区被识别为整个 sect 后，剩余唯一状态 TEXT 被当说明栏。最小修复：结构遍历优先唯一明确 Text 容器（FRAME/GROUP/COMPONENT/INSTANCE），以其父级定位图区；回退候选同样限定容器，绝不选 TEXT。旧直接两列与空右列继续兼容。
+- 新增 5 项回归：状态更高/更宽、同名 Text 叶节点、嵌套 FRAME/GROUP 空右列、旧模板唯一空右列、只有状态而无右列明确拒绝。相关 **13/13**；tsc 通过；全量串行 **87/87 文件、691/691 测试通过**（33.25s）。更新 template-compile 规范与 CHANGELOG，版本保持 0.4.11 / 2.5.1。
+- 本轮未操作 Figma、未 commit/push、未改远端。tsc 已更新构建产物，仍需再次重启引擎加载本次修复，再由主代理隔离编译验证 renamed 不包含状态、右列仍在 sect 内；不把单测通过当作真机验收。
+- 待验证（本轮不扩改）：gaps 称无可用标号/N，但隐藏「标号/母版」确存在，需核对识别口径与能力判定。
+
+### 重启后真机 compile 失败：ABSOLUTE 父布局约束（上轮已修）
+
+- 用户已重启引擎，嵌套章节 compile 报 `INTERNAL_ERROR: [buildParts] figma_execute failed: Error: in set_layoutPositioning: Can only set layoutPositioning = ABSOLUTE if the parent node has layoutMode !== NONE`。顶部 `180:6070`、章节 `180:6071` 已由主代理清理，本轮未操作 Figma。
+- 根因：`buildChapterShell` 新路径先把舞台设成 NONE，再将源气泡 clone 重挂舞台；`copyPosition` 无条件重写源 ABSOLUTE，违反目标父布局约束。不是重启未生效；此前 683 全绿源于插件 mock 缺少 layoutPositioning setter，漏检。
+- 最小修复只改 copyPosition：仅目标父级启用自动布局时写 layoutPositioning，随后恢复 x/y；自由布局靠坐标定位，不写非法 ABSOLUTE。自动布局下 ABSOLUTE 仍保留，不改变源节点。
+- 测试执行实际生成脚本；mock 新增 Figma setter 约束、clone 同级挂载与稳定 children 快照语义。新增 3 项：嵌套/直接两列 ABSOLUTE 气泡、mock 约束自校验。先跑修前 **18 通过 / 2 失败**，同款报错位于 copyPosition → addGraphic；修后 tsc 通过，全量串行 **87/87 文件、686/686 测试通过**（32.88s）。
+- 已更新规范与 CHANGELOG；版本仍 0.4.11 / 2.5.1，未 commit/push、未改远端。本次 tsc 已更新构建产物；正在运行的引擎需再次重启加载本次修复（除非确认已启用自动重启且已重载），之后由主代理真机重试并截图验收，单测通过不等于 Figma 验收。
+
+### 章节编译代码修复（上轮，尚未 Figma 验收）
+
+- 已先补 sharing design/delta，再修改 `buildChapterShell`：章根/一层横排中的明确 Text+舞台/主图槽位优先；歧义/不完整报错；旧直接左右列保留尺寸回退，排除 TEXT/标题。
+- 完整卡片保留外壳、标题与状态、sect、列宽/内边距/圆角/底色；舞台保留气泡及隐藏母版，仅主图改等尺寸占位，Text 不克隆业务簇。内置 #Name 不重复；外置标题仍进左列。副本统一 Noto Sans SC，原稿只读。版本不升级（0.4.11 / 2.5.1）。
+- tsc 通过；相关 compile-backend/compile-parts/compile-slim-parts/chapter-left-column 共 4 文件/41 测试通过。全量串行首次 85/87 文件、678/682 测试通过；reconcile-adopt 1 项、reconcile-scratch-parts 3 项报 V2_PACK_MISMATCH。
+- 四项已隔离归因并最小修复：从仓库根运行 Vitest（即使传 `--root packages/figma-mcp-server`）仍以仓库根为 `process.cwd()`，缺包夹具删除 `GISOP_TEMPLATE_PACK` 后命中本地 `.interaction-sop/template.json`，指纹 `921154b0410ea209`；仅关闭 bundled 包不足以隔离 cwd/用户包。同一代码改从包目录运行，两文件 10/10 通过，证明非章节代码回归。两测试文件的缺包分支改为显式 `GISOP_TEMPLATE_PACK=off`，生产校验与 reconcile 代码未改。
+- 修复后从仓库根执行 `node node_modules/typescript/bin/tsc -p packages/figma-mcp-server/tsconfig.json` 通过；`node node_modules/vitest/vitest.mjs run --root packages/figma-mcp-server --no-file-parallelism` 全量 **87/87 文件、683/683 测试通过**（34.67s）。本轮未新增测试，仅修夹具；683 为当前工作区实际全量数。Figma 连接、编译视觉与下游仍由主代理实测，不把单测全绿当作 Figma 验收。
+- 未操作 Figma、未提交/push。下轮以 chapter `178:56760` 完整卡片（非 sect）与 cluster `178:56969` 编译至新隔离区，保留失败 `179:57123`；验证标题/状态/主图/气泡/右列及 4694 宽，不以 written:true 宣布成功。正规模板另测，之后才发布/跨文件导入/渲染。完整清洗功能与端到端仍未完成。
+
+### 真编译实证（2026-11-12 18:40，失败，不可发布）
+
+- 已从旧稿组件集复制自有职能样式 `179:57062`（保留源的职位变体），副本三枚标签换成指向新组件的实例；恢复气泡容器 `179:57083` 和隐藏标号母版 `179:57084`。CCS 的规范角色映射仍未确定，不能擅自改成其他角色。
+- 真编译需 `partsPageId`；补 `3:10` 后调用返回 written:true，但产物不合格。四组件 top `179:57116`、chapter `179:57123`、cluster `179:57142`、footer `179:57146`，收编集 `179:57165`。
+- 章节截图是一条 **8828×115** 的横条，丢标题、图区、气泡。根因定位到 `src/server/figmaConsoleBackend.ts:1592`：buildChapterShell 把源直接子节点中最高者当说明列、另一最宽者当图区；本次输入完整卡片直接子节点为标题/状态/sect，算法把 sect 当说明列、状态文本当主图。不能用 written:true 或簇 run checks 通过宣布成功。
+- 本轮产物已搬入隔离 Section `178:56735` 下方，Section 名更新为「燕云 / 清洗实证 v2（编译未验收）」；保留失败证据，未发布，未修改原稿。
+- 下一步需先调整设计/实现边界：编译应识别有明确槽位的嵌套章节结构，或明确分离完整视觉外壳与编译用的两列骨架，同时保留标题、状态和外壳几何。不能直接再换节点碰运气。簇嵌套正文、配图重复命名及职能渲染也仍待后续验收。
+
+### 目标与边界（用户已确认）
+
+引擎 `0.4.11` / skill `2.5.1`（沿用上次交接，本轮未改代码）。总目标仍是「能推广给其他设计团队」，但必须同时支持两种真实起点：
+
+| 起点 | 必须跑通的路径 |
+|---|---|
+| 有正规交互模板 | 只读体检 → 确认部件与能力 → 编译 → 人工发布 → 独立沙盒 verify → 渲染验收 |
+| 复制旧交互文档当模板 | 识别骨架 → 隔离副本抽取与清洗 → 干净模板体检 → 同一套编译、发布、验证与渲染验收 |
+
+**正式稿转干净模板不是临时绕路，也不能因找到正规模板而取消。** 正规燕云模板可作对照基准，不要求抽取结果逐像素复刻它；正式稿可能包含另一套有效样式。
+
+推广证据：既有安装/渲染与新用户沙盒 8/8 是已有基线；双路径外部模板接入、真人独立试用仍待证明。本轮未重跑基线。
+
+### 本轮实证与纠正（不要重复错误）
+
+- 库文件 `jQf7zj33pzOGsGKO4d73OO`，`_staging` 页 `3:10`；旧燕云正式稿根 `173:15842`。
+- AI 已结合局部层级、重复结构与截图自主挑选：顶部 `173:15844`、章节内部 `sect` `173:15940`、章节标题 `173:15936`、说明簇 `173:15972`、结尾 `173:16291`。
+- **`cell_comment` 确实是交互说明簇，不是因为名字含 comment 就应排除的评论。** 之前探针选中的隐藏 `活动1` 不适合作章节；不要把两者一概认定为误选。
+- 第一次干跑未传能力，默认 `clusterGroups:slot-run`，报「没有 #Title 分组标题」。按当前候选结构显式传 `clusterGroups:none` 后，原始候选也能通过入口检查。其余能力传值仅为当前实验假设，未完成全链路验证；不能把默认能力或 `gaps:[]` 当实测证据。
+- 已在原稿右侧建立 Section `燕云 / 抽取验证（未发布）` `176:48948`；副本 staged：top `176:48949`、chapter `176:48972`、chapterTitle `176:49046`、cluster `176:49048`、footer `176:49085`。只复制并改部分槽位名，未真编译、未发布。
+- **整体截图验收失败**：标题被放在章节内容下方；只抽内部 sect 丢了浅灰圆角外壳/内边距/状态标题关系；章节残留两张旧图、四个旧簇，下方还重复摆了独立簇；人员、旧需求、旧配图未清洗。现有 Section 只是失败实验素材，不能当干净模板或合格产物。
+- 单簇透明底截图黑字难辨；之前仅凭单簇截图宣称外观无问题，证据不足。后续必须整体验收 + 可读底色的局部验收。
+- 用户已找到正规燕云模板，但尚未提供本轮可用的链接/根节点；不要把旧正式稿当成正规模板。
+
+### 持续推进实录（2026-11-12 16:27）
+
+- 已发现正规模板：同库同页 `176:48625`（5400×15289），旧稿现在名为 `燕云正文`。正规模板章节 `176:48717`、簇 `176:48724`；局部结构与章节截图已对照，sharing 8.3 完成。
+- 已补 proposal 最新范围、design D0 与 engine-mcp-server delta 清洗要求/场景，8.4 完成（尚未执行 OpenSpec validate）。正规模板黄色方编号/1775 宽簇与旧稿红色定位编号/1974 宽嵌套簇是合法风格差异，不能混搭。
+- 清洗实证 v2 尝试超时：脚本在逐个加载原字体并修改混合字体正文期间执行 20s 超时。随后只读确认只生成顶部和章节的半成品；已删除本轮 Section `177:56463`，原稿和旧实验区未动。8.6–8.9 不能勾选。
+- 字体决策已更新（2026-11-12 16:55，用户确认）：清洗副本统一用引擎通用 `Noto Sans SC`，不必沿用项目字体，也不再先排查/加载原稿的 Noto Sans Symbols。先验证通用字体加载，再在副本归一化后改文案；保留字号/字重层级/颜色，检查换行与布局变化，原稿不改。
+- OpenSpec CLI 要用 `npx --package @fission-ai/openspec openspec ...`；裸 `npx openspec` 误命中 npm 的 `openspec@0.0.0`，没有可执行入口。
+
+### 清洗实证 v2（2026-11-12 17:00）
+
+- `Noto Sans SC` Regular/Bold 已单独加载成功；在副本直接设 fontName 后替换文字，避免加载旧混合字体，操作成功。
+- 新隔离 Section `178:56735`，整篇预览 `178:56736`，位于 x=26000。部件：top `178:56737`、完整章节外壳 `178:56760`、簇 `178:56969`、footer `178:57021`。原稿未改，旧失败区保留。
+- 已替换业务标题/状态/正文、主图、配图；移除人员与联系信息、多余状态/旧簇/隐藏旧标签。保留 logo 与基础操作图标，扫描剩余 IMAGE 仅这三项；已知旧业务词节点名为空。仍需完整链接及非文本元数据审计，不将已知词扫描视为通用清洗证明。
+- 章节外壳保持 4694 宽，修正自动布局拉伸为 5400 的问题；整篇和卡片截图确认标题在前、浅灰圆角/内边距保留、正文占位可读。编号重置为 1。配图 GROUP `179:57061` 含矩形与占位文案。
+- 为清理项目字体依赖，本轮副本实例已 detach；因此职能标签只剩视觉，**不能宣称 component-variant 能力仍成立**。也尚未保留图上标号母版。干跑显式用 roleAnnotation:none / badgeSlot:none 仅验证入口，不满足最终完整能力验收；下一步恢复自有职能组件及标号载体，不可用 none 降级冒充接入成功。
+- 原簇是 Number + 嵌套 text，正文不是直接子节点；仍待真编译/渲染验证，不因截图通过就视为可用。
+- `openspec validate sop-sharing-readiness --strict` 已通过；本轮未真编译、未发布、未改引擎代码。手动样板成功不等于 8.10 可重复清洗功能已实现。
+
+### 下一步计划（顺序与完成条件）
+
+1. **收集双样本并只读对照**：取得正规模板位置，保留旧正式稿样本。AI 按命名、层级、重复结构和截图建立部件/样式/槽位映射；只对真实歧义请用户确认，不要求用户先手选一章一簇。
+2. **先定义清洗契约再实现**：在现有 sharing change 补齐抽取边界、保留/替换/移除规则、能力依据、歧义与验收场景；如需改引擎，先补设计与规格，不直接编码。工具名称与是否拆成推荐/抽取两个工具尚未决定。
+3. **在隔离区修正最小样板**：保留章节外壳、标题/状态标题关系、布局、编号和职能样式；去掉旧图、具体需求、个人信息、审核记录和无关隐藏历史内容，以明确占位替换。保留需要的隐藏样式母版，不盲删全部隐藏节点。独立部件与整篇预览分区，避免重复簇被误认为文档内容；原稿不动。
+4. **先视觉验收，再真编译**：整篇与局部截图可读，标题顺序、卡片、留白正确；显式确认能力后干跑，再在确认的目标区真编译。干跑只验入口，不能证明嵌套正文、配图 FRAME 或职能变体能用。失败重试清理本轮半成品，不删除原稿或用户资产。
+5. **两条路径分别留证，共用下游**：人工发布后在独立沙盒 verify（不在库内自证）；深审计、模板包和最小 2 章/3 簇渲染，覆盖正文、职能条目、配图与长短内容。连续同步两次应无变更，再改单条正文验证局部更新；记录所有差异，不把不同合法风格强行统一。
+6. **固化可重复能力与推广验收**：把手工实证沉淀为可重复的正式稿清洗功能（仅推荐 nodeId 不算完成），补测试、使用说明与回执；回归既有包和新用户沙盒，再找真人独立试用。
+
+**干净模板完成标准**：原稿未变；可复用视觉与完整结构保留；业务数据被占位替换；槽位/能力有依据；歧义可见；真实编译、跨文件导入和渲染通过。推荐候选、改名或干跑通过均不算完成。
 
 ### 库存资产（直接能用，别重造）
 

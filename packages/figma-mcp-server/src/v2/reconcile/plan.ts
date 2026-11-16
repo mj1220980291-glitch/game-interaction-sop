@@ -637,21 +637,27 @@ class Planner {
       }
     }
 
-    // Items.多部件文档的 `@职能` 条目渲染成组件实例，stamp 不按条目记录，
-    // 这里也不要求它们作为文本行存在，否则幂等同步会每次重复插入一条。
-    // `####` 子标题同理：parts 的打标清单里没有它，序号必须与之同源。
+    // 新 parts 渲染会给职能实例打 item 标记；旧文档未打标时保持历史兼容，
+    // 避免向旧产物重复插入职能。已有职能条目必须参与对账，否则同稿同步会删掉实例。
     const isParts = this.snap.profile.id === 'parts';
     const want = expectedItems(cl, {
-      includeRoles: !isParts,
+      includeRoles: !isParts || oc.items.some((it) => it.t === 'role'),
       includeSubtitles: !isParts,
       inlineRoles: this.inlineRoles
     });
+    // parts 文档里职能有两种写法：`- @角色：正文` 是条目（按序列对账），簇级 `@GUI`
+    // 注记不是——它只落成占位正文为空的实例。后者若混进序列，正文不同会产生多条
+    // conflicts，正文清空则被当成多余条目删掉（真机 2026-11-16 首轮 3 个 delete，
+    // 标注行消失）。所以只在 md 没有职能子弹时，把这类条目从序列里剔除。
+    const oldItems = isParts && !want.some((w) => w.t === 'role')
+      ? oc.items.filter((it) => it.t !== 'role')
+      : oc.items;
     const seq = this.align(
-      oc.items,
+      oldItems,
       (it) => `${it.t}:${it.W}`,
       want.map((w) => `${w.t}:${w.text}`),
       (o, ni) => {
-        const old = oc.items[o]!;
+        const old = oldItems[o]!;
         const next = want[ni]!;
         if (old.t !== next.t) return false;
         if (next.t !== 'role') return true;

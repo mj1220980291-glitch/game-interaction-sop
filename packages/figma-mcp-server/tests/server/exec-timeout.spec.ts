@@ -102,15 +102,15 @@ describe('探活把结论写进 bridgeState', () => {
     expect(s.lastRoundtripMs).toBeUndefined();
   });
 
-  it('socket 在但不回话 → V2_BRIDGE_NO_REPLY，pluginConnected 保持 true', async () => {
+  it('无回程 → V2_BRIDGE_NO_REPLY，不凭超时推断插件已连接', async () => {
     const prev = process.env.GISOP_EXEC_TIMEOUT_MS;
     process.env.GISOP_EXEC_TIMEOUT_MS = '30';
     try {
       const backend = buildFigmaConsoleBackend(clientHanging());
       await expect(backend.healthCheck!()).rejects.toMatchObject({ code: NO_REPLY_CODE });
       const s = getBridgeState();
-      // 有客户端、但沙箱不回话 —— 与「插件没开」是两种失败
-      expect(s.pluginConnected).toBe(true);
+      // 没有任何成功回环或 socket 证据，不能把单次超时推断为已连接。
+      expect(s.pluginConnected).toBeUndefined();
       expect(s.lastRoundtripMs).toBeUndefined();
     } finally {
       if (prev === undefined) delete process.env.GISOP_EXEC_TIMEOUT_MS;

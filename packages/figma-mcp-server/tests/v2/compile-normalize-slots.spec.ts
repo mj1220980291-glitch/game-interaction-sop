@@ -162,6 +162,58 @@ describe('normalizeSlotNames', () => {
     expect(to.get('ecol')).toBe(CHAPTER_SLOTS.clusterHost);
   });
 
+  it.each([
+    { type: 'FRAME' as const, statusName: '状态说明', w: 1000, h: 3000 },
+    { type: 'GROUP' as const, statusName: '状态说明', w: 6000, h: 80 },
+    { type: 'FRAME' as const, statusName: 'Text', w: 6000, h: 3000 }
+  ])('嵌套 $type Text 优先于状态 TEXT（$statusName，$w×$h）', async ({ type, statusName, w, h }) => {
+    const nodes = [
+      n('c', '章节', 'COMPONENT', ['title', 'status', 'sect'], { w: 4694, h: 2183 }),
+      n('title', '标题', 'FRAME', ['titleText'], { w: 1000, h: 80 }),
+      n('titleText', '#Name', 'TEXT', [], { text: '章节标题', w: 800, h: 60 }),
+      n('status', statusName, 'TEXT', [], { text: '状态说明', w, h }),
+      n('sect', 'sect', 'FRAME', ['stage', 'col'], { w: 4500, h: 2000 }),
+      n('stage', '舞台', 'FRAME', ['img', 'bubble'], { w: 2400, h: 2000 }),
+      n('img', '主图占位', 'RECTANGLE', [], { w: 2400, h: 1600 }),
+      n('bubble', '气泡', 'FRAME', ['badge'], { w: 2400, h: 1600 }),
+      n('badge', '标号/母版', 'FRAME', ['number'], { w: 48, h: 48, visible: false }),
+      n('number', '#Number', 'TEXT', [], { text: '1', w: 40, h: 40 }),
+      n('col', 'Text', type, [], { w: 1974, h: 1 })
+    ];
+    const { backend, renamed } = slotsBackend(nodes);
+    const r = await normalizeSlotNames({ backend, parts: [{ part: 'chapter', nodeId: 'c' }] });
+    expect(renamed).toEqual([]);
+    expect(r.renamed).toEqual([]);
+    expect(r.gaps).toEqual([]);
+  });
+
+  it('旧直接两列模板：唯一空右列不受更高更宽状态 TEXT 干扰', async () => {
+    const nodes = [
+      n('c', '章节', 'FRAME', ['title', 'status', 'stage', 'col'], { w: 4694, h: 2183 }),
+      n('title', '#Name', 'TEXT', [], { text: '章节标题', w: 800, h: 60 }),
+      n('status', '状态说明', 'TEXT', [], { text: '状态说明', w: 6000, h: 3000 }),
+      n('stage', '舞台', 'FRAME', ['img'], { w: 2400, h: 2000 }),
+      n('img', '主图占位', 'RECTANGLE', [], { w: 2400, h: 1600 }),
+      n('col', '旧说明栏', 'FRAME', [], { w: 1974, h: 1 })
+    ];
+    const { backend, renamed } = slotsBackend(nodes);
+    await normalizeSlotNames({ backend, parts: [{ part: 'chapter', nodeId: 'c' }] });
+    expect(renamed).toEqual([{ nodeId: 'col', name: CHAPTER_SLOTS.clusterHost }]);
+  });
+
+  it('状态 TEXT 不是右列候选，即使它是图区外唯一节点', async () => {
+    const nodes = [
+      n('c', '章节', 'FRAME', ['stage', 'status'], { w: 4694, h: 2183 }),
+      n('stage', '舞台', 'FRAME', ['img'], { w: 2400, h: 2000 }),
+      n('img', '主图占位', 'RECTANGLE', [], { w: 2400, h: 1600 }),
+      n('status', '状态说明', 'TEXT', [], { text: '状态说明', w: 6000, h: 3000 })
+    ];
+    const { backend, renamed } = slotsBackend(nodes);
+    await expect(normalizeSlotNames({ backend, parts: [{ part: 'chapter', nodeId: 'c' }] }))
+      .rejects.toMatchObject({ code: COMPILE_CODES.SLOT_UNMAPPED });
+    expect(renamed.some((r) => r.nodeId === 'status' && r.name === CHAPTER_SLOTS.clusterHost)).toBe(false);
+  });
+
   it('关键槽位缺失时拒绝', async () => {
     const nodes = [
       n('k2', 'Group 1253', 'GROUP', ['kn2', 'knt2'], { w: 900, h: 800 }),

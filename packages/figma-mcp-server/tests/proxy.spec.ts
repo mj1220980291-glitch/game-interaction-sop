@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Tool, ListToolsResult, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { buildFigmaConsoleBackend } from '../src/server/figmaConsoleBackend.js';
+import { getBridgeState, setBridgeState } from '../src/server/bridgeState.js';
 import {
   buildNativeTools,
   createServer,
@@ -159,6 +161,45 @@ describe('proxy — tools/call dispatch', () => {
       (result.content[0] as { type: string; text: string }).text
     ) as { code: string };
     expect(body.code).toBe('TOOL_NOT_FOUND');
+  });
+});
+
+describe('proxy/backend 共享 client 与逐调用文件定向', () => {
+  it('外部 execute、内部 probe 并发双文件使用同一 client 且不串线', async () => {
+    const { client, calls } = makeFakeClient(async (req) => {
+      const args = req.arguments as { fileKey?: string; code?: string };
+      const file = args.fileKey ?? 'ACTIVE';
+      const node = { id: '0:0', type: 'DOCUMENT', name: file, children: [] };
+      return { content: [{ type: 'text', text: JSON.stringify({
+        _mcp: 'figma-console-mcp', success: true,
+        result: args.code?.includes('return { nodes: result, truncated }')
+          ? { nodes: [node], truncated: false } : node
+      }) }] };
+    });
+    const backend = buildFigmaConsoleBackend(client);
+    const server = createServer({ v2Backend: backend, proxyClient: client,
+      proxyTools: [{ name: 'figma_execute', inputSchema: { type: 'object' } }] });
+    const handler = getHandler(server, 'tools/call');
+    setBridgeState({ pluginConnected: false });
+    const invoke = (name: string, args: Record<string, unknown>) => handler({
+      method: 'tools/call', params: { name, arguments: args }
+    }) as Promise<CallToolResult>;
+    const external = await invoke('figma_execute', { code: 'return figma.root.name;', fileKey: 'LIB' });
+    expect(external.isError).not.toBe(true);
+    const reports = await Promise.all(['LIB', 'SANDBOX'].map((fileKey) =>
+      invoke('figma_probe_template', { nodeId: '0:0', fileKey, maxNodes: 2 })));
+    expect(reports.every((r) => !r.isError)).toBe(true);
+    expect(reports.map((r) => JSON.parse((r.content[0] as { text: string }).text).source.nodeName))
+      .toEqual(['LIB', 'SANDBOX']);
+    expect(calls).toHaveLength(5); // getNodeInfo + scanSubtree per probe
+    expect(calls.map((c) => (c.arguments as { fileKey: string }).fileKey))
+      .toEqual(['LIB', 'LIB', 'SANDBOX', 'LIB', 'SANDBOX']);
+    expect(calls.every((c) => c.name === 'figma_execute')).toBe(true);
+    expect(getBridgeState().pluginConnected).toBe(true);
+    await backend.withFileKey!('LIB').withFileKey!('SANDBOX').getNodeInfo('0:0');
+    expect((calls[5].arguments as { fileKey: string }).fileKey).toBe('SANDBOX');
+    await backend.getNodeInfo('0:0');
+    expect(calls[6].arguments).not.toHaveProperty('fileKey');
   });
 });
 

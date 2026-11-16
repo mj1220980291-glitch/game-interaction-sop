@@ -16,10 +16,12 @@ import {
   acquireSupervisorLock,
   bridgeCleanupHint,
   describeBridgeFailure,
+  describeBridgeSnapshot,
   describeNoReply,
   getBridgeState,
   pidAlive,
   readSupervisorLock,
+  recordWorkerBoot,
   releaseSupervisorLock,
   setBridgeState
 } from '../../src/server/bridgeState.js';
@@ -94,6 +96,52 @@ describe('bridge 诊断', () => {
       if (prev === undefined) delete process.env.GISOP_SUPERVISOR_PID;
       else process.env.GISOP_SUPERVISOR_PID = prev;
     }
+  });
+
+  it('桥快照只读已有状态：端口/探活/pid 一次给全', () => {
+    setBridgeState({ port: 9224, fallback: true, holderPid: 77, pluginConnected: false });
+    const text = describeBridgeSnapshot();
+    expect(text).toContain('port=9224');
+    expect(text).toContain('fallback=true');
+    expect(text).toContain('holderPid=77');
+    expect(text).toContain('pluginConnected=false');
+    expect(text).toContain(`worker=${process.pid}`);
+  });
+
+  it('快照不因缺值抛错', () => {
+    setBridgeState({ pluginConnected: undefined, lastRoundtripMs: undefined });
+    expect(describeBridgeSnapshot()).toContain('pluginConnected=-');
+  });
+});
+
+describe('worker 生命周期留痕', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gisop-lifecycle-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('追加一行 JSON，含 pid 与启动时刻', () => {
+    const file = path.join(dir, 'nested', 'worker-lifecycle.log');
+    recordWorkerBoot(
+      { pid: 111, supervisorPid: 222, startedAt: '2026-11-16T02:54:06.000Z', engineVersion: '0.4.11', probe: 'ok' },
+      file
+    );
+    recordWorkerBoot({ pid: 333, startedAt: '2026-11-16T03:00:00.000Z', probe: 'failed', detail: 'Cannot connect' }, file);
+    const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ pid: 111, supervisorPid: 222, probe: 'ok' });
+    expect(lines[1]).toMatchObject({ pid: 333, probe: 'failed', detail: 'Cannot connect' });
+  });
+
+  it('写不进去也不抛错', () => {
+    const blocked = path.join(dir, 'blocked');
+    fs.writeFileSync(blocked, 'not a dir');
+    expect(() => recordWorkerBoot({ pid: 1, startedAt: 'x' }, path.join(blocked, 'x.log'))).not.toThrow();
   });
 });
 

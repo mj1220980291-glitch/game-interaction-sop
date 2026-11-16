@@ -188,6 +188,13 @@ function sourceBackend(): FigmaBackend {
 }
 
 describe('verify 阶段从 key 采几何', () => {
+  it('清理失败记录实例 ID gap，不静默宣称清理成功', async () => {
+    const library = libBackend({ deleted: [] });
+    library.deleteNodes = async () => { throw new Error('delete denied'); };
+    const result = await captureGeometryFromKeys({ libraryBackend: library, chapterKey: 'k-chapter', docBackground: '#eeeeee' });
+    expect(result.gaps.some((g) => g.what.includes('geometry.cleanup 实例 lib:inst') && g.what.includes('delete denied'))).toBe(true);
+  });
+
   it('给了原稿 id 就能采到章节外框、标号网格与占位色', async () => {
     const trace = { deleted: [] as string[] };
     const { geometry, gaps } = await captureGeometryFromKeys({

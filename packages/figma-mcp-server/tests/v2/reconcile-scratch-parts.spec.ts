@@ -204,7 +204,8 @@ function harness(itemText: string) {
 }
 
 function useNoPack(on: boolean): void {
-  if (on) delete process.env.GISOP_TEMPLATE_PACK;
+  // 删除变量仍会查找 cwd / 用户目录的包；显式 off 才能隔离「缺包」夹具。
+  if (on) process.env.GISOP_TEMPLATE_PACK = 'off';
   else process.env.GISOP_TEMPLATE_PACK = packPath;
 }
 

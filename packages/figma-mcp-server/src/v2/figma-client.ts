@@ -356,13 +356,12 @@ export interface FigmaBackend {
   setNodeVisible?(nodeId: string, visible: boolean): Promise<void>;
 
   /**
-   * 把某页的顶层节点按名字顺序排成多行（永不重叠）。
-   *
-   * 编译产出的组件默认都落在 `(0,0)` 上互相遮挡，人打开库根本看不清有几个；
-   * 排版是给人看的最小礼貌，也让"少了哪个部件"一眼可辨。
+   * 仅排列显式白名单中的页面直属新建组件/组件集；不移动既有资产。
+   * 缺失或空白名单零写入，嵌套成员不提升到祖先。
    */
   arrangePageChildren?(p: {
     pageId: string;
+    nodeIds: string[];
     gapX?: number;
     gapY?: number;
     maxWidth?: number;

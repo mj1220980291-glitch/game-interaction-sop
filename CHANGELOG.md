@@ -1,5 +1,79 @@
 # CHANGELOG
 
+## 未发布 — parts 同步不再把簇级职能注记当多余条目（版本不变）
+
+- 真机（`185:1278`）新建正确但首轮同步报 3 个 delete 并把 6 个职能载体全部置 hidden：`reconcile/plan.ts` 把「簇级 `@GUI` 注记」落成的实例当成条目序列成员——`expectedItems` 只认 `- @角色：正文` 子弹，两边对不上，正文清空后 `itemClean` 放行 → 判为多余删除。
+- 修复：parts 文档且 md 没有职能子弹时，把 role 条目从序列剔除（职能仍由 `stamp.roles` / `roleOps` 对账）；md 用 `- @角色：正文` 时维持原行为（条目级增删改）。
+- 回归保住 4 个原有用例（嵌套职能正文局部更新、adopt needs-new-node、改单条只 1 处）；tsc 通过，全量串行 **87 文件 / 737 测试**（相关 4 文件 43 测试）。真机待重启加载后重渲染验证：新建视觉只留标注角色，两次同步 `changes: []` 且 `conflicts: []`。
+- 真机已验证（`187:2759`，worker 55156）：新建视觉 01/1 只 GUI、01/2 无角色行、02/1 只 程序+拼接；同步两次均 `changes: [] / conflicts: []`；改单条正文只 1 处 update、冲突 0。遗留：章节母版自带示例簇（簇标题/正文占位/3 行职能）仍随章出现，属 8.8 已记的「章节与独立簇重复」，另立 8.27。
+
+## 未发布 — 模板职能行按 md 角色取舍（版本不变）
+
+- 真机缺陷：`component-variant` 模式下模板预置的职能实例全部显示（燕云每簇多出程序/拼接两行，带「XX职能正文占位」），同步固定产出 9 条 conflicts。只读比三个模板母版：官方 1.14 是 1 个空 `职能标记` FRAME、蛋仔无职能节点、燕云 3 个可见 INSTANCE —— 不是燕云模板坏，而是「模板预置载体 + 渲染器从不消费」的组合。
+- 修复（先补 D10 + delta）：`parts/index.ts` 的 `component-variant` 分支新增 `syncRoleCarriers`——带角色后缀的载体按本簇 `roles` 取舍，未标注置 `visible=false`（隐藏不删除，保版面），标注的保留并清空模板占位正文；md 用 `@角色：正文` 时隐藏模板载体交由新实例承载；只叫 `职能标记` 的纯容器不动。隐藏/清空失败只记 `V2_W_ROLE_CARRIER_LEFT` 软警告，不中断渲染。
+- 新增 2 条回归（未标注隐藏+标注清空、纯容器不受影响）；tsc 通过，全量串行 **87 文件 / 736 测试通过（37.66s）**。未操作 Figma；真机需重启加载后重渲染一份新稿，两次同步应 `changes: []` 且 `conflicts: []`。
+
+## 未发布 — 燕云引入验收：pack / 渲染 / 同步真机结果（版本不变，仅留证）
+
+- 真实 pack 落 `f:\vibecoding\game-interaction-sop\.interaction-sop\template.json`（origin=cwd）：四原子 key + 完整 geometry + `roleBlock.variantKeys`（GUI `e4b5d01f…` / 程序 `277f9217…` / 拼接 `807b37cb…`）。`audit_template_pack` findings 空，`deep:true` 4 key 全 ok。
+- `phase=verify`（`write:false`）全过，宿主侧 3.72s；渲染 `root 182:625`（2 章 3 簇、3 气泡、配图 1 张 IMAGE + 1 个占位灰板），顶部/章节/结尾骨架正确。警告仅 phase1Signoff 缺失、badgeAnchors 默认、02/1/1 无资产。
+- 同步两次 `changes: []`（幂等），改单条正文只出 1 处 update（`02/1/#1`）。
+- **发现缺陷**：每簇里模板原生的 3 个职能实例（`职能标记=#程序/#GUI/#拼接`，含「XX职能正文占位」）保持 visible，未标注角色也显示；`parts/index.ts:813-817` 的 component-variant 分支只有注释没有清理。同步因此固定 9 条 conflicts，达不到「零变更零冲突」。按 sharing design 74 行「保护承载正文的标签框」它们被刻意留下，需补 D10/spec 划边界再改。
+- 另记：13:49–13:51 期间宿主又整轮替换了 MCP（supervisor 32572→55500），冷启动时渲染按新 `V2_BRIDGE_DOWN` 预检直接失败、未误报四键，随后插件 6s 内回连、重跑通过；两次启动都留在 `worker-lifecycle.log`。
+
+## 未发布 — verify 可观测性与桥级短路（版本不变）
+
+- 只读复核 2026-11-16 两轮 verify：确认整服务在 10:54:05 被换、非本地动作、dispatch 不等就绪；推翻「每部件 ~16s 是 figma-console 等回连」（1.46.0 的 no-client 是快路径：`websocket-connector.js:50-53`），把「宿主 60s self-heal」降级为未证实（verify#1 同样 64.166s 却由旧 worker 应答）。证据落 `docs/pilot/reports/yanyun-deeper-focused-20261113.json` 的 `lifecycleDiagnosis20261116`。
+- import 冒烟逐部件记 `{part, key, startedAt, elapsedMs, errorKind}` 并进错误 `details`；`errorKind` 分 `no-client` / `no-reply` / `busy` / `not-published` / `other`。桥级失败立即短路，未尝试部件单独列出，不再把一次桥故障写成「四个部件都不可用」；未发布仍全量聚合。
+- 失败信息附只读桥快照（端口/fallback/holderPid/pluginConnected/往返耗时/checkedAt/worker/supervisor），不发额外往返。`phase=verify` 冒烟前加一次 `verify.bridge` 有界探活（`return 1`，5s），失败不入四键循环。
+- worker 启动追加一行 JSON 到 `~/.game-interaction-sop/worker-lifecycle.log`（pid、supervisorPid、startedAt、engineVersion、探活结论），写失败不阻断。宿主不转发子进程 stderr，重启史只能自留痕。
+- 先补 sharing D9、delta 与正式 spec，再实现。新增 12 回归（短路/聚合/分类/桥快照/留痕/verify.bridge）；tsc 通过，全量串行 **87 文件 / 734 测试通过（37.34s）**。本轮未操作 Figma、未改配置/凭据、未提交/push。
+- 真机验收（同日）：用户重启 MCP 后加载新构建（supervisor 32572 / worker 19624），`worker-lifecycle.log` 首条记录即 boot `probe failed`，插件 10–20s 后重连——留痕按设计工作。两文件重开插件后一次 `phase=verify`（`write:false`）**通过**：四原子真实 import、geometry、spacing 全过，gaps/diffs 为空，宿主侧耗时 **3.72s**，说明有活客户端时 import 是亚秒级，此前 64s 属无客户端窗口。插件上报版本仍为 1.39.0（磁盘 code.js 已是 1.41.5，Figma 侧加载缓存），另查。未写 pack、未渲染、未同步、未提交/push。
+
+## 未发布 — readPaints 实例后代直查挂起修复（版本不变）
+
+- 新临时实例真机复现原 readPaints 的 10s 错误；独立完整后代 ID getNodeByIdAsync 超时，运行时 child.id 查询同样 pending；同文件根实例树内定位、真实 fills/strokes 与 JSON copy 成功。排除本次 mixed/JSON 返回与文件缓存猜测；Figma 内部挂起原因仍未知。
+- readPaints 对实例后代改为根实例查询 + 有界子树精确匹配（20000），普通 ID/缺失/hex 契约不变，不加网络/重试/写入。先补 sharing D8、delta 与正式 spec。
+- 新增 4 项真实生成脚本回归（永久 pending mock、嵌套精确匹配、mixed/普通/缺失、预算边界/错误上下文）；tsc 通过，全量串行 87 文件 / 725 测试通过（33.79s）。真机替代路径返回 #F5F5F5/#BFBFBF，临时 Section/实例已 finally 删除，页面残留为空。未重跑 verify/职能导入；构建已更新，运行中进程尚未证明重载，正式验收需加载新构建，不以重启当根因。
+
+
+## 未发布 — verify 阶段/文件/key 诊断（版本不变）
+
+- verify 区分 smoke/geometry/spacing；backend 错误带绑定 fileKey、读取节点、import/instantiate key 与脚本内阶段。保留原始错误/code，不把超时一概报 stale 或桥断连；明确缺组件仍提供 verify 重取提示。
+- 实例创建后脚本失败清理本轮实例；几何 finally 删除失败记可见 gap。未增加重试或更改文件绑定。
+- 先补 sharing D7 与 delta/正式 spec。新增 7 回归；tsc 通过，最终全量串行 87 文件 / 721 测试通过（33.33s）。现场只读确认职能 set/variant 本地 keys；REST 发布详情被 401 Token has expired 阻断，发布/导入根因仍未知。无 Figma 写入/发布/配置/版本/commit/push；旧 worker 未重载，需一次加载新构建后单次 verify 留证。
+
+
+## 未发布 — 共享桥最近执行证据（沿用引擎 0.4.11 / skill 2.5.1）
+
+- 真机内部 probe 已能读取独立沙盒，进程父链与 worker 构造证明外部代理/内部后端共用同一 console client。历史 bridge=false 是插件重连前的启动缓存，不是持续断连证据；verify 导入错误的具体网络/库原因仍未知，未靠插件版本差异或重启猜测。
+- backend 成功 execute 刷新桥快照；仅明确桥不可连接置 false，脚本导入错误不抹掉已成功的往返。修正无 `_mcp` 的 success/error envelope 和 MCP isError 处理，healthCheck 仅接受真实 `return 1`；超时不再无证据推断已连接。代理原样透传与文件定向不变。
+- 新增 7 回归，含同 client 外部/内部并发双文件、重绑定与未绑定隔离。tsc 通过，全量串行 **87 文件 / 714 测试通过（38.96s）**。未修改 Figma、未重跑 verify、未改配置/版本/远端、未提交/push。构建更新但旧进程未确认重载，需一次引擎重启后只读 probe/状态验证；导入及端到端另验。
+
+
+## 未发布 — 编译排列仅限本轮新资产（沿用引擎 0.4.11 / skill 2.5.1）
+
+- 修复 compile 按 Page 全根排列导致源稿、旧组件和项目 Section 被移动：改为本轮 built/adopted/set ID 白名单，同页合并去重，后端只处理直属 COMPONENT / COMPONENT_SET；空/缺失名单零写入，嵌套成员不提升到祖先。新产物放既有根节点包围区下方，新建变体集内部独立排列。
+- 新增 6 回归，执行真实插件脚本比较旧资产坐标/尺寸/父级快照，覆盖同页合并、异页隔离、空/未知/嵌套 ID、换行；既有收编测试增加内部变体间距断言。tsc 通过，相关 **3 文件 / 33 测试**，全量串行 **87 文件 / 707 测试通过（37.12s）**。未操作 Figma、未删用户资产、未提交/push、未改版本/远端；构建已更新，需重启引擎加载。
+
+
+## 未发布 — 嵌套 none 簇顺序渲染（沿用引擎 0.4.11 / skill 2.5.1）
+
+- 保留燕云 Number + text 嵌套结构，在正文唯一宿主内复用顺序构建，支持无图/多正文、GUI/程序/拼接职能实例、正文多图交错与长文；清理模板职能标签但保护承载正文/标题的同名容器。多正文宿主明确失败；不改已通过章节，不扁平化、不降级 caps、不新增 CCS 全局别名。
+- parts 条目清单按树 DFS 顺序收集职能实例，记录独立正文与 role，防止 BFS 错序和同稿同步删除职能；旧未打职能 item 的 parts 保持原口径。嵌套无图时清除已标记图种子，扁平 loose 行为不变。测试后端按真实接口返回 INSTANCE。
+- 新增 10 测试，含同稿两次规划零变更/零冲突及单条职能正文局部更新。tsc 通过；全量串行 **87 文件 / 701 测试通过（35.42s）**。未操作 Figma、未提交/push；需重启加载新构建，发布/跨文件导入/长文视觉/真实重复同步另验。
+
+## 未发布 — 章节完整卡片编译修复（沿用引擎 0.4.11 / skill 2.5.1）
+
+- 重启后真机章节 `181:6124` 已输出 4694×2183，外壳/标题/状态/舞台/气泡保留；空说明栏符合组件预期。但 normalize 将状态 TEXT `181:6113`（状态说明）误改为 `Text`，与 sect 内真实右列冲突。最小修复：结构遍历优先选唯一明确的 `Text` 容器，并以其父级定位图区；所有说明栏候选排除 TEXT，保留旧直接两列回退。新增 5 项回归（更高/更宽状态、同名 TEXT、嵌套 FRAME/GROUP 空右列、旧模板唯一右列、仅有状态无右列）；相关 **13/13**、tsc 通过，全量串行 **87/87 文件、691/691 测试通过**（33.25s）。本轮未操作 Figma、未提交/push；需再次重启引擎后真机复验。另记：gaps 称无可用标号/N，但隐藏标号/母版确存在，待验证，本轮不扩改。
+
+- 修复燕云完整卡片被编译为 8828×115：明确槽位优先，支持一层嵌套横排，不再把 sect/状态文本误作右列/主图。
+- 保留外壳、标题、状态、列宽、内边距、底色、圆角、气泡及隐藏母版；主图等尺寸占位、右列空壳；副本文本 Noto Sans SC。原稿只读，既有直接两列与外置标题保留兼容。
+- 插件脚本回归新增 5 场景；相关 4 文件/41 测试通过。全量首次四项 reconcile 的 V2_PACK_MISMATCH 已定位为缺包夹具受 cwd 本地模板包污染（并非章节代码回归）：两测试文件显式设 `GISOP_TEMPLATE_PACK=off` 隔离查找，不改生产校验。修复后 tsc 通过、全量串行 **87/87 文件、683/683 测试通过**。Figma 未操作，视觉与下游仍待实测。
+
+- 后续重启引擎真机 compile 仍失败：`INTERNAL_ERROR: [buildParts] figma_execute failed: Error: in set_layoutPositioning: Can only set layoutPositioning = ABSOLUTE if the parent node has layoutMode !== NONE`。气泡 clone 重挂到已设 NONE 的舞台后，`copyPosition` 无条件重写源 ABSOLUTE，违反 Figma 父布局约束；此前 683 全绿的 mock 未实现该属性，漏检。
+- 最小修复：`copyPosition` 仅在目标父级启用自动布局时复制 layoutPositioning，再恢复 x/y；自由布局不写非法 ABSOLUTE。插件脚本 mock 增加真实 setter 约束及 clone 同级挂载语义，新增嵌套/直接两列气泡与 mock 自校验共 3 项，修前两场景复现同款报错。修后 tsc 通过，全量串行 **87/87 文件、686/686 测试通过**（32.88s）。本轮不操作 Figma；半成品 `180:6070` / `180:6071` 已由主代理清理，真机复验待重新加载本次引擎代码后执行，未宣称 Figma 验收。
+
 ## 0.4.11（引擎，skill 仍 2.5.1）— 2026-11-12
 
 **`phase=contract` 明明不连 Figma，却要求 Figma 后端。** 新用户沙盒首跑抓到的：

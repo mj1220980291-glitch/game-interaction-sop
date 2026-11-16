@@ -781,7 +781,7 @@ export function buildNativeTools(opts: CreateServerOptions = {}): NativeToolDef[
         '低于 requiredSkillVersion 时提示用户升级（软警告，不阻断）。' +
         '返回：{ requiredSkillVersion: string, engineVersion: string, bridge?: { port, preferredPort, fallback, holderPid, pluginConnected, lastRoundtripMs, enginePid, supervisorPid } }。' +
         'bridge.fallback=true 表示子进程退到了备用端口（render 会报 Cannot connect，代理工具仍正常）；' +
-        'bridge.pluginConnected=false 表示子进程没有插件接入（插件没开，或刚重启还没重连）；' +
+        'bridge.pluginConnected 是最近一次内部成功执行或明确连接失败的快照，不是实时 socket 状态；false 可能早于插件重连；' +
         'enginePid 每次渲染都变说明宿主重启了整个 MCP（请求超时后的自愈），不是 worker 正常换人。' +
         '引擎 < 0.3.0 不提供此工具，Preflight 会收到 TOOL_NOT_FOUND 并退化为"引擎版本较旧"的提示。',
       inputSchema: SKILL_REQUIREMENTS_INPUT_SCHEMA as unknown as Tool['inputSchema']

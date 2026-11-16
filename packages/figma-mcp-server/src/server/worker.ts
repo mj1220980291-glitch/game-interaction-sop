@@ -40,7 +40,8 @@ import {
   parseBridgePortStatus,
   PREFERRED_BRIDGE_PORT
 } from './reclaimPorts.js';
-import { describeBridgeFailure, getBridgeState, setBridgeState } from './bridgeState.js';
+import { describeBridgeFailure, getBridgeState, recordWorkerBoot, setBridgeState } from './bridgeState.js';
+import { ENGINE_VERSION } from '../v2/version.js';
 
 /** 给握手加个上限：常驻宿主刚起时 child 可能还没就绪，不能无限等。 */
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -60,6 +61,8 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
 export async function main(): Promise<void> {  let v2Backend = undefined;
   let proxyClient: Client | undefined;
   let proxyTools: Tool[] = [];
+  const startedAt = new Date().toISOString();
+  const bootProbe: { probe?: 'ok' | 'failed'; detail?: string } = {};
 
   if (process.env.FIGMA_BACKEND === 'figma-console') {
     const token = process.env.FIGMA_ACCESS_TOKEN ?? '';
@@ -314,11 +317,14 @@ export async function main(): Promise<void> {  let v2Backend = undefined;
     if (v2Backend?.healthCheck) {
       try {
         await withTimeout(v2Backend.healthCheck(), 8000, 'bridge probe timeout');
+        bootProbe.probe = 'ok';
         process.stderr.write(
           `[figma-interaction-doc-engine] bridge probe ok — plugin reachable ` +
             `(${getBridgeState().lastRoundtripMs ?? '?'}ms)\n`
         );
       } catch (err) {
+        bootProbe.probe = 'failed';
+        bootProbe.detail = (err as Error).message;
         process.stderr.write(
           `[figma-interaction-doc-engine] bridge probe failed: ${(err as Error).message}\n`
         );
@@ -340,9 +346,18 @@ export async function main(): Promise<void> {  let v2Backend = undefined;
     }
   }
 
+  // 宿主换人时不转发 stderr：重启史只能自己留痕（D9）。
+  const supervisorPid = Number(process.env.GISOP_SUPERVISOR_PID);
+  recordWorkerBoot({
+    pid: process.pid,
+    ...(Number.isFinite(supervisorPid) && supervisorPid > 0 ? { supervisorPid } : {}),
+    startedAt,
+    engineVersion: ENGINE_VERSION,
+    ...bootProbe
+  });
+
   const server = createServer({ v2Backend, proxyClient, proxyTools });
-  const transport = new StdioServerTransport();
-  // 父进程换人时会关掉这条管道：worker 必须自己退，不要赖在后台抢 Bridge 端口
+  const transport = new StdioServerTransport();  // 父进程换人时会关掉这条管道：worker 必须自己退，不要赖在后台抢 Bridge 端口
   // （父进程拿不到子进程 pid 时杀不掉它，见 index.ts killAndWait）。
   const die = (): void => process.exit(0);
   transport.onclose = die;

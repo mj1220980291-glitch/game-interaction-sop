@@ -38,7 +38,7 @@ import {
   type FigureState
 } from '../../render.js';
 import { retryTransient } from '../../../server/retry.js';
-import type { RoleBlockRuntime } from '../../role-block.js';
+import { findRoleBlockBody, parseRoleBullet, roleOfVariantName, type RoleBlockRuntime } from '../../role-block.js';
 import { isFigureSlotBullet, stripImageBulletPrefix } from '../../reconcile/stamp.js';
 import { withInlineRoleSuffix } from '../../role-suffix.js';
 import {
@@ -811,7 +811,9 @@ async function fillChapter(
       // 职能/编号的写法差异：不是组件变体 / 不显示编号时，簇里的载体没有意义，
       // 留着只会把原稿角色一起带进产物。
       if (ctx.caps.roleAnnotation === 'component-variant') {
-        // 组件变体：职能由「职能标记」实例承载，簇里的编辑器残留帧要清掉再插实例。
+        // 组件变体：职能由「职能标记」实例承载，簇里的编辑器残留要先按 md 取舍，
+        // 否则母版预置的三行会全部显示（真机 2026-11-16：燕云每簇多两行、同步 9 条 conflicts）。
+        await syncRoleCarriers(backend, node, cluster, ctx.roleBlocks, ctx.warnings);
       } else {
         await deleteMatching(b, node.id, (n) => isRoleFrameNode(n));
       }
@@ -825,6 +827,7 @@ async function fillChapter(
         ctx.caps.clusterGroups
       );
       const seedId = await findNamed(backend, node.id, CLUSTER_SLOTS.figure);
+      const nestedSeed = seedId !== undefined && (await backend.getNodeInfo(seedId)).parentId !== node.id;
       const imageSeed = makeImageSeed(seedId);
       await fillCluster(
         tracedDeletes(b),
@@ -841,11 +844,12 @@ async function fillChapter(
       // 种子槽在簇内被删过一次就说明它只是克隆源，用完必须清掉：
       // 以前 parts 路径从不 flush，于是每簇都多留一个模板原生的空 `配图` 框。
       // md 没写 `配图：` 时不删——那个槽要留着被隐藏（`loose` 三态里的 hidden）。
-      if (effective.bullets.some(isFigureSlotBullet)) await imageSeed.flush(b);
+      // 嵌套宿主采用顺序重建，无图也应清除已标记的原生种子；扁平 loose 语义不变。
+      if (nestedSeed || effective.bullets.some(isFigureSlotBullet)) await imageSeed.flush(b);
       // 同一棵簇子树要扫两遍：一遍算版面清单，一遍补灰板和占位文案。
       // 合成一次——4000 节点的簇一次扫描就是 1.7s 级，翻倍直接顶到超时线。
       const { nodes: clusterNodes } = await backend.scanSubtree(node.id, 20000);
-      const layout = await collectClusterLayout(backend, node, effective, clusterNodes);
+      const layout = await collectClusterLayout(backend, node, effective, clusterNodes, ctx.roleBlocks);
       clusters.push(layout);
       // md 声明了配图却没有资产——以前是**完全静默**的：图位空着，warnings 里一个字
       // 都没有。逐条报出来，别让人对着一张缺图文档猜。
@@ -950,12 +954,14 @@ async function collectClusterLayout(
   backend: FigmaBackend,
   node: NodeInfo,
   cluster: SemanticCluster,
-  preScanned?: NodeInfo[]
+  preScanned?: NodeInfo[],
+  roleBlocks?: RoleBlockRuntime
 ): Promise<PartsClusterLayout> {
   const nodes = preScanned ?? (await backend.scanSubtree(node.id, 20000)).nodes;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const figureTexts = cluster.bullets.filter(isFigureSlotBullet).map(stripImageBulletPrefix);
-  const ordered = clusterItems(nodes, node.id);
+  const rolePrefix = roleBlocks?.config.variantPrefix ?? '职能标记=';
+  const ordered = clusterItems(nodes, node.id, rolePrefix);
 
   // 哪个配图槽是真的放了图？看组里 `配图占位` 矩形的 IMAGE 填充。
   // 不能按「第几个配图槽」猜——填充逻辑会把图放到新克隆的槽上，按序号猜会把
@@ -994,6 +1000,12 @@ async function collectClusterLayout(
   const claimed = new Set<string>();
   let figureIndex = 0;
   for (const { id, t } of ordered) {
+    if (t === 'role') {
+      const bodyId = await findRoleBlockBody(backend, id, roleBlocks?.config.labelTextName ?? '文本');
+      items.push({ nodeId: id, t, text: bodyId ? byId.get(bodyId)?.characters ?? '' : '',
+        role: roleOfVariantName(byId.get(id)!.name, rolePrefix) });
+      continue;
+    }
     if (t !== 'figure') {
       items.push({ nodeId: id, t, text: byId.get(id)?.characters ?? '' });
       continue;
@@ -1066,8 +1078,68 @@ async function resetHiddenPool(
   }
 }
 
-/** `inline-subtitle`：`####` 不占槽位，作为该组首行的前缀写入。 */
-function inlineSubtitles(
+/**
+ * component-variant：模板自带的职能行按 md 的 `@角色` 取舍。
+ *
+ * 母版可能预置多个角色实例（燕云三个，带占位正文）。md 只声明本簇用到谁：
+ *   - 未标注 → 隐藏（不删：版面按行排，删了会塌一截）；
+ *   - 标注且 md 没给正文 → 显示，清空模板占位正文（该模式 md 只写角色名）；
+ *   - 标注且 md 用 `@角色：正文` → 隐藏模板载体，正文由新建实例承载。
+ * 只认带角色后缀的载体；只叫 `职能标记` 的纯容器（官方 1.14）不动。
+ */
+async function syncRoleCarriers(
+  backend: FigmaBackend,
+  clusterRoot: NodeInfo,
+  cluster: SemanticCluster,
+  roleBlocks: RoleBlockRuntime | undefined,
+  warnings: SoftWarning[]
+): Promise<void> {
+  if (!roleBlocks) return;
+  const prefix = roleBlocks.config.variantPrefix;
+  const annotated = new Set(cluster.roles);
+  const mdBodies = new Map<string, string>();
+  for (const bullet of cluster.bullets) {
+    const parsed = parseRoleBullet(bullet);
+    if (parsed) mdBodies.set(parsed.role, parsed.text);
+  }
+  const { nodes } = await backend.scanSubtree(clusterRoot.id, 400);
+  let left = 0;
+  for (const n of nodes) {
+    if (n.id === clusterRoot.id) continue;
+    const name = String(n.name ?? '');
+    if (!name.startsWith(prefix)) continue;
+    const role = roleOfVariantName(name, prefix);
+    if (!role) continue; // 纯容器：可能是实例落点，不动
+    const keep = annotated.has(role) && !mdBodies.has(role);
+    if (!keep) {
+      if (n.visible !== false && typeof backend.setNodeVisible === 'function') {
+        try {
+          await backend.setNodeVisible(n.id, false);
+        } catch {
+          left += 1;
+        }
+      }
+      continue;
+    }
+    const bodyId = await findRoleBlockBody(backend, n.id, roleBlocks.config.labelTextName);
+    if (!bodyId) continue;
+    try {
+      await backend.setTextContent(bodyId, '');
+    } catch {
+      left += 1;
+    }
+  }
+  if (left > 0) {
+    warnings.push({
+      code: SOFT_WARNING_CODES.W_ROLE_CARRIER_LEFT,
+      message:
+        `「${clusterRoot.name}」有 ${left} 个模板职能行没能按 md 角色处理（Bridge 超时），` +
+        '可能多显示一行或残留占位正文'
+    });
+  }
+}
+
+/** `inline-subtitle`：`####` 不占槽位，作为该组首行的前缀写入。 */function inlineSubtitles(
   cluster: SemanticCluster,
   mode: TemplatePack['capabilities']['clusterGroups']
 ): SemanticCluster {

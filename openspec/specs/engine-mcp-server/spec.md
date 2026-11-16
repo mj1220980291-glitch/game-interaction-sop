@@ -3,6 +3,63 @@
 ## Purpose
 TBD - created by archiving change proxy-figma-console-tools-from-engine. Update Purpose after archive.
 ## Requirements
+
+### Requirement: readPaints SHALL 避开实例后代异步直查挂起
+
+readPaints 对 `I<root>;...` SHALL 查询根实例并在其子树按完整 ID 精确匹配，不调用完整实例后代 ID 的 getNodeByIdAsync。遍历 SHALL 最多访问 20000 节点，超预算明确失败。普通 ID 保留异步查询，缺失节点跳过；mixed/非 SOLID 不返回颜色。只返回 nodeId 与可选 hex fill/stroke，绑定文件及原始错误上下文保留；无网络、重试或写入。
+
+#### Scenario: 完整实例后代 ID 查询永久 pending
+- **WHEN** 根实例可读且子树存在该后代，而完整 ID 的异步查询不返回
+- **THEN** readPaints SHALL 从子树读得真实 fill/stroke，不等待或调用挂起入口，不以重启作为修复
+
+#### Scenario: 预算与合法缺色
+- **WHEN** 子树超出预算，或填充为 mixed/隐藏/非 SOLID
+- **THEN** 前者明确失败，后者正常省略颜色；不得混为成功的假空结果
+
+### Requirement: verify 错误 SHALL 标明阶段与绑定文件
+
+verify SHALL 区分 smoke、geometry、spacing；backend execute 失败 SHALL 附实际绑定 fileKey，导入与实例化 SHALL 附组件 key 与脚本内阶段，保留原始错误和 code，不输出脚本、环境或 token。仅明确组件不存在 SHALL 分类 stale；连接措辞或超时 SHALL NOT 推断未发布或 key 失效。
+
+#### Scenario: 四 key 导入成功后失败
+- **WHEN** 沙盒四原子 smoke 成功，随后库实例化或源几何读取失败
+- **THEN** 错误 SHALL 定位 geometry 及实际文件；实例化失败 SHALL 带 chapter key 和 import/create/parent/serialize 阶段，不归为 smoke 或笼统桥断连
+
+#### Scenario: 临时实例创建后失败
+- **WHEN** 实例创建后序列化/挂载失败，或几何采集后的清理失败
+- **THEN** 脚本 SHALL 清理本轮实例；几何清理失败 SHALL 记录含实例 ID 的 gap，不静默宣称清理成功
+
+
+### Requirement: 共享桥状态 SHALL 反映最近执行证据
+
+proxy 与 backend SHALL 使用同一 MCP client；withFileKey SHALL 保持逐调用文件定向，不改变活动文件。backend 成功 execute SHALL 刷新 pluginConnected=true 与往返耗时；明确桥不可连接错误 SHALL 置 false。插件脚本中的导入网络错误 SHALL NOT 被当作桥断连证据。get_skill_requirements SHALL 保持只读快照，不主动导入或重连。
+
+#### Scenario: 启动探活失败后插件恢复
+- **WHEN** 启动缓存为 false，之后内部 probe 成功返回目标文件数据
+- **THEN** 快照 SHALL 更新为 true；外部 execute 与内部请求 SHALL 到达同一 client，多个文件绑定 SHALL 互不串线
+
+#### Scenario: 执行失败与健康结果判定
+- **WHEN** MCP 返回 isError、success=false 或无 _mcp 的 error envelope
+- **THEN** backend SHALL 抛出原始错误，不把错误对象当成功结果；healthCheck SHALL 仅接受 return 1 的真实结果
+- **AND** importComponentByKeyAsync 的 “Unable to establish connection” 错误 SHALL NOT 抹掉已确认的桥成功往返
+
+
+### Requirement: 章节空壳编译 SHALL 优先识别明确槽位
+
+章节编译 SHALL 在章根或一层横向布局中定位 `Text` 与 `舞台` / `rec组` / `主图占位`，不得用状态 TEXT 或整段 sect 的尺寸代替两列。重复或不完整明确槽位 SHALL 报错；没有明确槽位的旧直接两列 SHALL 保留兼容构造，候选排除 TEXT 与标题。
+
+#### Scenario: 完整卡片与既有直接两列
+
+- **WHEN** 输入包含标题、状态与嵌套横排舞台/Text
+- **THEN** SHALL 保留外壳宽度、底色、圆角、内边距、标题/状态顺序及横排容器，右列只生成空壳，主图替换为同尺寸中性占位，保留气泡与隐藏母版
+- **AND** 副本文本 SHALL 使用 Noto Sans SC，源只读；已有 #Name 时不得重复插入另传标题
+- **AND** 既有直接两列的外置标题 SHALL 仍位于左列，不能成为第三列；写入成功不代替截图/导入/渲染验收
+
+#### Scenario: ABSOLUTE 气泡重挂自由布局舞台
+
+- **WHEN** 源气泡使用 ABSOLUTE，章节编译将其克隆到 `layoutMode=NONE` 的舞台
+- **THEN** SHALL 仅在目标父节点启用自动布局时写入 `layoutPositioning`；自由布局 SHALL 直接保留 x/y，不写入不合法的 ABSOLUTE
+- **AND** 自动布局父级下的 ABSOLUTE SHALL 保留；实际插件脚本 mock SHALL 拒绝无父级或 NONE 父级下的 ABSOLUTE 赋值
+
 ### Requirement: 引擎对外工具集
 
 MCP Server `figma-interaction-doc-engine` SHALL 只暴露 v2 Markdown 管道所需的原生工具，外加从 figma-console-mcp 代理转发的全部工具。

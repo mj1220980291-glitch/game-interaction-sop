@@ -34,6 +34,54 @@ function tool(backend: FigmaBackend = okBackend) {
 }
 
 describe('figma_compile_template', () => {
+  it('verify smoke 四 key 成功后库实例化失败，回传 geometry/file/key 而非桥断连结论', async () => {
+    const imports: string[] = [];
+    const bindings: string[] = [];
+    const backend = {
+      ...okBackend,
+      importComponentByKey: async (key: string) => { imports.push(key); return { id: key }; },
+      withFileKey: (file: string) => {
+        bindings.push(file);
+        if (file === 'SANDBOX') return backend;
+        return {
+          instantiateByKey: async () => { throw new Error('[instantiateByKey file=LIB key=k-chapter stage=import] network unavailable'); },
+          deleteNodes: async () => {}
+        };
+      }
+    } as unknown as FigmaBackend;
+    const r = await tool(backend).handler({
+      ...base, phase: 'verify', project: 'diagnostic-no-sidecar-20261113',
+      source: { fileKey: 'SOURCE', nodeId: 'root' }, verifyFileKey: 'SANDBOX',
+      docBackground: '#eeeeee', components: { top: 'k-top', chapter: 'k-chapter', cluster: 'k-cluster', footer: 'k-footer' }
+    }) as ToolResult;
+    const error = JSON.parse(r.content[0]!.text);
+    expect(error.message).toContain('verify.geometry library=LIB chapterKey=k-chapter');
+    expect(error.message).toContain('stage=import');
+    expect(error.code).toBe('INTERNAL_ERROR');
+    expect(imports).toEqual(['k-top', 'k-chapter', 'k-cluster', 'k-footer']);
+    expect(bindings).toEqual(['SANDBOX', 'LIB', 'SOURCE']);
+    expect(r.isError).toBe(true);
+  });
+
+  it('桥没通时在 verify.bridge 就停，不进入四键冒烟', async () => {
+    const imports: string[] = [];
+    const backend = {
+      ...okBackend,
+      healthCheck: async () => { throw new Error('figma_execute failed: Cannot connect to Figma Desktop.'); },
+      importComponentByKey: async (key: string) => { imports.push(key); return { id: key }; }
+    } as unknown as FigmaBackend;
+    const r = await tool(backend).handler({
+      ...base, phase: 'verify', verifyFileKey: 'SANDBOX',
+      components: { top: 'k-top', chapter: 'k-chapter', cluster: 'k-cluster', footer: 'k-footer' }
+    }) as ToolResult;
+    const error = JSON.parse(r.content[0]!.text);
+    expect(error.message).toContain('[verify.bridge]');
+    expect(error.message).toContain('Cannot connect');
+    expect(error.message).toContain('未进入部件冒烟');
+    expect(error.code).toBe('V2_COMPILE_VERIFY_UNAVAILABLE');
+    expect(imports).toEqual([]);
+  });
+
   it('注册并声明写入类', () => {
     const def = tool();
     expect(def.tool.description).toContain('写入');

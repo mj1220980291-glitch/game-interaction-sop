@@ -10,6 +10,7 @@
  */
 
 import type { FigmaBackend } from '../figma-client.js';
+import { describeBridgeSnapshot } from '../../server/bridgeState.js';
 import {
   TEMPLATE_PACK_SCHEMA_VERSION,
   parseTemplatePack,
@@ -21,6 +22,39 @@ import { PART_LABELS, PART_ORDER, type PartName } from './parts.js';
 
 export type ComponentKeys = Partial<Record<PartName, string | null>>;
 
+/**
+ * 冒烟失败的分类。
+ *
+ * 现场教训（2026-11-16 只读复核）：四条 `Cannot connect` 被当成「四个部件都
+ * 不可用」，实际是桥级一句话。分类是为了别再让人从聚合文本里反推根因。
+ */
+export type VerifyErrorKind = 'no-client' | 'no-reply' | 'busy' | 'not-published' | 'other';
+
+/** 桥级失败：再试后面的 key 只会得到同一句话，立刻停。 */
+const BRIDGE_LEVEL: ReadonlySet<VerifyErrorKind> = new Set<VerifyErrorKind>([
+  'no-client',
+  'no-reply',
+  'busy'
+]);
+
+export interface VerifyAttempt {
+  part: PartName;
+  key: string;
+  startedAt: string;
+  elapsedMs: number;
+  errorKind: VerifyErrorKind;
+}
+
+export function classifyVerifyError(error: unknown): VerifyErrorKind {
+  const err = error as { message?: string; code?: string } | undefined;
+  const msg = String(err?.message ?? error ?? '');
+  if (err?.code === 'V2_BRIDGE_NO_REPLY' || /没有回程/.test(msg)) return 'no-reply';
+  if (/cannot connect|no websocket client|unable to establish connection/i.test(msg)) return 'no-client';
+  if (/still busy|timed out|timeout/i.test(msg)) return 'busy';
+  if (/published component|could not find/i.test(msg)) return 'not-published';
+  return 'other';
+}
+
 export interface VerifyPublishedInput {
   backend: FigmaBackend;
   keys: ComponentKeys;
@@ -29,6 +63,9 @@ export interface VerifyPublishedInput {
 /**
  * 真 import 冒烟。返回可用的 key 表；任一非可选部件缺失或取不到即拒绝，
  * 且**不写部分 key**（半套 key 比没有更糟：渲染会拿到不完整的模板）。
+ *
+ * 每个部件都留 `{startedAt, elapsedMs, errorKind}`；桥级失败立即短路，未尝试
+ * 的部件单独列出，避免把一次桥故障写成「四个部件都不可用」。
  */
 export async function verifyPublished(
   input: VerifyPublishedInput
@@ -42,6 +79,7 @@ export async function verifyPublished(
 
   const missing: string[] = [];
   const transport: string[] = [];
+  const attempts: VerifyAttempt[] = [];
   const ok: Partial<Record<PartName, string>> = {};
 
   for (const part of PART_ORDER) {
@@ -51,27 +89,48 @@ export async function verifyPublished(
       missing.push(`${PART_LABELS[part]}（未提供 key）`);
       continue;
     }
+    const startedAt = new Date().toISOString();
+    const startedMs = Date.now();
     try {
       await input.backend.importComponentByKey(key);
       ok[part] = key;
+      continue;
     } catch (e) {
       const msg = String((e as Error)?.message ?? e);
       // 只有「找不到已发布组件」才算未发布；连不上文件是另一回事，
       // 否则插件没开时会误报「你还没发布」。
-      if (/published component|Could not find/i.test(msg)) {
+      const errorKind = classifyVerifyError(e);
+      attempts.push({ part, key, startedAt, elapsedMs: Date.now() - startedMs, errorKind });
+      if (errorKind === 'not-published') {
         missing.push(`${PART_LABELS[part]}（key ${key.slice(0, 8)}… 取不到，多半还没发布）`);
-      } else {
-        transport.push(`${PART_LABELS[part]}: ${msg.slice(0, 160)}`);
+        continue;
       }
+      transport.push(
+        `${PART_LABELS[part]} key=${key}: ${msg}（${errorKind}，${Date.now() - startedMs}ms）`
+      );
+      if (BRIDGE_LEVEL.has(errorKind)) break;
     }
   }
 
   if (transport.length > 0) {
-    throw compileError(
+    const tried = new Set(attempts.map((a) => a.part));
+    const skipped = PART_ORDER.filter((p) => input.keys[p] && !tried.has(p) && !ok[p]);
+    const detail = attempts
+      .map((a) => `${PART_LABELS[a.part]} ${a.elapsedMs}ms ${a.errorKind}`)
+      .join('、');
+    const err = compileError(
       COMPILE_CODES.VERIFY_UNAVAILABLE,
-      `冒烟跑不起来（不是发布问题）：${transport.join('；')}——` +
-        '请把连接插件开在源项目文件里（不能是库文件本身），再重试'
+      `冒烟跑不起来（不能据此判定未发布或桥断连）：${transport.join('；')}` +
+        (skipped.length > 0
+          ? `；未尝试：${skipped.map((p) => PART_LABELS[p]).join('/')}（桥级失败已短路）`
+          : '') +
+        `；尝试明细：${detail}` +
+        '——按具体部件 key、绑定文件与原始错误排查，不自动要求发布或重启' +
+        `。${describeBridgeSnapshot()}`
     );
+    throw Object.assign(err, {
+      details: { stage: 'verify.smoke', attempts, skipped, bridge: describeBridgeSnapshot() }
+    });
   }
 
   if (missing.length > 0) {

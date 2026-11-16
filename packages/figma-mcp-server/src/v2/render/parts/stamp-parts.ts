@@ -18,6 +18,7 @@
 
 import type { FigmaBackend, NodeInfo } from '../../figma-client.js';
 import type { DocIR } from '../../ir.js';
+import { roleOfVariantName } from '../../role-block.js';
 import type { TemplatePack } from '../../template/schema.js';
 import { CHAPTER_SLOTS, CLUSTER_SLOTS, TOP_SLOTS, isBadgeFrame } from '../../template-slots.js';
 import { packComponents, packHash } from '../../template/pack-hash.js';
@@ -35,6 +36,8 @@ export interface PartsItemLayout {
   t: ItemType;
   /** What the node says right now (bullets) or the figure description. */
   text: string;
+  /** Canonical role for a runtime role instance. */
+  role?: string;
 }
 
 export interface PartsClusterLayout {
@@ -82,15 +85,29 @@ export function visibleIds(nodes: NodeInfo[]): Set<string> {
 }
 
 /** 条目：簇子树里按文档顺序排列的规则 / 配图节点（跳过隐藏备用池）。 */
-export function clusterItems(nodes: NodeInfo[], clusterId: string): Array<{ id: string; t: ItemType }> {
+export function clusterItems(nodes: NodeInfo[], clusterId: string, rolePrefix = '职能标记='): Array<{ id: string; t: ItemType }> {
   const visible = visibleIds(nodes);
-  return nodes
-    .filter((n) => n.id !== clusterId && visible.has(n.id))
-    .filter((n) => n.name === CLUSTER_SLOTS.bullet || n.name === CLUSTER_SLOTS.figure)
-    .map((n) => ({
-      id: n.id,
-      t: (n.name === CLUSTER_SLOTS.figure ? 'figure' : 'rule') as ItemType
-    }));
+  const children = new Map<string, NodeInfo[]>();
+  for (const node of nodes) {
+    if (node.id === clusterId) continue;
+    const parentId = node.parentId ?? clusterId;
+    const list = children.get(parentId) ?? [];
+    list.push(node);
+    children.set(parentId, list);
+  }
+  const out: Array<{ id: string; t: ItemType }> = [];
+  const visit = (id: string): void => {
+    for (const n of children.get(id) ?? []) {
+      if (!visible.has(n.id)) continue;
+      const t: ItemType | undefined = n.type === 'INSTANCE' && roleOfVariantName(n.name, rolePrefix)
+        ? 'role' : n.name === CLUSTER_SLOTS.figure ? 'figure'
+          : n.type === 'TEXT' && n.name === CLUSTER_SLOTS.bullet ? 'rule' : undefined;
+      if (t) out.push({ id: n.id, t });
+      else visit(n.id);
+    }
+  };
+  visit(clusterId);
+  return out;
 }
 
 export async function stampPartsDoc(
@@ -195,12 +212,12 @@ export async function stampPartsDoc(
         const iid = newId('i');
         writeItems.push({
           nodeId: it.nodeId,
-          stamp: { kind: 'item', iid, t: it.t, text: it.text },
+          stamp: { kind: 'item', iid, t: it.t, text: it.text, ...(it.role ? { role: it.role } : {}) },
           // 配图要记下这次写入的图片哈希：下次同步靠它区分「md 换了图」与
           // 「设计师自己换了图」，没有哈希一律算冲突。
           ...(it.t === 'figure' ? { captureHash: true } : {})
         });
-        return { id: iid, t: it.t, text: it.text };
+        return { id: iid, t: it.t, text: it.text, ...(it.role ? { role: it.role } : {}) };
       });
       for (const id of cl.looseNodes ?? []) slots.push({ nodeId: id, role: 'template' });
       clusterWrites.push({

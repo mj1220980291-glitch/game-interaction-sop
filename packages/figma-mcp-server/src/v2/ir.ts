@@ -190,6 +190,8 @@ export const SOFT_WARNING_CODES = {
   /** reconcile — 多个节点携带同一个标记 id（设计师复制了节点），只认第一个 */
   W_DUPLICATE_STAMP: 'V2_W_DUPLICATE_STAMP',
   /** render — 隐藏备用池没删干净（Bridge 超时），节点仍隐藏，不影响成图 */
+  /** render — 模板自带的职能行没能按 md 角色隐藏/清空（Bridge 超时） */
+  W_ROLE_CARRIER_LEFT: 'V2_W_ROLE_CARRIER_LEFT',
   W_HIDDEN_POOL_LEFT: 'V2_W_HIDDEN_POOL_LEFT',
   /**
    * render — 模板包已命中，但调用方仍传了 `template.fileKey/nodeId`。

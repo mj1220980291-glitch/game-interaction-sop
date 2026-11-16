@@ -33,6 +33,7 @@ import { CHAPTER_SLOTS } from '../template-slots.js';
 import { captureDocSpacing, captureGeometry, captureGeometryFromKeys, readGeometrySidecar, writeGeometrySidecar } from './geometry.js';
 import type { TemplateGeometry } from '../template/schema.js';
 import { COMPILE_CODES, compileError } from './errors.js';
+import { describeBridgeSnapshot } from '../../server/bridgeState.js';
 
 export interface CompileInput {
   phase: 'compile' | 'verify' | 'contract';
@@ -94,6 +95,22 @@ export interface CompileReport {
   /** 人读的书写契约（`verify` / `contract` 阶段返回）。 */
   mdContract?: MdContract;
   written: boolean;
+}
+
+export async function arrangeCompiledParts(
+  backend: FigmaBackend,
+  groups: Array<{ pageId: string; nodeIds: string[] }>
+): Promise<void> {
+  if (!backend.arrangePageChildren) return;
+  const byPage = new Map<string, Set<string>>();
+  for (const { pageId, nodeIds } of groups) {
+    const selected = byPage.get(pageId) ?? new Set<string>();
+    for (const id of nodeIds) selected.add(id);
+    byPage.set(pageId, selected);
+  }
+  for (const [pageId, ids] of byPage) {
+    if (ids.size > 0) await backend.arrangePageChildren({ pageId, nodeIds: [...ids] });
+  }
 }
 
 export async function compileTemplate(input: CompileInput): Promise<CompileReport> {
@@ -194,7 +211,23 @@ async function verifyPhase(raw: CompileInput): Promise<CompileReport> {
   const backend = requireBackend(raw);
   const input = { ...raw, backend };
   const keys = input.components ?? {};
-  const verified = await verifyPublished({ backend, keys });
+  // 有界就绪探活：桥没通时，四个 key 逐个 import 只会得到四句同一句话，还
+  // 会被读成「四个部件都不可用」。一次 `return 1` 就能把结论说清。
+  if (typeof backend.healthCheck === 'function') {
+    try {
+      await stage('verify.bridge', () => backend.healthCheck!());
+    } catch (e) {
+      const message = (e as Error).message;
+      const err = compileError(
+        COMPILE_CODES.VERIFY_UNAVAILABLE,
+        `${message}——桥没通，未进入部件冒烟`
+      );
+      throw Object.assign(err, {
+        details: { stage: 'verify.bridge', bridge: describeBridgeSnapshot() }
+      });
+    }
+  }
+  const verified = await stage('verify.smoke', () => verifyPublished({ backend, keys }));
 
   // 几何只能在库文件里量（部件在那儿），底色在源模板文件里抄：
   // verify 的后端绑在「非库文件」上做 import 冒烟，所以这里再绑两次。
@@ -209,7 +242,7 @@ async function verifyPhase(raw: CompileInput): Promise<CompileReport> {
   const geoGaps: CompileGap[] = [];
   let geometry: TemplateGeometry | undefined = readGeometrySidecar(input.project);
   if (!geometry && libraryBackend) {
-    const captured = await captureGeometryFromKeys({
+    const captured = await stage(`verify.geometry library=${input.library.fileKey} chapterKey=${verified.chapter ?? '<none>'}`, () => captureGeometryFromKeys({
       libraryBackend,
       ...(sourceBackend ? { sourceBackend } : {}),
       chapterKey: verified.chapter ?? null,
@@ -217,15 +250,15 @@ async function verifyPhase(raw: CompileInput): Promise<CompileReport> {
       ...(input.sectionSourceId ? { sectionSourceId: input.sectionSourceId } : {}),
       ...(input.badgeSourceId ? { badgeSourceId: input.badgeSourceId } : {}),
       ...(input.docBackground ? { docBackground: input.docBackground } : {})
-    });
+    }));
     geometry = captured.geometry;
     geoGaps.push(...captured.gaps);
 
-    const spacing = await captureDocSpacing({
+    const spacing = await stage(`verify.spacing source=${input.source.fileKey ?? '<active>'}`, () => captureDocSpacing({
       backend: sourceBackend ?? backend,
       ...(input.source.nodeId ? { sourceRootId: input.source.nodeId } : {}),
       ...(input.sectionSourceId ? { sectionSourceId: input.sectionSourceId } : {})
-    });
+    }));
     geoGaps.push(...spacing.gaps);
     Object.assign(geometry, {
       ...(spacing.docPadding ? { docPadding: spacing.docPadding } : {}),
@@ -581,11 +614,14 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   });
   gaps.push(...verdict.gaps);
 
-  // 排版：编译默认把组件都落在 (0,0) 上互相遮挡，人打开库看不清有没有齐。
-  if (backend.arrangePageChildren) {
-    await backend.arrangePageChildren({ pageId: input.library.pageId });
-    await backend.arrangePageChildren({ pageId: input.partsPageId });
-  }
+  // 仅排列本轮创建的资产；同页合并，绝不扫描移动整个页面。
+  await arrangeCompiledParts(backend, [
+    { pageId: input.library.pageId, nodeIds: built.built.map((p) => p.componentId) },
+    { pageId: input.partsPageId, nodeIds: [
+      ...adopted.adopted.map((p) => p.componentId),
+      ...adopted.sets.map((s) => s.setId)
+    ] }
+  ]);
 
   return {
     phase: 'compile',

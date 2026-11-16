@@ -1,0 +1,570 @@
+{
+  "run": "yanyun-deeper-focused-20261113",
+  "lifecycleDiagnosis20261116": {
+    "status": "RESTART_TIMING_VERIFIED; HOST_60S_SELF_HEAL_UNPROVEN; PER_PART_16S_REFUTED",
+    "verified": [
+      "Whole-server restart, not a worker-only swap: supervisor 56408 (parent Code.exe 36616) was created 10:54:05, worker 31560 10:54:06, supervisor.lock startedAt 02:54:06.328Z; old pair 56344/48852 already gone at boot-time process scan.",
+      "No local action caused it: extension log shows no run_terminal_cmd / edit / build between 10:52:54.192 (last successful library execute 0.012s) and 10:54:14.763; dist/server/*.js mtime is 2026-11-14 20:53 so the supervisor fs.watch worker swap is excluded; Windows Application+System logs have no crash/power event in 10:40-11:10.",
+      "Dispatch is not gated on readiness: bridge child 10:54:07, figma-console 10:54:09, four imports dispatched ~10:54:09.9, both plugins reconnected only at 02:54:13.578Z/13.598Z. Boot probe is one healthCheck('return 1', 5s) whose failure only writes stderr.",
+      "Both verify errors carry 'figma_execute failed: Cannot connect to Figma Desktop.' with our [importComponentByKey key=... file=0eoR...] wrapper and no plugin-side stage= marker; verify#1 text names worker56344/supervisor48852, verify#2 text names worker31560/supervisor56408.",
+      "Plugins had been connected since 02:15:53Z (connectedAt 1794795369830 = 1794797665991 minus 2296161ms, seen in 10:47:00 figma_list_open_files), i.e. sockets existed at verify#1; they were re-created at 02:54:13.5 after the restart.",
+      "figma-console-mcp 1.46.0 semantics (read from npx cache dist): getDesktopConnector() throws instantly when isClientConnected() is false (websocket-connector.js:50-53, local.js getDesktopConnector); isClientConnected() also requires lastPongAt < 90s; heartbeat pings every 30s and terminates clients that missed a pong. So 'Cannot connect' means no live client per that rule, and it is a fast path, not a wait.",
+      "Live re-probe 2026-11-16 14:20 local: figma_get_status probe:true ok latencyMs=8; figma_execute bound to 0eoR7aPlpzIva8IdWATWkL returned in ~2ms. Bridge is healthy now, so the 10:48/10:53 failures are not a permanently dead bridge.",
+      "Environment drift: plugin reports pluginVersion 1.39.0 while bundledPluginVersion is 1.41.5 (pluginUpdateAvailable=true)."
+    ],
+    "unproven": [
+      "Why the supervisor exited at 10:54:05. No host-side MCP lifecycle log exists (BrainMaker Cowork.log has no engine/figma lines; mcp-proxy.log is stale since 2026-11-13), so 'host 60s request timeout -> self-heal' remains a hypothesis from the 59.8s offset only.",
+      "That hypothesis cannot explain verify#1: it also cost 64.166s yet was served by the old worker (error text 56344/48852) and the old engine was still alive at 10:49:32.418Z (probe 0.029s refreshed checkedAt). So a uniform 60s host timeout is not established.",
+      "Where the ~64s inside each verify went. Because figma-console's no-client path is instant, 4 x ~16s cannot be the explanation; the engine-side wait breakdown is unknown (no per-dispatch timestamps, no figma-console file log)."
+    ],
+    "refuted": [
+      "Previous note 'per-part ~16s is figma-console reconnect wait': figma-console throws immediately when no client is connected, so it does not wait per call.",
+      "Previous note 'primary fault is plugin silent during import' stated as fact from timing: what is proven is that figma-console reported no live client; whether the sandbox was busy, the socket stale, or the client terminated by missed pongs is not distinguishable from the current evidence."
+    ],
+    "nextFixDirection": [
+      "Instrument before changing behavior: per-part {part, startedAt, elapsedMs, attempt, errorKind} plus bridge snapshot {port, fallback, pluginConnected, lastRoundtripMs, workerPid, supervisorPid} inside the verify error; persist worker boot pid+startedAt to a small lifecycle file because host stderr is not captured.",
+      "Classify instead of guessing: no-client vs no-reply (exec budget) vs plugin-busy vs not-published; abort smoke on the first bridge-level failure instead of iterating four keys.",
+      "No blanket retry, no timeout inflation, no extra worker, no config/credential change."
+    ],
+    "notProven": [
+      "exact figma-console internal per-dispatch wait, no per-dispatch timestamp or socket trace",
+      "whether the documented Assets -> Libraries re-open clears this silence",
+      "host-side 60s threshold value in this build (only the 59.8s offset is observed)"
+    ],
+    "readOnlySources": [
+      "C:\\Users\\miaochengming\\.codemaker\\log\\codemaker_extension.log* (TOOL_CALL / TOOL_RESULT cost_time)",
+      "Win32_Process CreationDate+ParentProcessId for 56408/31560/60684/60152/36616",
+      "%USERPROFILE%\\.game-interaction-sop\\supervisor.lock",
+      "Windows Application+System event log 10:40-11:10 (no crash, no power/sleep event)",
+      "dist/server/index.js+worker.js mtime 2026-11-14 20:53 (no rebuild today)",
+      "%USERPROFILE%\\.codemaker\\mcps.json (no GISOP_AUTORESTART / GISOP_BRIDGE_HOST)"
+    ],
+    "timelineLocal20261116": [
+      "10:47:00.765 list_open_files ok 0.029s; 10:47:26.380 library execute ok 0.023s; 10:47:35.004 sandbox execute ok 0.207s; 10:47:50.278 connect already_connected 0.010s; 10:47:55.175 screenshot 159:2928 ok 0.990s -> plugin alive",
+      "10:48:09.912 verify#1 dispatched -> 10:49:14.078 returned cost_time 64.166s, code V2_COMPILE_VERIFY_UNAVAILABLE, stage verify.smoke, four parts 'Cannot connect'; error PIDs still worker56344/supervisor48852 (no restart)",
+      "10:49:32.392 sandbox figma_probe_template ok 0.029s -> plugin answered again; this execute refreshed bridge cache checkedAt 02:49:32.418Z pluginConnected=true 3ms",
+      "10:49:44.909 / 10:50:01.516 / 10:52:45.680 / 10:52:54.192 all ok (0.011-0.207s, library+sandbox executes success)",
+      "10:53:05.236 verify#2 dispatched",
+      "10:54:05 supervisor 56408 created, parent Code.exe 36616 (host pid unchanged since 2026-11-11); 10:54:06 worker 31560; supervisor.lock startedAt 02:54:06.328Z pid56408; 10:54:07 npx figma-console 60684; 10:54:09 figma-console local.js 60152",
+      "10:54:09.879 verify#2 returned cost_time 64.643s; error envelope PIDs worker31560/supervisor56408 = the new pair",
+      "10:54:13.578 sandbox / 10:54:13.598 library plugin connectedAt (passive status, no probe requested)"
+    ],
+    "supersededConclusions": "Removed the earlier 'host 60s self-heal = root cause' and 'per-part ~16s figma-console reconnect wait' claims; see verified/unproven/refuted above.",
+    "notDone": [
+      "no verify, no component import, no document write; only figma_get_status(probe:true) and one read-only figma_execute returning file/page/timestamp",
+      "no code/test/spec change, no restart/kill/spawn/config/credential/publish/commit"
+    ]
+  },
+  "verifyAcceptance20261116": {
+    "status": "VERIFY_PASSED_NO_GAPS",
+    "engine": {
+      "note": "用户手动重启 MCP 后加载新构建；lifecycle 留痕首次生效",
+      "supervisorPid": 32572,
+      "workerPid": 19624,
+      "workerStartedAt": "2026-11-16T06:46:32.530Z",
+      "bootProbe": "failed (Cannot connect at boot)",
+      "pluginConnectedAt": ["06:46:43.490Z library", "06:46:53.355Z sandbox"],
+      "pluginVersion": "1.39.0",
+      "bundledPluginVersion": "1.41.5",
+      "pluginUpdateAvailable": true,
+      "pluginNote": "两个文件都重开过插件，connectedAt 已刷新，但上报版本仍是 1.39.0；磁盘 code.js 的 PLUGIN_VERSION 已是 1.41.5，故 Figma 侧加载的是缓存副本"
+    },
+    "call": {
+      "phase": "verify",
+      "project": "燕云接入验收20261113",
+      "source": { "fileKey": "jQf7zj33pzOGsGKO4d73OO", "nodeId": "185:6266" },
+      "library": { "fileKey": "jQf7zj33pzOGsGKO4d73OO", "pageId": "188:38085" },
+      "verifyFileKey": "0eoR7aPlpzIva8IdWATWkL",
+      "sectionSourceId": "185:6291",
+      "badgeSourceId": "185:37811",
+      "components": "四原子 key 同 2026-11-13 回执",
+      "write": false
+    },
+    "result": {
+      "ok": true,
+      "gaps": [],
+      "diffs": [],
+      "written": false,
+      "hostCostTimeSeconds": 3.72,
+      "geometry": {
+        "chapterWidth": 4694,
+        "mainImage": { "width": 2400, "height": 1350 },
+        "placeholder": { "fill": "#F5F5F5", "stroke": "#BFBFBF" },
+        "bubbleGrid": [{ "x": 2.5917, "y": 0.9037 }],
+        "badgeSize": { "width": 75, "height": 94 },
+        "rootGap": 160,
+        "sectionShell": [{ "padding": { "top": 0, "right": 0, "bottom": 0, "left": 0 }, "fill": "#E0E0E0" }]
+      }
+    },
+    "conclusions": [
+      "四原子真实跨文件 import 冒烟通过，geometry 与 spacing 均到达；readPaints 修复在这条路径上被真正走过（verify 不再停在 smoke）。",
+      "整轮 verify（4 次 import + geometry + spacing + 契约生成）宿主侧 3.72s，说明插件有活客户端时 import 是亚秒级；此前 64s 属于无客户端窗口，不是 import 本身耗时。",
+      "新加的诊断只在失败路径出现，本次成功故未被触发；成功回执仍不带逐部件耗时，属已知缺口。",
+      "重启后 lifecycle 文件立刻出现 boot 记录（probe failed），随后插件 10-20s 内重连——观测手段按设计工作。"
+    ],
+    "notDone": [
+      "未生成真实 pack（template.json 未落盘、未写显式 roleBlock.variantKeys）",
+      "未做 2 章 3 簇真实渲染截图",
+      "未做同稿两次零变更同步与改单条职能正文的局部更新"
+    ]
+  },
+  "renderSyncAcceptance20261116": {
+    "status": "PACK_OK_RENDER_OK_SYNC_IDEMPOTENT_ROLE_ROWS_LEAKED",
+    "pack": {
+      "path": "f:\\vibecoding\\game-interaction-sop\\.interaction-sop\\template.json",
+      "origin": "cwd",
+      "components": "四原子 key 同 verify 回执",
+      "roleBlock": { "mode": "keys", "variantPrefix": "职能标记=", "labelTextName": "文本", "roles": ["程序", "GUI", "拼接"] },
+      "variantKeys": {
+        "GUI": "e4b5d01f322767ff40f7851333f41303a9a94687",
+        "程序": "277f9217b34f7849c52f906173802a2724429bd7",
+        "拼接": "807b37cba5202e19837b436b5e0dee19a39a7c1c"
+      },
+      "audit": { "findings": [], "deepKeysOk": 4 }
+    },
+    "render": {
+      "rootInstanceId": "182:625",
+      "target": "0eoR7aPlpzIva8IdWATWkL page 159:2927, autoPlace below",
+      "summary": { "sectionCount": 2, "clusterCount": 3, "bubbleCount": 3, "figuresPlaced": 1, "figuresPlaceholder": 1, "chaptersNormalized": 2 },
+      "bubbles": ["01/1 183:736", "01/2 183:741", "02/1 183:801"],
+      "figureSlots": ["01/2/1 183:733", "02/1/1 183:798"],
+      "imagePlaced": "183:734 named 配图占位 with IMAGE fill (assetMap 01/2/1 -> 159:2972)",
+      "warnings": ["V2_W_PHASE1_SIGNOFF_MISSING", "V2_W_BADGE_ANCHOR_DEFAULTED", "V2_W_FIGURE_ASSET_MISSING 02/1/1"],
+      "screenshot": "898x1568, 2 章 3 簇, 顶部/章节/结尾骨架正确"
+    },
+    "sync": {
+      "runIdZero1": "5sqr4pci changes []",
+      "runIdZero2": "0yidivnz changes [] (same conflicts -> idempotent)",
+      "conflicts": "9 条，全部是每簇 3 个模板原生职能实例的正文占位（figma=\"\"），nodeId 182:663/664/665、183:715/716/717、183:781/782/783",
+      "singleEdit": { "runId": "r19kb7jd", "change": "02/1/#1 update 唯一 1 处", "md": "松开即释放 -> 松开即释放技能" },
+      "preserved": "两章 状态说明（182:577 / 182:607）按 foreign 保留"
+    },
+    "defect": {
+      "what": "每个簇里模板自带的 3 个职能实例（职能标记=#程序/#GUI/#拼接，含「XX职能正文占位」）保持 visible，未标注的角色行也显示；同步因此产生 9 条 conflicts",
+      "where": "packages/figma-mcp-server/src/v2/render/parts/index.ts:813-817 —— component-variant 分支只有注释，没有清理代码；只有非 component-variant 才 deleteMatching(isRoleFrameNode)",
+      "whyItSurvivedCompile": "sharing design 74 行要求「只删除…不承载正文/标题的模板职能标签框」；这些实例自带正文占位，按该规则被保留",
+      "impact": "视觉上每簇多出 2-3 条无关职能行；同步永远带 9 条 conflicts，无法达成「零变更零冲突」",
+      "candidateFix": "component-variant 分支对模板原生职能实例（name 以 variantPrefix 开头且 type=INSTANCE）按未标注角色隐藏或删除，再由 md 角色决定显示；需先补 design/spec，避免与 8.9c「保护承载正文的容器」冲突"
+    },
+    "notDone": ["未改代码", "未重新渲染验证", "未提交/push"]
+  },
+  "roleCarrierFixAcceptance20261116": {
+    "status": "CREATE_OK_SYNC_HIDES_ANNOTATED_ROLES",
+    "newDoc": "185:1278 (旧 182:625 保留作缺陷对照)",
+    "create": "截图确认：01/1 只显示 GUI 注意；02/1 只显示 程序注意 + CCS注意；未标注行已隐藏",
+    "sync1": { "runId": "e3pbhda4", "changes": 3, "detail": "01/1/- delete×1，02/1/- delete×2", "conflicts": 0 },
+    "sync2": { "runId": "eovur7zk", "changes": 0, "conflicts": 0 },
+    "singleEdit": { "runId": "cm0rqpe2", "changes": 1, "path": "02/1/#1", "conflicts": 0 },
+    "observedAfterSync": "185:1278 里 6 个职能载体全部 visible=false（含被标注的 GUI / 程序 / 拼接），画面上角色行消失；节点仍在，未真删除",
+    "diagnosis": "新建路径已按 D10 取舍，但 reconcile 把簇级 roles 对应的载体当成多余 item 处理：首轮同步报 delete 并把它们置隐藏。本地单测（打标后重复规划）未复现，真机文档的 stamp/匹配差异未定位。",
+    "lint": "tsc 通过；全量串行 87 文件 / 736 测试（新增 3 条）",
+    "nextTodo": [
+      "取真机文档 185:1278 的职能载体 stamp 与 md 侧期望做对照，定位 roles 匹配失败点（本地模型与真机不一致）",
+      "章节母版预置示例簇（簇标题/正文占位/3 职能行）仍随章出现，属 8.8 已记的「章节与独立簇重复」，需单独设计清理"
+    ]
+  },
+  "roleSyncAcceptance20261116": {
+    "status": "PASSED_CREATE_VISUAL_SYNC_ZERO_SINGLE_EDIT",
+    "doc": "187:2759（旧 182:625 / 185:1278 / 185:1931 留作对照）",
+    "engine": "worker 55156 / supervisor 47584（重启后加载 reconcile 修复）",
+    "create": "截图：01/1 只显示「GUI注意」；01/2（@策划 @动效）无角色行；02/1 只显示「程序注意 + CCS注意」",
+    "sync1": { "runId": "8nkkpotx", "changes": [], "conflicts": [] },
+    "sync2": { "runId": "hw4plqk3", "changes": [], "conflicts": [] },
+    "singleEdit": { "runId": "7d7s3era", "changes": [{ "path": "02/1/#1", "action": "update" }], "conflicts": [] },
+    "preserved": "两章 状态说明（187:2711 / 187:2741）按 foreign 保留",
+    "remainingDefect": "章节母版自带示例簇仍随章出现：①簇标题 + 正文占位 + 程序/GUI/CCS 三行 + 配图占位（属 8.8 已记的「章节与独立簇重复」），本轮未处理",
+    "warnings": ["V2_W_PHASE1_SIGNOFF_MISSING", "V2_W_BADGE_ANCHOR_DEFAULTED", "V2_W_FIGURE_ASSET_MISSING 02/1/1", "V2_W_RENDER_RETRIED（首轮 fill.chapter1 瞬时连接错误，整轮重试成功）"]
+  },
+  "postReadPaintsReloadAcceptance": {
+    "latestBoundedVerify": {
+      "status": "BLOCKED_VERIFY_SMOKE_CONNECTION_ERROR_WORKER_CHANGED",
+      "observedDate": "2026-11-16",
+      "attempts": 1,
+      "preRead": "Latest postReadPaintsReloadAcceptance/currentLibraryKeys/capabilitiesRequested/verifyInputs and HANDOFF read. Four atomic keys freshly read by explicit library execute; all matched, actualFile=jQf7zj33pzOGsGKO4d73OO. No role imports.",
+      "bridgeBefore": {"checkedAt":"2026-11-16T02:49:32.418Z","pluginConnected":true,"lastRoundtripMs":3,"enginePid":56344,"supervisorPid":48852,"port":9223,"fallback":false,"note":"Historical cached successful roundtrip, not a new internal probe. Library proxy execute succeeded immediately before verify."},
+      "verifyInputs": {"phase":"verify","project":"燕云接入验收20261113","source":{"fileKey":"jQf7zj33pzOGsGKO4d73OO","nodeId":"185:6266"},"library":{"fileKey":"jQf7zj33pzOGsGKO4d73OO","pageId":"188:38085"},"staged":{"top":"185:6268","chapter":"185:6291","cluster":"185:6499","footer":"185:6532"},"partsPageId":"188:38085","capabilities":{"overview":"none","clusterGroups":"none","badgeSlot":"container","numberBadge":"text","roleAnnotation":"component-variant","figure":"named-group","hiddenPool":"ignore","column":"right"},"docBackground":"#e0e0e0","verifyFileKey":"0eoR7aPlpzIva8IdWATWkL","sectionSourceId":"185:6291","badgeSourceId":"185:37811","components":{"top":"566bc71dbd1ddcd44fcf31c3a907fbf97916141b","chapter":"60b71f757f34be862d57da26350911d5cb14c434","cluster":"e7fb943a49e5e21ad867a7556226f53ceafc8ae2","footer":"93067094973bd3b39f3dff8bd014b80e9eb9df63"},"write":false},
+      "verify": {
+        "code":"V2_COMPILE_VERIFY_UNAVAILABLE",
+        "stage":"verify.smoke",
+        "rawPrefix":"[verify.smoke] 冒烟跑不起来（不能据此判定未发布或桥断连）：",
+        "failedParts":["top","chapter","cluster","footer"],
+        "rawPerPartContexts":["顶部 key=566bc71dbd1ddcd44fcf31c3a907fbf97916141b: [importComponentByKey key=566bc71dbd1ddcd44fcf31c3a907fbf97916141b file=0eoR7aPlpzIva8IdWATWkL] figma_execute failed: Cannot connect to Figma Desktop.","章节 key=60b71f757f34be862d57da26350911d5cb14c434: [importComponentByKey key=60b71f757f34be862d57da26350911d5cb14c434 file=0eoR7aPlpzIva8IdWATWkL] figma_execute failed: Cannot connect to Figma Desktop.","簇 key=e7fb943a49e5e21ad867a7556226f53ceafc8ae2: [importComponentByKey key=e7fb943a49e5e21ad867a7556226f53ceafc8ae2 file=0eoR7aPlpzIva8IdWATWkL] figma_execute failed: Cannot connect to Figma Desktop.","结尾 key=93067094973bd3b39f3dff8bd014b80e9eb9df63: [importComponentByKey key=93067094973bd3b39f3dff8bd014b80e9eb9df63 file=0eoR7aPlpzIva8IdWATWkL] figma_execute failed: Cannot connect to Figma Desktop."],
+        "rawCommonContinuation":"\n\nOpen the Desktop Bridge plugin in Figma (Plugins → Development → Figma Desktop Bridge).\nThe plugin will connect automatically to ws://localhost:9223.\nNo special launch flags needed.\n桥在 9223 上正常监听，但没有插件回话（引擎 worker pid=31560 / supervisor pid=56408）；在目标文件里关掉插件再重新运行（Plugins → Development → Figma Desktop Bridge），窗口保持打开后重试",
+        "rawSuffix":"——按具体部件 key、绑定文件与原始错误排查，不自动要求发布或重启",
+        "dispatchEvidence":"Single verify aggregated four bound-sandbox import dispatch failures. Error identifies worker31560/supervisor56408, not preflight worker56344/48852. No import/create/actualFile stage returned. No per-dispatch timestamp or socket trace exposed.",
+        "geometry":"NOT_REACHED","readPaints":"NOT_REACHED: root-tree fix not live-accepted","spacing":"NOT_REACHED","templateJsonReturned":false
+      },
+      "immediateFailureSnapshot": {"checkedAt":"2026-11-16T02:54:09.872Z","pluginConnected":false,"enginePid":31560,"supervisorPid":56408,"port":9223,"preferredPort":9223,"fallback":false},
+      "subsequentPassiveStatus": {"probe":false,"timestamp":1794797665991,"websocketAvailable":true,"serverRunning":true,"port":9223,"fallback":false,"sandboxConnectedAt":"2026-11-16T02:54:13.578Z","libraryConnectedAt":"2026-11-16T02:54:13.598Z","lastPongAt":"2026-11-16T02:54:13.598Z","sandboxCurrentPage":"燕云接入验收 20261113","libraryCurrentPage":"蛋仔派对","note":"Both connections reported AFTER failed internal snapshot; no fresh roundtrip requested. Does not retroactively prove dispatch connectivity."},
+      "finding":"Worker/supervisor changed between preflight and verify without caller process action. Immediate internal failure snapshot false precedes both reported plugin connectedAt times by about3.7s. Proven boundary: no plugin session at smoke dispatch on new worker, later passive connections present. Cause of worker replacement and exact host lifecycle unknown; not a demonstrated readPaints or role-key failure.",
+      "results":{"pack":"NOT_GENERATED","render":"NOT_RUN","sync1":"NOT_RUN","sync2":"NOT_RUN","singleRoleUpdate":"NOT_RUN","newSectionId":null,"rootId":null,"packPath":null,"markdownPath":null},
+      "protectedEvidence":"No explicit sandbox scene writes or screenshot; Page159:2927/Section159:2928 not modified by caller. No post-failure scene read; unchanged geometry not independently remeasured this run.",
+      "validation":"No code/test changes or test rerun. 725 tests historical only. No live readPaints fix claim.",
+      "mutations":"Existing JSON/HANDOFF only. No restart/kill/spawn/config/credentials/publish/source edit/commit/push. No verify/import loop or second verify after passive reconnect.",
+      "stop":"One bounded verify completed with exact smoke stage and immediate connection/dispatch evidence. Stop; main agent must not repeat Figma calls for this run. No restart requested. Future acceptance needs separate authorization and stable same-worker dispatch evidence, not automatic retry."
+    },
+    "historicalFieldsBelow": "Previous bounded attempt retained; latestBoundedVerify above is current outcome.",
+    "status":"BLOCKED_VERIFY_SMOKE_CONNECTION_ERROR",
+    "observedDate":"2026-11-16",
+    "latestOutcome":true,
+    "connections":"Schemas discovered first; list once returned both requested files; sandbox pinned. Explicit library execute freshly read four atomic keys, three role keys and set key; all match receipt.",
+    "verify": {
+      "attempts":1,
+      "inputs":"Exact verifyInputs/capabilitiesRequested/currentLibraryKeys; source/library bound library; verifyFileKey sandbox; write=false; docBackground#e0e0e0",
+      "code":"V2_COMPILE_VERIFY_UNAVAILABLE",
+      "stage":"verify.smoke",
+      "failedParts":["top","chapter","cluster","footer"],
+      "fileKey":"0eoR7aPlpzIva8IdWATWkL",
+      "rawPrefix":"[verify.smoke] 冒烟跑不起来（不能据此判定未发布或桥断连）",
+      "rawTopContext":"顶部 key=566bc71dbd1ddcd44fcf31c3a907fbf97916141b: [importComponentByKey key=566bc71dbd1ddcd44fcf31c3a907fbf97916141b file=0eoR7aPlpzIva8IdWATWkL] figma_execute failed: Cannot connect to Figma Desktop.",
+      "rawCommonError":"Cannot connect to Figma Desktop.\n\nOpen the Desktop Bridge plugin in Figma (Plugins → Development → Figma Desktop Bridge).\nThe plugin will connect automatically to ws://localhost:9223.\nNo special launch flags needed.",
+      "rawWorkerHint":"桥在 9223 上正常监听，但没有插件回话（引擎 worker pid=56344 / supervisor pid=48852）",
+      "perPartEvidence":"All four exact atomic keys reported same common error and sandbox file. Four errors aggregated by one verify invocation, not caller retry. No plugin import/create stage or actualFile returned.",
+      "geometry":"NOT_REACHED",
+      "readPaints":"NOT_REACHED: new root-tree implementation not live-accepted",
+      "spacing":"NOT_REACHED",
+      "templateJsonReturned":false
+    },
+    "boundedFollowup": {
+      "internalProbe":"One read-only sandbox probe node159:2927 maxNodes2 PASS: real page name and truncated scan returned. non-conformant expected for truncated page scan, not template rejection. No import/verify retry.",
+      "requirementsAfterProbe":{"engineVersion":"0.4.11","requiredSkillVersion":"2.4.0","preferredPort":9223,"port":9223,"fallback":false,"checkedAt":"2026-11-16T02:49:32.418Z","pluginConnected":true,"lastRoundtripMs":3,"enginePid":56344,"supervisorPid":48852},
+      "finding":"Same worker subsequently completed ordinary internal read and refreshed bridge=true. Cannot infer persistent backend disconnection, separate client, port contention, stale-cache or credential cause. Exact connection state at failed smoke dispatch remains unknown."
+    },
+    "protectedEvidence": {
+      "pageId":"159:2927","sectionId":"159:2928",
+      "beforeAfter":"PASS page children, section bounds6200x5857 at0,0 and four instances159:2929/2957/2972/3006 IDs/positions/sizes identical",
+      "screenshot":{"status":"PASS before verify runtime export","nodeId":"159:2928","format":"PNG","effectiveScale":0.25290322580645164,"byteLength":78418,"savedPath":null,"conclusion":"Existing four-import evidence captured, not new engine render visual acceptance"}
+    },
+    "results":{"pack":"NOT_GENERATED","render":"NOT_RUN","sync1":"NOT_RUN","sync2":"NOT_RUN","singleRoleUpdate":"NOT_RUN","newSectionId":null,"rootId":null,"packPath":null,"markdownPath":null},
+    "cleanup":"No scene nodes created; no partial artifacts to remove; evidence preserved",
+    "validation":"No code changes or test rerun;725 tests historical only. New stage prefix observed; readPaints not reached, cannot claim fix live verified.",
+    "mutations":"Existing JSON/HANDOFF only; selected existing sandbox page and pinned target. No scene writes, publish/source edit, configuration/credentials, process action/new worker, commit or push.",
+    "next":"No restart or import loop. Same worker now has successful internal sandbox roundtrip. Next bounded acceptance may verify once on this worker without reload; if smoke recurs capture connection/dispatch evidence at that moment. Require geometry/readPaints/spacing success before genuine pack/render. Role import cause remains unknown."
+  },
+  "status": "blocked",
+  "scope": "Only this run's independent sandbox page; no library edits, source edits, publish, commit or push.",
+  "files": {"library": "jQf7zj33pzOGsGKO4d73OO", "sandbox": "0eoR7aPlpzIva8IdWATWkL"},
+  "contractsRead": ["openspec/HANDOFF.md", "packages/skill/phases/phase4-figma.md", "packages/skill/references/template-compile.md"],
+  "page": {"name": "燕云接入验收 20261113", "id": "157:2850", "sectionId": "157:2851", "sectionName": "燕云 / deeper focused pass / 20261113", "rootId": null, "cleanup": "Removed this run's empty section and page after failure; confirmed page had only empty section. No rendered artifacts remain."},
+  "screenshots": {"beforeCreate": "PASS: sandbox Page 1 runtime screenshot captured before creating page. Existing populated assets observed; no modifications.", "document": "NOT_EXECUTED: engine never rendered", "local": "NOT_EXECUTED: engine never rendered", "savedPaths": []},
+  "currentLibraryKeys": {
+    "top": {"nodeId":"188:38114","key":"566bc71dbd1ddcd44fcf31c3a907fbf97916141b"},
+    "chapter": {"nodeId":"188:38135","key":"60b71f757f34be862d57da26350911d5cb14c434"},
+    "cluster": {"nodeId":"188:38152","key":"e7fb943a49e5e21ad867a7556226f53ceafc8ae2"},
+    "footer": {"nodeId":"188:38156","key":"93067094973bd3b39f3dff8bd014b80e9eb9df63"}
+  },
+  "roleVariantKeys": {"程序":"277f9217b34f7849c52f906173802a2724429bd7","GUI":"e4b5d01f322767ff40f7851333f41303a9a94687","拼接":"807b37cba5202e19837b436b5e0dee19a39a7c1c"},
+  "capabilitiesRequested": {"overview":"none","clusterGroups":"none","badgeSlot":"container","numberBadge":"text","roleAnnotation":"component-variant","figure":"named-group","hiddenPool":"ignore","column":"right"},
+  "verifyInputs": {"project":"燕云接入验收20261113","sourceNodeId":"185:6266","libraryPageId":"188:38085","partsPageId":"188:38085","sectionSourceId":"185:6291","badgeSourceId":"185:37811","docBackground":"#e0e0e0","staged":{"top":"185:6268","chapter":"185:6291","cluster":"185:6499","footer":"185:6532"}},
+  "results": {
+    "liveFiles": "PASS: both files connected, sandbox active",
+    "currentKeyRead": "PASS: read all seven keys directly in library execute",
+    "independentPage": "PASS: created page and named Section; empty failure artifacts subsequently removed",
+    "verify": "FAIL: two calls returned identical connection error; no pack returned",
+    "directTopImport": "PASS: sandbox importComponentByKeyAsync returned COMPONENT 157:2853, name 燕云 / 顶部; no instance created",
+    "otherImports": "INDETERMINATE: sequential chapter/cluster/footer/roles import script timed out after 30000ms; no per-item results returned. Cannot claim success or failure for individual keys; imported component resources may remain cached by Figma, no page scene nodes observed.",
+    "pack": "NOT_GENERATED",
+    "markdownRender": "NOT_EXECUTED: blocked before pack generation",
+    "sync1": "NOT_EXECUTED",
+    "sync2": "NOT_EXECUTED",
+    "singleRoleUpdate": "NOT_EXECUTED",
+    "deepAudit": "NOT_EXECUTED"
+  },
+  "errors": [
+    {"step":"verify first and second attempts","code":"INTERNAL_ERROR","message":"figma_execute failed: Error: Unable to establish connection to Figma after 10 seconds. Please check your internet connection."},
+    {"step":"remaining direct imports","message":"Error: Execution timed out after 30000ms"}
+  ],
+  "bridgeDiagnosis": {"engineVersion":"0.4.11","requiredSkillVersion":"2.4.0","preferredPort":9223,"port":9223,"fallback":false,"pluginConnected":false,"enginePid":4824,"supervisorPid":34160,"checkedAt":"2026-11-13T09:16:51.353Z","finding":"Proxy execute/list/screenshot work while engine worker reports no plugin connection. This is a worker/bridge routing or connectivity blocker, not evidence of template geometry failure. No source code changed."},
+  "packPath": null,
+  "markdownPath": null,
+  "next": "Restore engine worker's bridge connection (pluginConnected=true); use a newly recreated or same-name sandbox page, then verify to generate genuine pack, configure roleBlock.variantKeys, select pack explicitly without project-local fallback, render 2 chapters/3 clusters and run two no-op syncs plus one role update. Do not treat top import as rendering acceptance.",
+  "focusedCodeDiagnosis": {
+    "status": "diagnostic-cache-fixed-import-blocker-unresolved",
+    "evidence": {
+      "workerPid": 7908,
+      "supervisorPid": 32108,
+      "bridgeOwnerPid": 29376,
+      "bridgeParentChain": [29376, 56536, 29572, 24684, 7908, 32108],
+      "externalRead": "PASS: explicit library and sandbox execute returned correct figma.fileKey; unbound execute also succeeded; status probe 2ms",
+      "internalRead": "PASS before fix: figma_probe_template on sandbox root 0:0 maxNodes=2 returned real SOP 校验沙盒 name; non-conformant is expected for truncated document root and is not a transport failure",
+      "staleBridge": "get_skill_requirements remained false with checkedAt 2026-11-13T09:39:44.830Z, while plugin connectedAt was 09:39:46 and subsequent internal probe succeeded",
+      "sharedClient": "worker.ts supplies same client to proxyClient and buildFigmaConsoleBackend; no separate client or fallback port demonstrated"
+    },
+    "rootCause": "Startup-only bridge cache not refreshed after successful internal execute; false diagnostic persisted after plugin reconnected. Historical importComponentByKeyAsync script error is not proof of bridge disconnection.",
+    "fix": "Refresh state on successful backend execute; preserve success evidence on script errors; honor MCP isError and success/error envelopes without _mcp; strict healthCheck result=1; proxy verbatim and file binding unchanged",
+    "validation": {"tsc": "PASS", "vitestFiles": 87, "vitestTests": 714, "newTests": 7, "serial": true, "durationSeconds": 38.96},
+    "liveFixedCode": "NOT_VERIFIED: dist built but existing worker still served old snapshot; requires one engine restart then bounded internal probes on both files and fresh bridge=true",
+    "importRootCause": "UNKNOWN: no verify/import retry or Figma asset mutation in this pass; investigate component import/library network state if next single verify still fails",
+    "mutations": "Existing code/tests/spec/design/tasks/CHANGELOG/HANDOFF/receipt only; no mcps.json, environment secrets, Figma edits, process kills, manual restarts, new worker, version change, commit, push or remote change"
+  },
+  "restartRetry": {
+    "checkedAt": "2026-11-13T09:42:04.006Z",
+    "status": "blocked",
+    "priorFieldsAbove": "Historical first attempt retained. This restartRetry object is the latest outcome.",
+    "schemasConfirmed": ["figma_diagnose", "figma_get_status", "get_skill_requirements", "figma_compile_template", "render_v2_markdown_to_figma", "figma_execute", "figma_list_open_files"],
+    "proxyConnection": {
+      "diagnose": "PASS: Desktop Bridge connected on port 9223; library active",
+      "probe": {"success": true, "latencyMs": 2},
+      "filesListed": ["jQf7zj33pzOGsGKO4d73OO", "0eoR7aPlpzIva8IdWATWkL"],
+      "pluginVersion": "1.39.0",
+      "bundledPluginVersion": "1.41.5",
+      "pluginUpdateAvailable": true,
+      "warning": "Version mismatch reported by proxy. Not established as cause of engine worker disconnection."
+    },
+    "engineBridge": {
+      "engineVersion": "0.4.11",
+      "requiredSkillVersion": "2.4.0",
+      "preferredPort": 9223,
+      "port": 9223,
+      "fallback": false,
+      "pluginConnected": false,
+      "enginePid": 7908,
+      "supervisorPid": 32108,
+      "checkedAt": "2026-11-13T09:39:44.830Z",
+      "finding": "After restart, external proxy diagnose/status/probe and explicit-file execute work, but engine worker still reports no plugin connection. Worker PID changed from 4824 to 7908. One verify attempt confirmed same connection failure. No retry loop."
+    },
+    "libraryRead": {
+      "status": "PASS",
+      "method": "Explicit library-file read-only figma_execute; read all seven component keys and children live",
+      "keysMatchHistoricalCurrentLibraryKeys": true,
+      "roleKeysMatchHistoricalRoleVariantKeys": true,
+      "roleSetId": "185:37833",
+      "roleChildrenConfirmed": ["文本 TEXT", "正文 TEXT"],
+      "badgeContainer": {"id": "185:37811", "type": "FRAME", "name": "气泡", "parentId": "185:6297", "children": ["185:37812 标号/母版", "186:38070 标号/1"]}
+    },
+    "verify": {
+      "status": "FAIL",
+      "attemptsThisRetry": 1,
+      "source": {"fileKey": "jQf7zj33pzOGsGKO4d73OO", "nodeId": "185:6266"},
+      "library": {"fileKey": "jQf7zj33pzOGsGKO4d73OO", "pageId": "188:38085"},
+      "verifyFileKey": "0eoR7aPlpzIva8IdWATWkL",
+      "sectionSourceId": "185:6291",
+      "badgeSourceId": "185:37811",
+      "capabilities": {"overview":"none","clusterGroups":"none","badgeSlot":"container","numberBadge":"text","roleAnnotation":"component-variant","figure":"named-group","hiddenPool":"ignore","column":"right"},
+      "docBackground": "#e0e0e0",
+      "write": false,
+      "components": "Seven keys freshly read; four atomic component keys passed exactly as currentLibraryKeys above",
+      "error": {"code": "INTERNAL_ERROR", "message": "figma_execute failed: Error: Unable to establish connection to Figma after 10 seconds. Please check your internet connection."},
+      "templateJsonReturned": false
+    },
+    "target": {
+      "fileKey": "0eoR7aPlpzIva8IdWATWkL",
+      "requestedPageName": "燕云接入验收 20261113",
+      "existingPages": [{"id":"134:1423","name":"封面"},{"id":"0:1","name":"Page 1"}],
+      "sameNamePageExists": false,
+      "pageId": null,
+      "sectionId": null,
+      "rootId": null,
+      "creation": "NOT_RUN: engine verification failed before creating any page or scene node",
+      "cleanup": "NOT_NEEDED: this retry created no page, section, instance or partial render; historical 157:2850 remains absent"
+    },
+    "results": {
+      "imports": "NOT_RUN_OR_UNCONFIRMED: verify aborted on connection failure; no per-component import evidence returned this retry",
+      "verify": "FAIL",
+      "pack": "NOT_GENERATED",
+      "render": "NOT_RUN",
+      "sync1": "NOT_RUN",
+      "sync2": "NOT_RUN",
+      "singleRoleUpdate": "NOT_RUN",
+      "screenshots": "NOT_RUN: no page creation or render; no visual acceptance claim",
+      "deepAudit": "NOT_RUN"
+    },
+    "packPath": null,
+    "markdownPath": null,
+    "screenshotPaths": [],
+    "mutations": "Only existing receipt JSON updated. No Figma writes, library publish, code edits, HANDOFF edits, test reruns, commit or push.",
+    "blocker": "Engine worker/backend bridge routing or connection remains unavailable despite healthy external MCP proxy. Not a template geometry failure. Exact internal ownership/routing root cause not established; needs worker bridge diagnosis before further verify/render.",
+    "next": "Fix engine worker connection, not only external proxy. Confirm get_skill_requirements.bridge.pluginConnected=true before next attempt. Then verify once with these live keys; persist returned genuine pack with 程序/GUI/拼接 variantKeys and explicitly select it (avoid repository-local fallback); screenshot target before creating/reusing requested page, render 2 chapters/3 clusters, capture whole/local views, run two zero-change syncs and one local role-body update."
+  },
+  "resumedStageDiagnosticAttempt": {
+    "status": "BLOCKED_TOOL_UNAVAILABLE_BEFORE_CONNECTION_LIST",
+    "userConfirmedRestart": true,
+    "restartLoadedDiagnostics": "UNKNOWN: no engine tool available to inspect worker or loaded build",
+    "contractsRead": ["openspec/HANDOFF.md", "docs/pilot/reports/yanyun-deeper-focused-20261113.json including stageDiagnosticPass"],
+    "schemaDiscovery": {
+      "queries": ["figma_list_open_files figma_compile_template", "+figma_execute"],
+      "result": "No Figma engine/proxy schema returned; discovery exposed only unrelated gcp and Chrome tools. No callable Figma engine tools available in this session.",
+      "connectionList": "NOT_EXECUTED: figma_list_open_files unavailable; this does not establish whether either Figma plugin is disconnected"
+    },
+    "target": {"libraryFileKey":"jQf7zj33pzOGsGKO4d73OO","libraryPageId":"188:38085","verifyFileKey":"0eoR7aPlpzIva8IdWATWkL","pageId":"159:2927","evidenceSectionId":"159:2928","rootId":null},
+    "liveKeys": "NOT_READ: historical keys retained, not represented as fresh",
+    "screenshot": "NOT_EXECUTED: no Figma screenshot tool available; no operation attempted on existing evidence",
+    "verify": {"attempts":0,"stage":null,"error":null,"reason":"Blocked before invocation; no new smoke/geometry/spacing or file/key backend error exists"},
+    "packPath": null,
+    "results": {"pack":"NOT_GENERATED","render":"NOT_RUN","sync1":"NOT_RUN","sync2":"NOT_RUN","singleRoleUpdate":"NOT_RUN"},
+    "proven": "Current session lacks callable Figma engine tools. Historical 721 passing tests and prior stage diagnostics build remain reported baseline only; no rerun or live load verification.",
+    "unknown": "Live plugin connections, new diagnostic build loading, exact verify failure stage and role import cause remain untested.",
+    "mutations": "Existing receipt JSON and HANDOFF only. No Figma mutation, worker spawn/restart/kill, MCP config or credential changes, code changes, tests, commit or push.",
+    "next": "Expose existing restarted Figma engine MCP to this session; discover schemas then list both file connections once. If both available, inspect and screenshot preserved Section159:2928, read live keys, execute verify exactly once with existing inputs. Do not use scripts/dev/figma-call.mjs as fallback: it spawns a worker and retries probes."
+  },
+  "readPaintsFocusedFix": {
+    "status": "REPRODUCED_API_LOOKUP_HANG_MINIMAL_FIX_BUILT",
+    "basis": "Read AGENTS/HANDOFF/liveStageDiagnosticVerify first. No global verify or role import repeated; old deleted194 node not queried.",
+    "fileKey": "jQf7zj33pzOGsGKO4d73OO",
+    "probe": {"pageId":"188:38085","sectionId":"195:38281","instanceId":"195:38282","mainId":"I195:38282;188:38121","masterId":"188:38135","sectionBounds":{"x":0,"y":20517,"width":5200,"height":2600},"screenshots":"PASS target page before creation and isolated probe Section after creation; images returned, no local path"},
+    "evidence": [
+      {"stage":"original readPaints exact code","timeoutMs":20000,"result":"Error: Unable to establish connection to Figma after 10 seconds. Please check your internet connection."},
+      {"stage":"getNode only on live descendant","timeoutMs":5000,"result":"Error: Execution timed out after 5000ms"},
+      {"stage":"root tree paints/copy","result":"PASS same actualFile and exact child ID; fills object Array, mixed=false; SOLID r/g/b0.9599999785423279, stroke0.75; JSON copy succeeds"},
+      {"stage":"runtime child.id getNode","budgetMs":1500,"result":"Root getNode and findOne pass; Promise.race reports timedOut=true for actual child.id lookup"},
+      {"stage":"root lookup + exact descendant match + hex","result":{"fill":"#F5F5F5","stroke":"#BFBFBF","rootType":"INSTANCE","actualFile":"jQf7zj33pzOGsGKO4d73OO"}}
+    ],
+    "rootCause": "Engine readPaints relies on full instance descendant getNodeByIdAsync that demonstrably stays pending while root/tree same-node access succeeds. Failure precedes paint/copy/return; not figma.mixed, structuredClone or JSON invalid result. No network API in readPaints; per-call fileKey not mutable target cache.",
+    "unknown": "Figma internal reason lookup remains pending, whether nested node APIs elsewhere also affected, and complete verify/spacing acceptance remain unknown. Later cleanup check querying removed normal IDs also timed out; null-on-removed behavior not assumed.",
+    "implementation": "Design D8/spec first. readPaints only: parse I<root>;..., query root, DFS exact full-ID match with20000 visit cap, no direct full descendant lookup/retry/network/write. Existing normal ID/missing/hex behavior retained.",
+    "validation": {"tsc":"PASS","files":87,"tests":725,"newTests":4,"serial":true,"durationSeconds":33.79,"liveAcceptance":"Alternative root/tree/hex path PASS; new backend build not yet loaded or called through live engine; full verify NOT_RUN"},
+    "cleanup": {"finally":"PASS section.remove returned sectionRemoved=true, removes contained instance","pageTreeFollowup":"PASS explicit page read probe name and195:38281/195:38282 ID residues both empty","removedIdDirectQuery":"One followup combining page + removed IDs timed out10000ms; do not repeat deleted IDs","sandbox":"No calls or writes to protected159:2928 evidence"},
+    "reload": "dist rebuilt; live worker reload not demonstrated. Load new engine build before formal verification; no restart/kill performed, not proposed as cure.",
+    "mutations": "Existing source/tests/design/spec/CHANGELOG/HANDOFF/JSON only, plus temporary library probe now removed. No publish/original modification/config/credential/process spawn/kill/version/commit/push/remote change.",
+    "next": "Bounded acceptance after loading build: verify not repeated this pass. Preserve original evidence. If another lookup stalls, isolate its exact live ID and API rather than claim bridge outage."
+  },
+  "liveStageDiagnosticVerify": {
+    "status": "BLOCKED_VERIFY_GEOMETRY_READPAINTS",
+    "supersedesHistoricalDiagnosis": true,
+    "connectionBasis": "Main agent already proved status(probe:true) 3ms and both files connected. No reconnect investigation or repeated status probe performed.",
+    "schemasActivated": ["figma_compile_template", "figma_execute", "figma_capture_screenshot"],
+    "verify": {
+      "attempts": 1,
+      "inputs": "Exact verifyInputs, capabilitiesRequested and currentLibraryKeys; source/library file=jQf7zj33pzOGsGKO4d73OO; verifyFileKey=0eoR7aPlpzIva8IdWATWkL; write=false",
+      "stage": "verify.geometry",
+      "boundFileKey": "jQf7zj33pzOGsGKO4d73OO",
+      "chapterKey": "60b71f757f34be862d57da26350911d5cb14c434",
+      "operation": "readPaints",
+      "nodeId": "I194:38266;188:38121",
+      "error": {
+        "code": "INTERNAL_ERROR",
+        "message": "[verify.geometry library=jQf7zj33pzOGsGKO4d73OO chapterKey=60b71f757f34be862d57da26350911d5cb14c434] [readPaints nodes=I194:38266;188:38121 file=jQf7zj33pzOGsGKO4d73OO] figma_execute failed: Error: Unable to establish connection to Figma after 10 seconds. Please check your internet connection."
+      },
+      "smoke": "PASS by control flow: reached geometry after four-atomic smoke; no per-key timing returned",
+      "spacing": "NOT_REACHED",
+      "newDiagnosticsLive": true,
+      "templateJsonReturned": false
+    },
+    "protectedEvidence": {
+      "pageId": "159:2927",
+      "sectionId": "159:2928",
+      "sectionName": "燕云 / 已导入四部件证据（非引擎渲染）",
+      "sectionBounds": {"x":0,"y":0,"width":6200,"height":5857},
+      "instanceIds": ["159:2929", "159:2957", "159:2972", "159:3006"],
+      "beforeAfter": "PASS: page children, section bounds, all four instance IDs/positions/sizes identical before and after verify",
+      "screenshot": {"attempts":1,"status":"FAIL","raw":"{\"_mcp\":\"figma-console-mcp\",\"error\":\"Unable to establish connection to Figma after 10 seconds. Please check your internet connection.\",\"message\":\"Failed to capture screenshot via Desktop Bridge\",\"suggestion\":\"Ensure Figma Desktop is open with the plugin running\"}","note":"Unbound capture tool has no fileKey parameter; failure not proof either explicitly bound file is disconnected. No screenshot saved."}
+    },
+    "focusedReadOnlyDiagnosis": {
+      "callChain": "captureGeometryFromKeys library instantiate -> captureGeometry getNodeInfo/section ancestors/scanSubtree -> main-image readPaints -> finally delete; spacing follows geometry and was not reached",
+      "codeLocations": ["packages/figma-mcp-server/src/v2/compile/geometry.ts:62-87", "packages/figma-mcp-server/src/v2/compile/geometry.ts:172-189", "packages/figma-mcp-server/src/server/figmaConsoleBackend.ts:978-1001"],
+      "readPaintsScript": "await figma.getNodeByIdAsync(id), then read fills/strokes; no import in this operation",
+      "firstRead": {"ids":["194:38266","I194:38266;188:38121","188:38121","188:38135"],"timeoutMs":5000,"error":"Error: Execution timed out after 5000ms","meaning":"Combined diagnostic produced no per-node results. Cannot attribute timeout to any single ID. Probe already deleted in finally; do not treat this as reproduction on live instance."},
+      "secondRead": "PASS: explicit library 20000ms script read local 188:38121 主图占位 RECTANGLE with SOLID fill r/g/b=0.9599999785423279 and chapter188:38135 COMPONENT; all four component keys match currentLibraryKeys live",
+      "geometryResidue": [],
+      "cleanup": "PASS: library page188:38085 has no direct __geometry_probe__ residue; no new sandbox page/section/root created",
+      "proven": "New diagnostics loaded. Exact failing call is library-bound geometry main-image readPaints on temporary instance descendant I194:38266;188:38121. Four-atomic smoke did not block. Local master paint remains readable. Not a smoke import failure, spacing failure, or demonstrated general bridge outage.",
+      "unknown": "Inner readPaints script stage absent. Cannot determine transport dispatch vs getNodeByIdAsync on live instance descendant vs paint serialization. Temporary instance already cleaned, so original live node cannot be inspected without a new write. Role import timeout remains separate, not retried. No credential or publishing root cause proved."
+    },
+    "results": {"pack":"NOT_GENERATED","render":"NOT_RUN","sync1":"NOT_RUN","sync2":"NOT_RUN","singleRoleUpdate":"NOT_RUN","newPageId":null,"rootId":null,"packPath":null},
+    "validation": "No code change; no tsc/vitest rerun. Historical 87 files/721 tests remains prior baseline only.",
+    "mutations": "Existing JSON/HANDOFF only. Engine verify internally created and deleted library geometry probe; no manual library write/publish, sandbox write, repeated import/verify, config/credential edit, process action, commit or push.",
+    "next": "Do not repeat verify/import or restart blindly. Add design/spec first if instrumenting: readPaints inner dispatch/getNode/paint/return stage and actualFile, preserving original error. Obtain approval before reproducing with retained temporary instance in library; alternatively design sandbox-bound geometry measurement without changing source reads. Then tests/tsc and one bounded live acceptance. Screenshot still unverified."
+  },
+  "stageDiagnosticPass": {
+    "status": "diagnostics-built-awaiting-single-engine-reload",
+    "supersedesHistoricalDiagnosis": true,
+    "basis": "postCacheFixAcceptance remains current live import evidence; no verify or role import repeated this pass",
+    "verifyCallChain": [
+      "createServer binds backend to verifyFileKey sandbox 0eoR7aPlpzIva8IdWATWkL",
+      "verifyPublished loops top/chapter/cluster/footer only; aggregates every script failure into VERIFY_UNAVAILABLE; role keys not consumed",
+      "geometry (unless project sidecar exists) rebinds same client to library jQf7zj33pzOGsGKO4d73OO: chapter import/createInstance/serialize/getNodeInfo/source ancestor paints and badge scans/finally delete",
+      "spacing reads source root and section with source-bound backend, here same library file"
+    ],
+    "historicalStageInference": "Bare INTERNAL_ERROR without backfill aggregation prefix is evidence for post-smoke geometry/spacing failure, NOT live proof of an exact operation/key. No blanket bridge-disconnected finding.",
+    "liveReadOnlyEvidence": {
+      "roleSet": {"id":"185:37833","key":"5271f51b070b67b81af49fa017cbb58635dbfff2","remote":false},
+      "roles": [
+        {"id":"185:37824","key":"277f9217b34f7849c52f906173802a2724429bd7","remote":false,"variantProperties":{"职能标记":"#程序"}},
+        {"id":"185:37827","key":"e4b5d01f322767ff40f7851333f41303a9a94687","remote":false,"variantProperties":{"职能标记":"#GUI"}},
+        {"id":"185:37830","key":"807b37cba5202e19837b436b5e0dee19a39a7c1c","remote":false,"variantProperties":{"职能标记":"#拼接"}}
+      ],
+      "publishedSetLookup": {"status":"BLOCKED_AUTH","httpStatus":401,"error":"Token has expired","meaning":"Cannot compare published snapshot or variant keys. Not evidence of unpublished components or cause of plugin import timeout. No credential value accessed or logged."},
+      "sourceNodes": "185:6266 / 185:6291 / 185:37811 readable with full ancestors in library file; chapter 188:38135 local COMPONENT readable",
+      "libraryGeometryResidue": [],
+      "sandboxMutation": "NONE: no instances or diagnostic Section created; preserved existing page159:2927/Section159:2928 unchanged; screenshot not requested because no mutation attempted"
+    },
+    "implementation": {
+      "designFirst": "sharing design D7, delta and formal engine-mcp-server spec",
+      "verify": "smoke/geometry/spacing error prefixes; backend bound fileKey; getNodeInfo/scanSubtree/readPaints node context; full smoke key and original error",
+      "import": "operation/key plus plugin import/serialize stage and actualFile",
+      "instantiate": "operation/key/purpose plus plugin import/create/parent/serialize stage and actualFile; only explicit component absence gets V2_TEMPLATE_KEY_STALE; preserve original error/code",
+      "cleanup": "Remove newly created instance on script failure; geometry deletion failure emits gap with instance ID",
+      "retry": "Existing retryTransient unchanged; no new automatic retries"
+    },
+    "validation": {"tsc":"PASS","vitestFiles":87,"vitestTests":721,"newTests":7,"serial":true,"durationSeconds":33.33,"intermediateFailures":"First run retained stale classification but lacked existing verify recovery hint; second run smoke wording no longer matched existing assertion. Restored compatible conditional hint/prefix, final all green; no tests weakened."},
+    "loadedCode": {"newDiagnosticsLive":false,"enginePid":50256,"supervisorPid":56640,"pluginConnected":true,"checkedAt":"2026-11-13T10:06:14.735Z","finding":"After build same old worker and snapshot; no hot reload demonstrated. Did not repeat verify on old diagnostics."},
+    "next": "User reload engine exactly once to load built diagnostics, keep both plugins open; not a bridge treatment. Then protect existing sandbox evidence with screenshot and run verify once using existing inputs. Failure must identify smoke/geometry/spacing, bound file, key and inner script stage when script runs. Success permits genuine pack persistence; never loop role imports. REST published-snapshot inspection separately needs renewed credential if pursued.",
+    "results": {"verify":"NOT_REPEATED_PENDING_RELOAD","roleImports":"UNKNOWN_AFTER_PRIOR_TIMEOUTS_NOT_REPEATED","pack":"NOT_GENERATED","render":"NOT_RUN"},
+    "mutations": "Existing source/tests/design/spec/tasks/CHANGELOG/HANDOFF/receipt only. No Figma write, publish, MCP config edit, token access, process restart/kill, version change, commit or push."
+  },
+  "postCacheFixAcceptance": {
+    "checkedAt": "2026-11-13T10:06:31.125Z",
+    "status": "blocked-after-successful-four-part-import",
+    "supersedesDiagnosisAbove": true,
+    "connection": {
+      "listOpenFiles": ["jQf7zj33pzOGsGKO4d73OO", "0eoR7aPlpzIva8IdWATWkL"],
+      "externalExecute": "PASS: explicit-file library and sandbox returned correct fileKey; sandbox remained readable after role-import timeouts",
+      "internalProbe": "PASS: both root 0:0 maxNodes=2 returned correct real file names; later sandbox Section probe returned 159:2928 and exact evidence name. non-conformant is expected from intentionally truncated probes, not transport failure.",
+      "bridgeBeforeVerify": {"pluginConnected":true,"checkedAt":"2026-11-13T10:00:41.719Z","lastRoundtripMs":4,"port":9223,"fallback":false,"enginePid":50256,"supervisorPid":56640},
+      "bridgeAfterImports": {"pluginConnected":true,"checkedAt":"2026-11-13T10:06:14.735Z","lastRoundtripMs":3,"port":9223,"fallback":false,"enginePid":50256,"supervisorPid":56640},
+      "cacheFixLive": "PASS: internal successful execution refreshes true and checkedAt. Historical false is NOT current root cause. No independent-client theory supported.",
+      "pluginVersionWarning": "1.39.0 vs bundled 1.41.5; not established as cause"
+    },
+    "liveLibraryRead": "PASS: all four keys and three role variant keys read live, matching currentLibraryKeys and roleVariantKeys. Badge 185:37811 confirmed FRAME container with hidden master 185:37812 and visible badge 186:38070; verify schema badgeSourceId explicitly requests bubble node.",
+    "verify": {
+      "attempts": 1,
+      "status": "FAIL",
+      "inputs": "Same fresh keys, caps, staged/source/library IDs as verifyInputs and restartRetry.verify; verifyFileKey=0eoR7aPlpzIva8IdWATWkL; write=false; no library compile/publish",
+      "error": {"code":"INTERNAL_ERROR","message":"figma_execute failed: Error: Unable to establish connection to Figma after 10 seconds. Please check your internet connection."},
+      "templateJsonReturned": false,
+      "failureStage": "UNKNOWN: error lacks key and stage; cannot equate with bridge disconnection or identify failing component. Source code has sandbox import smoke then rebound library geometry/source reads."
+    },
+    "singleKeyImports": [
+      {"part":"top","key":"566bc71dbd1ddcd44fcf31c3a907fbf97916141b","targetFileKey":"0eoR7aPlpzIva8IdWATWkL","status":"PASS","id":"158:2851","remote":true,"elapsedMs":5},
+      {"part":"chapter","key":"60b71f757f34be862d57da26350911d5cb14c434","targetFileKey":"0eoR7aPlpzIva8IdWATWkL","status":"PASS","id":"158:2880","remote":true,"elapsedMs":3},
+      {"part":"cluster","key":"e7fb943a49e5e21ad867a7556226f53ceafc8ae2","targetFileKey":"0eoR7aPlpzIva8IdWATWkL","status":"PASS","id":"158:2899","remote":true,"elapsedMs":4},
+      {"part":"footer","key":"93067094973bd3b39f3dff8bd014b80e9eb9df63","targetFileKey":"0eoR7aPlpzIva8IdWATWkL","status":"PASS","id":"158:2924","remote":true,"elapsedMs":3},
+      {"part":"程序","key":"277f9217b34f7849c52f906173802a2724429bd7","status":"INDETERMINATE_TIMEOUT","error":"Error: Execution timed out after 20000ms"},
+      {"part":"GUI","key":"e4b5d01f322767ff40f7851333f41303a9a94687","status":"INDETERMINATE_TIMEOUT","error":"Error: Execution timed out after 15000ms"},
+      {"part":"拼接","key":"807b37cba5202e19837b436b5e0dee19a39a7c1c","status":"INDETERMINATE_TIMEOUT","error":"Error: Execution timed out after 15000ms"}
+    ],
+    "focusedDiagnostics": {
+      "singleKeyExecution": "Each role key independently attempted once, never batched. Timeout does not prove unpublished key or permanent import failure.",
+      "fileDirectionControl": "Library explicit chapter import PASS id188:38135 remote=false 2ms; sandbox same key PASS remote=true. No general file-binding failure demonstrated.",
+      "serializerControl": "Sandbox top import with backend-equivalent fields including bounds, children, paints, padding PASS. Cannot blame generic serNode fields from this control.",
+      "networkRootCause": "UNKNOWN: no network request-level failure captured. Four atomic remote imports succeed, roles separately hang; role availability/publish/dependency/network state remain candidates, not findings.",
+      "libraryResidualCheck": "188:38085 has zero __geometry_probe__ direct roots at end",
+      "codePointersForMainAgent": ["packages/figma-mcp-server/src/server/figmaConsoleBackend.ts:835 import smoke serializes imported component", "packages/figma-mcp-server/src/v2/compile/backfill.ts:47 per-key smoke", "packages/figma-mcp-server/src/v2/compile/index.ts:213 smoke then geometry", "packages/figma-mcp-server/src/v2/compile/geometry.ts:62 library geometry creates temporary instance"],
+      "next": "Main agent should add stage/key observability in an authorized code pass, or inspect actual Figma import network/library availability for three role keys. Do not loop restarts. Verify once again only after new evidence/fix; current task requested one bounded attempt."
+    },
+    "target": {
+      "fileKey":"0eoR7aPlpzIva8IdWATWkL",
+      "pageName":"燕云接入验收 20261113",
+      "pageId":"159:2927",
+      "sectionName":"燕云 / 已导入四部件证据（非引擎渲染）",
+      "sectionId":"159:2928",
+      "rootId":null,
+      "instanceIds":{"top":"159:2929","chapter":"159:2957","cluster":"159:2972","footer":"159:3006"},
+      "placement":{"x":0,"y":0,"width":6200,"height":5857},
+      "purpose":"Only genuine imported component instances, visibly named 导入证据（非渲染）. Not hand-drawn document, not render acceptance.",
+      "cleanup":"No empty page/Section or failed scene fragments; retained complete four-component import evidence as authorized. No library scene write performed by direct scripts."
+    },
+    "screenshots": {
+      "beforeCreate":"PASS runtime export sandbox existing 封面 134:1423, 960x540",
+      "importEvidence":"PASS runtime Section 159:2928 export 6200x5857 scaled 0.252903; four components vertically separated",
+      "document":"NOT_RUN: no rendered document",
+      "local":"NOT_RUN: no rendered document",
+      "savedPaths":[]
+    },
+    "results":{"pack":"NOT_GENERATED","render":"NOT_RUN","sync1":"NOT_RUN","sync2":"NOT_RUN","singleRoleUpdate":"NOT_RUN","deepAudit":"NOT_RUN"},
+    "packPath":null,
+    "markdownPath":null,
+    "mutations":"Only sandbox evidence page/Section/four imported instances and this existing JSON. No code, HANDOFF, MCP config, process changes, restart, publish, commit or push.",
+    "blocker":"Current bridge healthy and cache fix verified live. Single verify still fails without stage/key detail; all four atomic imports succeed independently while all three role imports independently time out. Exact verify and role import root causes remain UNKNOWN. No pack; cannot truthfully proceed render/sync acceptance."
+  }
+}

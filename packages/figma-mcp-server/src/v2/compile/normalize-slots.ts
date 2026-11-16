@@ -201,7 +201,17 @@ async function normalizeChapter(
   // 真正的「图区 + 说明栏」在唯一的子节点里；标号容器是另挂的兄弟。
   const nonBadge = root.children.filter((c) => !isBadgeParent(c));
   const only = nonBadge.length === 1 ? nonBadge[0] : undefined;
-  const body = only && only.children.length >= 2 ? only : root;
+  let body = only && only.children.length >= 2 ? only : root;
+
+  // Text 是可承载簇的容器，不是 TEXT 叶节点。完整卡片的右列可能在 sect 内，
+  // 应先按明确槽位定位，再在它的父级识别图区，不能按状态文本的尺寸猜。
+  const isColumnContainer = (n: ProbeNode): boolean =>
+    ['FRAME', 'GROUP', 'COMPONENT', 'INSTANCE'].includes(n.type);
+  const namedColumns = structuredDescendants(root).filter(
+    (n) => n.name === CHAPTER_SLOTS.clusterHost && isColumnContainer(n) && !isBadgeParent(n)
+  );
+  const preNamedColumn = namedColumns.length === 1 ? namedColumns[0] : undefined;
+  if (preNamedColumn?.parent) body = preNamedColumn.parent;
 
   const graphic = pickGraphic(body);
   // 说明栏至少装着一个簇（簇内 ≥2 个文本），否则它只是样式块或标号容器。
@@ -212,15 +222,15 @@ async function normalizeChapter(
   const preTitleBlock = preTitleText
     ? body.children.find((c) => subtreeIds([c]).has(preTitleText.id))
     : undefined;
-  const preNamedColumn = root.children.find((c) => c.name === CHAPTER_SLOTS.clusterHost);
   const others = body.children.filter(
-    (c) => c !== graphic && c !== preTitleBlock && !isBadgeParent(c)
+    (c) => isColumnContainer(c) && c !== graphic && c !== preTitleBlock && !isBadgeParent(c)
   );
-  const column =
-    preNamedColumn ??
-    (others.length === 1
-      ? others[0]
-      : others.filter((c) => texts(c).length >= 2).sort((a, b) => texts(b).length - texts(a).length)[0]);
+  const column = namedColumns.length > 1
+    ? undefined
+    : preNamedColumn ??
+      (others.length === 1
+        ? others[0]
+        : others.filter((c) => texts(c).length >= 2).sort((a, b) => texts(b).length - texts(a).length)[0]);
 
   if (column) {
     await rename('chapter', column, CHAPTER_SLOTS.clusterHost);

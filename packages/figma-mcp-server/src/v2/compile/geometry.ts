@@ -77,8 +77,12 @@ export async function captureGeometryFromKeys(input: CaptureFromKeysInput): Prom
   } finally {
     try {
       await libraryBackend.deleteNodes([inst.id]);
-    } catch {
-      /* 删不掉只是留个临时实例，不影响本次结果 */
+    } catch (e) {
+      gaps.push({
+        what: `geometry.cleanup 实例 ${inst.id} 删除失败：${String((e as Error)?.message ?? e)}`,
+        impact: '本轮临时实例可能残留，不能宣称清理成功',
+        fix: `确认目标库文件后仅清理本轮实例 ${inst.id}`
+      });
     }
   }
 

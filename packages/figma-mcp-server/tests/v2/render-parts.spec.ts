@@ -10,6 +10,10 @@ import { parseTemplatePack } from '../../src/v2/template/schema.js';
 import { renderFromParts, PARTS_RENDER_CODES } from '../../src/v2/render/parts/index.js';
 import { BADGE_MASTER_NAME } from '../../src/v2/template-slots.js';
 import { loadRoleBlocks } from '../../src/v2/role-block.js';
+import { stampPartsDoc } from '../../src/v2/render/parts/stamp-parts.js';
+import { Tree } from '../../src/v2/reconcile/tree.js';
+import { buildSnapshot } from '../../src/v2/reconcile/snapshot.js';
+import { planReconcile } from '../../src/v2/reconcile/plan.js';
 import { partsBackend, type PNodeSpec } from './helpers/parts-backend.js';
 
 const MD = `# 设置面板
@@ -247,6 +251,125 @@ function setup(md = MD, overrides: Record<string, string> = {}) {
   h.registerComponent('k-footer', footerSpec());
   return { h, ir: parsed.ir, pack: makePack(overrides) };
 }
+
+describe('嵌套 none 簇', () => {
+  function nestedSpec(hostName = 'text'): PNodeSpec {
+    const flat = clusterSpec();
+    const children = flat.children!;
+    return {
+      ...flat,
+      layoutMode: 'HORIZONTAL',
+      children: [
+        { id: 'number-frame', name: 'Number', type: 'FRAME', children: [children[0]!] },
+        { id: 'text-host', name: hostName, type: 'FRAME', layoutMode: 'VERTICAL',
+          children: children.slice(1) }
+      ]
+    };
+  }
+
+  async function run(bullets: string[], hostName = 'text', options: { split?: boolean; missingRole?: boolean } = {}) {
+    const md = MD.slice(0, MD.indexOf('## 01.')) +
+      `## 01. 设置面板\n\n### 打开设置\n@GUI @程序 @拼接\n\n${bullets.map((b) => `- ${b}`).join('\n')}\n`;
+    const { h, ir, pack } = setup(md, { clusterGroups: 'none' });
+    const nested = nestedSpec(hostName);
+    if (options.split) nested.children!.push({ id: 'other-host', name: 'other', type: 'FRAME',
+      children: [{ id: 'other-body', name: '正文/规则', type: 'TEXT', characters: '其他正文' }] });
+    h.registerComponent('k-cluster', nested);
+    const keys = { GUI: 'role-gui', 程序: 'role-code', 拼接: 'role-join' };
+    for (const [role, key] of Object.entries(keys)) {
+      h.registerComponent(key, {
+        id: `role-${role}`, name: `职能标记=${role}`, type: 'COMPONENT',
+        children: [
+          { id: `label-${role}`, name: '文本', type: 'TEXT', characters: role },
+          { id: `body-${role}`, name: '正文', type: 'TEXT', characters: '旧职能正文' }
+        ]
+      });
+    }
+    const loaded = await loadRoleBlocks(h.backend, {
+      variantKeys: keys, variantPrefix: '职能标记=', labelTextName: '文本'
+    }, () => {});
+    if (!loaded?.ok) throw new Error('role runtime missing');
+    if (options.missingRole) loaded.runtime.variantKeys!.delete('GUI');
+    const r = await renderFromParts({ ir, pack, pageId: 'page-root', backend: h.backend,
+      roleBlocks: loaded.runtime });
+    const host = h.byName(r.rootId, hostName)[0]!;
+    return { h, r, host, ir, pack };
+  }
+
+  it.each([
+    ['单正文', ['短文']],
+    ['多正文', ['一', '二', '三', '四']],
+    ['长文', ['长正文。'.repeat(600), '末条']],
+    ['图文交错', ['开头', '配图：图一', '中段', '第三条', '配图：图二', '末条']],
+    ['以图开头', ['配图：总览', '规则']],
+    ['职能交错', ['规则', '@GUI：界面说明', '配图：示意', '@程序：逻辑说明', '末条', '@拼接：拼装说明']]
+  ])('%s：原宿主内严格按 IR 排序且无模板残留', async (_name, bullets) => {
+    const { h, r, host } = await run(bullets);
+    const order = h.childrenOf(host.id).filter((n) => n.name !== '#Title_Main').map((n) => {
+      if (n.name === '配图') return `配图：${h.byName(n.id, '配图占位文案')[0]!.characters!.replace('配图占位：', '')}`;
+      if (n.type === 'INSTANCE') {
+        const role = n.name.replace('职能标记=', '');
+        expect(h.byName(n.id, '文本')[0]!.characters).toBe(role);
+        return `@${role}：${h.byName(n.id, '正文')[0]!.characters}`;
+      }
+      return n.characters;
+    });
+    expect(order).toEqual(bullets);
+    expect(h.byName(r.rootId, '职能标记')).toHaveLength(0);
+    expect(h.byName(r.rootId, '#Title_Main')[0]!.parentId).toBe(host.id);
+    const number = h.byName(r.rootId, 'Number').find((n) => n.type === 'FRAME')!;
+    expect(number.parentId).toBe(host.parentId);
+    expect(h.childrenOf(number.id)[0]!.characters).toBe('1');
+    expect(host.layoutMode).toBe('VERTICAL');
+  });
+
+  it('嵌套条目打标后重复规划无变更，改单条职能正文只更新正文', async () => {
+    const { h, r, host, ir, pack } = await run(['规则', '@GUI：界面说明', '配图：示意', '@程序：逻辑', '@拼接：拼装', '末条']);
+    const stamps = new Map<string, string>();
+    h.backend.stampNodes = async (entries) => {
+      for (const entry of entries) stamps.set(entry.nodeId, JSON.stringify(entry.stamp));
+    };
+    await stampPartsDoc(h.backend, r.layout, ir, pack);
+    const snapshot = () => buildSnapshot(new Tree({
+      nodes: [...h.nodes.values()].map((n) => ({ ...n, childIds: n.children, stamp: stamps.get(n.id) })),
+      truncated: false, strayScratchIds: []
+    }, r.rootId));
+    for (let i = 0; i < 2; i++) {
+      const planned = planReconcile(snapshot(), ir);
+      expect(planned.ok).toBe(true);
+      if (!planned.ok) throw new Error('plan failed');
+      expect(planned.plan.changes).toEqual([]);
+      expect(planned.plan.conflicts).toEqual([]);
+    }
+    const changed = structuredClone(ir);
+    changed.sections[0]!.clusters[0]!.bullets[1] = '@GUI：新界面说明';
+    changed.sections[0]!.clusters[0]!.groups[0]!.bullets[1] = '@GUI：新界面说明';
+    const planned = planReconcile(snapshot(), changed);
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) throw new Error('plan failed');
+    expect(planned.plan.changes).toHaveLength(1);
+    expect(planned.plan.conflicts).toEqual([]);
+    expect(snapshot().sections[0]!.clusters[0]!.itemsParent?.id).toBe(host.id);
+  });
+
+  it('正文跨多个宿主明确拒绝', async () => {
+    await expect(run(['正文'], 'text', { split: true })).rejects.toMatchObject({
+      code: 'V2_TEMPLATE_STRUCTURE_INVALID'
+    });
+  });
+
+  it('缺 GUI 变体明确失败，不回退字面文本', async () => {
+    await expect(run(['@GUI：界面说明'], 'text', { missingRole: true })).rejects.toMatchObject({
+      code: 'V2_ROLE_BLOCK_UNAVAILABLE'
+    });
+  });
+
+  it('同名职能标记宿主承载正文/标题时不能删除', async () => {
+    const { h, host } = await run(['一', '二', '三'], '职能标记');
+    expect(h.nodes.has(host.id)).toBe(true);
+    expect(h.byName(host.id, '正文/规则').map((n) => n.characters)).toEqual(['一', '二', '三']);
+  });
+});
 
 describe('renderFromParts', () => {
   it('两章两簇：拼装、清空原稿、摆标号', async () => {
@@ -498,7 +621,157 @@ describe('renderFromParts', () => {
     });
 
     const warn = r.warnings.find((w) => w.code === 'V2_W_MAIN_SLOT_MISSING');
-    expect(warn?.context).toBe('设置面板');
+        expect(warn?.context).toBe('设置面板');
     expect(r.summary.imagesPlaced).toBe(0);
+
+  });
+});
+
+describe('component-variant：模板预置职能行按 md 角色取舍', () => {
+  const ONE_GUI_MD = `# 验收
+
+跟进UI：苗儿
+需求组：OGC2
+易协作链接：#待补充
+最后更新时间：2026.11.16
+
+## 设计总览
+
+### 功能背景
+
+玩家在局内需要快速查看当前状态。
+
+### 核心交互
+
+点击入口打开面板。
+
+## 01. 主界面
+
+### 入口
+@GUI
+
+- 点击开始
+`;
+
+  function roleCarrier(role: string): PNodeSpec {
+    return {
+      id: `carrier-${role}`,
+      name: `职能标记=#${role}`,
+      type: 'FRAME',
+      width: 600,
+      height: 120,
+      children: [
+        { id: `carrier-${role}-label`, name: '文本', type: 'TEXT', characters: role },
+        { id: `carrier-${role}-body`, name: '正文', type: 'TEXT', characters: `${role}职能正文占位：说明本职能的执行要求` }
+      ]
+    };
+  }
+
+  async function runRoles(): Promise<{ h: ReturnType<typeof setup>['h']; rootId: string }> {
+    const { h, ir, pack } = setup(ONE_GUI_MD);
+    const flat = clusterSpec();
+    h.registerComponent('k-cluster', {
+      ...flat,
+      children: [
+        ...flat.children!,
+        roleCarrier('程序'),
+        roleCarrier('GUI'),
+        roleCarrier('拼接'),
+        // 纯容器（官方 1.14 形态）：不得被隐藏
+        { id: 'role-container', name: '职能标记', type: 'FRAME', width: 600, height: 70, children: [] }
+      ]
+    });
+    const keys = { GUI: 'role-gui', 程序: 'role-code', 拼接: 'role-join' };
+    for (const [role, key] of Object.entries(keys)) {
+      h.registerComponent(key, {
+        id: `role-${role}`,
+        name: `职能标记=${role}`,
+        type: 'COMPONENT',
+        children: [
+          { id: `label-${role}`, name: '文本', type: 'TEXT', characters: role },
+          { id: `body-${role}`, name: '正文', type: 'TEXT', characters: '旧职能正文' }
+        ]
+      });
+    }
+    const loaded = await loadRoleBlocks(h.backend, {
+      variantKeys: keys,
+      variantPrefix: '职能标记=',
+      labelTextName: '文本'
+    }, () => {});
+    if (!loaded?.ok) throw new Error('role runtime missing');
+    const r = await renderFromParts({
+      ir,
+      pack,
+      pageId: 'page-root',
+      backend: h.backend,
+      roleBlocks: loaded.runtime
+    });
+    return { h, rootId: r.rootId };
+  }
+
+  it('未标注角色隐藏且保留节点，标注角色显示且清空占位正文', async () => {
+    const { h, rootId } = await runRoles();
+    for (const role of ['程序', '拼接']) {
+      const carrier = h.byName(rootId, `职能标记=#${role}`)[0]!;
+      expect(carrier).toBeDefined();
+      expect(carrier.visible).toBe(false);
+    }
+    const gui = h.byName(rootId, '职能标记=#GUI')[0]!;
+    expect(gui.visible).toBe(true);
+    expect(h.byName(gui.id, '正文')[0]!.characters).toBe('');
+  });
+
+  it('纯 `职能标记` 容器不受影响', async () => {
+    const { h, rootId } = await runRoles();
+    const container = h.byName(rootId, '职能标记')[0]!;
+    expect(container.visible).toBe(true);
+  });
+
+  it('打标后重复规划不删角色行、零变更零冲突', async () => {
+    const { h, ir, pack } = setup(ONE_GUI_MD);
+    const flat = clusterSpec();
+    h.registerComponent('k-cluster', {
+      ...flat,
+      children: [...flat.children!, roleCarrier('程序'), roleCarrier('GUI'), roleCarrier('拼接')]
+    });
+    const keys = { GUI: 'role-gui', 程序: 'role-code', 拼接: 'role-join' };
+    for (const [role, key] of Object.entries(keys)) {
+      h.registerComponent(key, {
+        id: `role-${role}`,
+        name: `职能标记=${role}`,
+        type: 'COMPONENT',
+        children: [
+          { id: `label-${role}`, name: '文本', type: 'TEXT', characters: role },
+          { id: `body-${role}`, name: '正文', type: 'TEXT', characters: '旧职能正文' }
+        ]
+      });
+    }
+    const loaded = await loadRoleBlocks(h.backend, {
+      variantKeys: keys,
+      variantPrefix: '职能标记=',
+      labelTextName: '文本'
+    }, () => {});
+    if (!loaded?.ok) throw new Error('role runtime missing');
+    const r = await renderFromParts({
+      ir,
+      pack,
+      pageId: 'page-root',
+      backend: h.backend,
+      roleBlocks: loaded.runtime
+    });
+    const stamps = new Map<string, string>();
+    h.backend.stampNodes = async (entries) => {
+      for (const entry of entries) stamps.set(entry.nodeId, JSON.stringify(entry.stamp));
+    };
+    await stampPartsDoc(h.backend, r.layout, ir, pack);
+    const snapshot = () => buildSnapshot(new Tree({
+      nodes: [...h.nodes.values()].map((n) => ({ ...n, childIds: n.children, stamp: stamps.get(n.id) })),
+      truncated: false, strayScratchIds: []
+    }, r.rootId));
+    const planned = planReconcile(snapshot(), ir);
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) throw new Error('plan failed');
+    expect(planned.plan.changes).toEqual([]);
+    expect(planned.plan.conflicts).toEqual([]);
   });
 });

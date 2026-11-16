@@ -121,6 +121,22 @@ export function describeNoReply(budgetMs: number): string {
   );
 }
 
+/**
+ * 一行桥快照，塞进 verify / render 的失败信息。
+ *
+ * 只读已有状态，不发额外往返：现场排查需要的是「当时记了什么」，不是再探一次。
+ */
+export function describeBridgeSnapshot(): string {
+  const s = getBridgeState();
+  return (
+    `桥快照 port=${s.port ?? '?'} preferred=${s.preferredPort} fallback=${s.fallback} ` +
+    `holderPid=${s.holderPid ?? '-'} pluginConnected=${s.pluginConnected ?? '-'} ` +
+    `lastRoundtripMs=${s.lastRoundtripMs ?? '-'} checkedAt=${s.checkedAt ?? '-'} ` +
+    `worker=${s.enginePid}` +
+    (s.supervisorPid ? ` supervisor=${s.supervisorPid}` : '')
+  );
+}
+
 // ---- supervisor 单例锁 ----------------------------------------------------
 
 export const SUPERVISOR_LOCK_FILE =
@@ -187,5 +203,35 @@ export function releaseSupervisorLock(file = SUPERVISOR_LOCK_FILE): void {
     fs.rmSync(file, { force: true });
   } catch {
     /* best-effort */
+  }
+}
+
+// ---- worker 启动留痕 ------------------------------------------------------
+
+/**
+ * 宿主换掉整个 MCP 时不转发子进程 stderr（实测：BrainMaker Cowork.log 里没有
+ * 任何引擎行），所以「什么时候换了人」只能自己落盘。一行一个 JSON，追加即可。
+ */
+export const LIFECYCLE_FILE =
+  process.env.GISOP_LIFECYCLE_LOG ||
+  path.join(os.homedir(), '.game-interaction-sop', 'worker-lifecycle.log');
+
+export interface WorkerBootRecord {
+  pid: number;
+  supervisorPid?: number;
+  startedAt: string;
+  engineVersion?: string;
+  /** 启动探活结论；没跑探活时不填。 */
+  probe?: 'ok' | 'failed';
+  /** 探活的原始错误摘要（不写脚本/token）。 */
+  detail?: string;
+}
+
+export function recordWorkerBoot(record: WorkerBootRecord, file = LIFECYCLE_FILE): void {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, `${JSON.stringify(record)}\n`, 'utf-8');
+  } catch {
+    /* 留痕失败不该阻断启动 */
   }
 }

@@ -31,6 +31,18 @@ TBD - created by archiving change template-compile-to-library. Update Purpose af
 - **WHEN** 当前源模板指纹与探针阶段记录的 `source.fingerprint` 不一致
 - **THEN** 编译 SHALL 拒绝，返回 `V2_COMPILE_SOURCE_DRIFT`，并提示重跑探针
 
+### Requirement: 编译排列只写本轮产物
+
+编译 SHALL 按项目独立 Page 管理库。自动排列 SHALL 使用本轮新建部件、收编零件与组件集 ID 白名单；同页 SHALL 合并去重，异页分别排列。后端 SHALL 只移动白名单内目标 Page 的直接子级 COMPONENT / COMPONENT_SET；缺失或空白名单 SHALL 零写入，SHALL NOT 提升嵌套成员到祖先。新产物 SHALL 避开既有根节点包围区；源稿、既有 Page 根资产及项目 Section 的坐标、尺寸、父级 SHALL 不变。新建变体集内部 SHALL 保持合理排列。
+
+#### Scenario: 同页存在旧资产和源稿
+- **WHEN** library.pageId 与 partsPageId 相同且页面已有源稿、组件及项目 Section
+- **THEN** SHALL 仅排列本轮新产物一次，所有旧资产坐标、尺寸及父级 SHALL 与调用前一致
+
+#### Scenario: 空白名单与嵌套变体
+- **WHEN** 排列白名单为空、缺失或包含非根变体成员
+- **THEN** SHALL NOT 移动任何既有节点或提升成员的祖先；新建集内成员 SHALL 保留其内部排列
+
 ### Requirement: 四部件产出
 
 编译 SHALL 在库文件中产出 4 个可独立导入的部件组件：`top`、`chapter`、`cluster`、`footer`。
@@ -287,6 +299,11 @@ TBD - created by archiving change template-compile-to-library. Update Purpose af
 #### Scenario: 项目命名归一
 - **WHEN** 章节母版是 `Group 2360`、簇母版是 `Frame 1245`
 - **THEN** 编译产物中该章节标题节点名 SHALL 为 `#Name`，簇标题 SHALL 为 `#Title_Main`
+
+#### Scenario: 嵌套说明栏优先于状态文本
+- **WHEN** 完整章节包含标题、状态 TEXT 和嵌套横排，横排内有舞台及唯一名为 `Text` 的 FRAME/GROUP 容器（允许为空）
+- **THEN** 归一化 SHALL 优先选择该嵌套容器，并在其父级定位图区，SHALL NOT 重命名状态 TEXT，无论状态文本宽高是否超过右列
+- **AND** 说明栏候选 SHALL 为可承载子节点的容器，SHALL NOT 为 TEXT；旧直接两列模板的唯一空说明栏 SHALL 仍能归一化
 
 #### Scenario: 重复编译幂等
 - **WHEN** 对已归一化的项目再编一次

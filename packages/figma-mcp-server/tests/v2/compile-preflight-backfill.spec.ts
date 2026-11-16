@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { FigmaBackend, NodeInfo } from '../../src/v2/figma-client.js';
 import { DEFAULT_CAPABILITIES } from '../../src/v2/template/schema.js';
 import { preflight } from '../../src/v2/compile/preflight.js';
-import { buildTemplatePack, verifyPublished } from '../../src/v2/compile/backfill.js';
+import { buildTemplatePack, classifyVerifyError, verifyPublished } from '../../src/v2/compile/backfill.js';
 
 function backend(opts: { pageType?: NodeInfo['type']; published?: string[]; failImport?: boolean } = {}) {
   return {
@@ -102,6 +102,65 @@ describe('verifyPublished', () => {
     await expect(
       verifyPublished({ backend: backend({ published: ['k-top'] }), keys: { top: 'k-top', cluster: 'k-cl' } })
     ).rejects.toThrow(/未提供 key/);
+  });
+
+  it('桥级失败短路：只试第一个部件，并标明未尝试与明细', async () => {
+    const tried: string[] = [];
+    const broken = {
+      async importComponentByKey(key: string) {
+        tried.push(key);
+        throw new Error(
+          `[importComponentByKey key=${key} file=SANDBOX] figma_execute failed: Cannot connect to Figma Desktop.`
+        );
+      }
+    } as unknown as FigmaBackend;
+    let err: (Error & { code?: string; details?: unknown }) | undefined;
+    try {
+      await verifyPublished({ backend: broken, keys });
+    } catch (e) {
+      err = e as typeof err;
+    }
+    expect(tried).toEqual(['k-top']);
+    expect(err!.code).toBe('V2_COMPILE_VERIFY_UNAVAILABLE');
+    expect(err!.message).toContain('no-client');
+    expect(err!.message).toContain('未尝试：章节/簇');
+    expect(err!.message).toContain('尝试明细：顶部');
+    expect(err!.message).toContain('桥快照 port=');
+    const details = err!.details as { attempts: Array<{ part: string; errorKind: string; elapsedMs: number }>; skipped: string[] };
+    expect(details.attempts).toHaveLength(1);
+    expect(details.attempts[0]).toMatchObject({ part: 'top', errorKind: 'no-client' });
+    expect(details.skipped).toEqual(['chapter', 'cluster']);
+  });
+
+  it('无回程（NO_REPLY）同样短路', async () => {
+    const broken = {
+      async importComponentByKey() {
+        throw Object.assign(new Error('figma_execute 在 20000ms 内没有回程'), { code: 'V2_BRIDGE_NO_REPLY' });
+      }
+    } as unknown as FigmaBackend;
+    await expect(verifyPublished({ backend: broken, keys })).rejects.toThrow(/no-reply/);
+  });
+
+  it('多个未发布仍全部聚合，不被短路', async () => {
+    const tried: string[] = [];
+    const b = {
+      async importComponentByKey(key: string) {
+        tried.push(key);
+        throw new Error(`Could not find a published component with the key "${key}"`);
+      }
+    } as unknown as FigmaBackend;
+    await expect(verifyPublished({ backend: b, keys })).rejects.toThrow(/顶部[\s\S]*章节[\s\S]*簇/);
+    expect(tried).toEqual(['k-top', 'k-ch', 'k-cl']);
+  });
+});
+
+describe('classifyVerifyError', () => {
+  it('按原始错误分类，不把桥级错误算成未发布', () => {
+    expect(classifyVerifyError(new Error('figma_execute failed: Cannot connect to Figma Desktop.'))).toBe('no-client');
+    expect(classifyVerifyError(Object.assign(new Error('x'), { code: 'V2_BRIDGE_NO_REPLY' }))).toBe('no-reply');
+    expect(classifyVerifyError(new Error('WebSocket command EXECUTE_CODE timed out after 42000ms'))).toBe('busy');
+    expect(classifyVerifyError(new Error('Could not find a published component with the key "k"'))).toBe('not-published');
+    expect(classifyVerifyError(new Error('boom'))).toBe('other');
   });
 });
 

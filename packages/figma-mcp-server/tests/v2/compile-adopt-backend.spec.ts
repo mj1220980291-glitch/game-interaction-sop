@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { buildFigmaConsoleBackend } from '../../src/server/figmaConsoleBackend.js';
+import { arrangeCompiledParts } from '../../src/v2/compile/index.js';
 
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (
   ...args: string[]
@@ -18,11 +19,13 @@ interface N {
   parent: N | null;
   x: number;
   y: number;
+  width: number;
+  height: number;
   main?: N;
 }
 
 function node(id: string, type: string, name: string, extra: Partial<N> = {}): N {
-  return { id, type, name, children: [], parent: null, x: 0, y: 0, ...extra };
+  return { id, type, name, children: [], parent: null, x: 0, y: 0, width: 100, height: 60, ...extra };
 }
 
 function attach(parent: N, child: N, index = parent.children.length) {
@@ -67,8 +70,15 @@ function adoptHarness() {
       set name(v: string) {
         n.name = v;
       },
-      x: n.x,
-      y: n.y,
+      get x() { return n.x; },
+      set x(value: number) { n.x = value; },
+      get y() { return n.y; },
+      set y(value: number) { n.y = value; },
+      get width() { return n.width; },
+      get height() { return n.height; },
+      resizeWithoutConstraints: (width: number, height: number) => {
+        n.width = width; n.height = height;
+      },
       get parent() {
         return n.parent ? wrap(n.parent) : null;
       },
@@ -162,5 +172,100 @@ describe('adoptInstances（插件脚本）', () => {
     const mains = h.root.children.map((c) => c.main!);
     expect(mains.every((m) => m.parent?.type === 'COMPONENT_SET')).toBe(true);
     expect(h.partsPage.children.map((c) => c.type)).toEqual(['COMPONENT_SET']);
+    const ownSet = h.partsPage.children[0]!;
+    expect(ownSet.children.map((c) => [c.x, c.y])).toEqual([[40, 40], [40, 140]]);
+    expect([ownSet.width, ownSet.height]).toEqual([180, 240]);
+  });
+});
+
+describe('编译排列写入边界（实际插件脚本）', () => {
+  function setup() {
+    const page = node('page', 'PAGE', '项目');
+    const old = [
+      node('source', 'FRAME', '源稿', { x: -200, y: -100 }),
+      node('old', 'COMPONENT', '旧组件', { x: 600, y: 900 }),
+      node('section', 'SECTION', '旧项目区', { x: 1200, y: 2000, height: 800 })
+    ];
+    const nested = node('nested', 'COMPONENT', '既有嵌套组件');
+    attach(old[2]!, nested);
+    const a = node('new-a', 'COMPONENT', 'A', { width: 400 });
+    const set = node('new-set', 'COMPONENT_SET', 'B', { width: 300 });
+    const variant = node('variant', 'COMPONENT', '职能=GUI', { x: 40, y: 80 });
+    attach(set, variant);
+    for (const n of [...old, a, set]) attach(page, n);
+    const all = [page, ...old, nested, a, set, variant];
+    let calls = 0;
+    const client = { callTool: async ({ arguments: args }: { arguments: { code: string } }) => {
+      calls++;
+      const result = await new AsyncFunction('figma', args.code)({
+        getNodeByIdAsync: async (id: string) => all.find((n) => n.id === id)
+      });
+      return { content: [{ type: 'text', text: JSON.stringify({ _mcp: 'f', success: true, result }) }] };
+    } } as unknown as Client;
+    const snapshot = (nodes: N[]) => nodes.map((n) => ({
+      id: n.id, x: n.x, y: n.y, width: n.width, height: n.height, parent: n.parent?.id
+    }));
+    return { backend: buildFigmaConsoleBackend(client), old, nested, a, set, variant, snapshot, calls: () => calls };
+  }
+
+  it('同页仅排新组件/集，旧根/Section/源稿坐标尺寸父级不变且避开旧区', async () => {
+    const h = setup();
+    const before = h.snapshot([...h.old, h.nested]);
+    const result = await h.backend.arrangePageChildren!({
+      pageId: 'page', nodeIds: ['new-set', 'new-a', 'new-a', 'variant', 'nested', 'section', 'source']
+    });
+    expect(result.map((n) => n.name)).toEqual(['A', 'B']);
+    expect(h.snapshot([...h.old, h.nested])).toEqual(before);
+    expect([h.a.x, h.a.y, h.set.x, h.set.y]).toEqual([0, 2920, 520, 2920]);
+    expect([h.variant.x, h.variant.y, h.variant.parent?.id]).toEqual([40, 80, 'new-set']);
+  });
+
+  it('空或运行期缺失白名单零调用，不回退全页', async () => {
+    const h = setup();
+    expect(await h.backend.arrangePageChildren!({ pageId: 'page', nodeIds: [] })).toEqual([]);
+    expect(await h.backend.arrangePageChildren!({ pageId: 'page' } as never)).toEqual([]);
+    expect(h.calls()).toBe(0);
+  });
+
+  it('未知或非直属ID不提升到旧项目Section', async () => {
+    const h = setup();
+    const before = h.snapshot([...h.old, h.nested, h.a, h.set]);
+    expect(await h.backend.arrangePageChildren!({ pageId: 'page', nodeIds: ['missing', 'nested'] })).toEqual([]);
+    expect(h.snapshot([...h.old, h.nested, h.a, h.set])).toEqual(before);
+  });
+
+  it('compile同页合并去重只调用一次，旧资产不变', async () => {
+    const h = setup();
+    const before = h.snapshot(h.old);
+    await arrangeCompiledParts(h.backend, [
+      { pageId: 'page', nodeIds: ['new-a'] },
+      { pageId: 'page', nodeIds: ['new-set', 'variant', 'new-a'] }
+    ]);
+    expect(h.calls()).toBe(1);
+    expect(h.snapshot(h.old)).toEqual(before);
+    expect([h.a.y, h.set.y]).toEqual([2920, 2920]);
+  });
+
+  it('compile异页分别传白名单，空组不调用', async () => {
+    const h = setup();
+    const calls: unknown[] = [];
+    h.backend.arrangePageChildren = async (p) => { calls.push(p); return []; };
+    await arrangeCompiledParts(h.backend, [
+      { pageId: 'library', nodeIds: ['top', 'chapter'] },
+      { pageId: 'parts', nodeIds: ['part', 'set'] },
+      { pageId: 'empty', nodeIds: [] }
+    ]);
+    expect(calls).toEqual([
+      { pageId: 'library', nodeIds: ['top', 'chapter'] },
+      { pageId: 'parts', nodeIds: ['part', 'set'] }
+    ]);
+  });
+
+  it('新产物换行仍有间距，不改集内部坐标', async () => {
+    const h = setup();
+    await h.backend.arrangePageChildren!({ pageId: 'page', nodeIds: ['new-a', 'new-set'], maxWidth: 500 });
+    expect(h.set.x).toBe(0);
+    expect(h.set.y).toBe(h.a.y + h.a.height + 120);
+    expect([h.variant.x, h.variant.y]).toEqual([40, 80]);
   });
 });

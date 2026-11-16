@@ -115,6 +115,7 @@ async function exec(
   timeout = 15000,
   fileKey?: string
 ): Promise<unknown> {
+  const startedAt = Date.now();
   const res = await withExecBudget(
     client.callTool({
       name: 'figma_execute',
@@ -131,32 +132,30 @@ async function exec(
   let parsed: unknown;
   try { parsed = JSON.parse(first.text); } catch { return first.text; }
 
-  // Unwrap figma-console envelope: { success, result } or { success, error }
-  if (
-    parsed !== null &&
-    typeof parsed === 'object' &&
-    '_mcp' in (parsed as object)
-  ) {
-    const env = parsed as { success: boolean; result?: unknown; error?: string };
-    if (!env.success) {
-      const message = `figma_execute failed: ${env.error ?? 'unknown error'}`;
-      // 「Cannot connect」有两种成因：插件没开，或子进程退到了非首选端口。
-      // 两种都必须点明，否则用户只会看到同一句话反复出现。
-      const bridge = describeBridgeFailure(message);
-      if (bridge) {
-        // figma-console 抛这句只可能是「子进程没有任何插件客户端」。
-        setBridgeState({ pluginConnected: false, lastRoundtripMs: undefined });
-        const s = getBridgeState();
-        const portConflict = s.fallback || s.holderPid !== undefined;
-        throw Object.assign(new Error(`${message}\n${bridge}`), {
-          // 只有真是端口归属问题才用端口码；插件没接入沿默认渲染错误码，但带上诊断。
-          ...(portConflict ? { code: 'E_BRIDGE_PORT_CONFLICT' } : {}),
-          details: { bridge: s }
-        });
-      }
-      throw new Error(message);
+  const envelope = parsed !== null && typeof parsed === 'object'
+    ? parsed as { success?: boolean; result?: unknown; error?: string; _mcp?: string }
+    : undefined;
+  // Newer console releases may omit _mcp; MCP errors must never become node data.
+  if ((res as { isError?: boolean }).isError || envelope?.success === false ||
+      (envelope?.error !== undefined && envelope.success !== true)) {
+    const message = `figma_execute failed: ${envelope?.error ?? first.text}`;
+    const bridge = describeBridgeFailure(message);
+    if (bridge) {
+      setBridgeState({ pluginConnected: false, lastRoundtripMs: undefined });
+      const s = getBridgeState();
+      const portConflict = s.fallback || s.holderPid !== undefined;
+      throw Object.assign(new Error(`${message}\n${bridge}`), {
+        ...(portConflict ? { code: 'E_BRIDGE_PORT_CONFLICT' } : {}),
+        details: { bridge: s }
+      });
     }
-    return env.result ?? null;
+    // Errors inside a plugin script (including import network failures) do not
+    // prove that the bridge has no clients. Preserve the last successful probe.
+    throw new Error(message);
+  }
+  if (envelope?.success === true) {
+    setBridgeState({ pluginConnected: true, lastRoundtripMs: Date.now() - startedAt });
+    return envelope.result ?? null;
   }
   return parsed;
 }
@@ -610,7 +609,17 @@ export function buildContrastAuditScript(
 export function buildFigmaConsoleBackend(client: Client, fileKey?: string): FigmaBackend {
   // Single choke point: every op below goes through `run`, so binding the file
   // here is all it takes to target a file end to end.
-  const run = (code: string, timeout?: number) => exec(client, code, timeout, fileKey);
+  const run = async (code: string, timeout?: number, operation = 'execute') => {
+    try {
+      return await exec(client, code, timeout, fileKey);
+    } catch (e) {
+      const err = e as Error & { code?: string; details?: unknown };
+      throw Object.assign(new Error(`[${operation} file=${fileKey ?? '<active>'}] ${err.message ?? String(e)}`), {
+        ...(err.code ? { code: err.code } : {}),
+        ...(err.details ? { details: err.details } : {})
+      });
+    }
+  };
 
   return {
 
@@ -619,20 +628,8 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
     },
 
     async healthCheck() {
-      const startedAt = Date.now();
-      try {
-        await run(`return 1;`, 5000);
-        setBridgeState({ pluginConnected: true, lastRoundtripMs: Date.now() - startedAt });
-      } catch (err) {
-        const message = String((err as Error)?.message ?? '');
-        // 「Cannot connect」= 一个插件客户端都没有；超时 / 无回程 = 有 socket 但沙箱不回话。
-        setBridgeState(
-          /cannot connect/i.test(message)
-            ? { pluginConnected: false, lastRoundtripMs: undefined }
-            : { pluginConnected: true, lastRoundtripMs: undefined }
-        );
-        throw err;
-      }
+      const result = await run(`return 1;`, 5000);
+      if (result !== 1) throw new Error('Bridge health check returned an unexpected result');
     },
 
     async auditTextContrast({ rootIds, minRatio, inheritedBackground, bodyNames }) {
@@ -660,7 +657,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         ${SERIALIZE_NODE_FN}
         const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         return serNode(n);
-      `) as Record<string, unknown> | null;
+      `, undefined, `getNodeInfo node=${nodeId}`) as Record<string, unknown> | null;
       if (!r) throw new Error(`getNodeInfo: node ${nodeId} not found`);
       return mapNode(r);
     },
@@ -701,7 +698,7 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           }
         }
         return { nodes: result, truncated };
-      `, 25000) as { nodes: Array<Record<string, unknown>>; truncated: boolean };
+      `, 25000, `scanSubtree root=${rootId}`) as { nodes: Array<Record<string, unknown>>; truncated: boolean };
       return {
         nodes: (r?.nodes ?? []).map(mapNode),
         truncated: r?.truncated ?? false
@@ -849,10 +846,16 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       const r = await retryTransient(() =>
         run(`
         ${SERIALIZE_NODE_FN}
-        const comp = await figma.importComponentByKeyAsync(${JSON.stringify(componentKey)});
-        if (!comp) throw new Error('importComponentByKey: not published: ' + ${JSON.stringify(componentKey)});
-        return serNode(comp);
-      `, 40000)
+        let stage = 'import';
+        try {
+          const comp = await figma.importComponentByKeyAsync(${JSON.stringify(componentKey)});
+          if (!comp) throw new Error('importComponentByKey: not published: ' + ${JSON.stringify(componentKey)});
+          stage = 'serialize';
+          return serNode(comp);
+        } catch (e) {
+          throw new Error('[importComponentByKey key=' + ${JSON.stringify(componentKey)} + ' stage=' + stage + ' actualFile=' + figma.fileKey + '] ' + String(e.message || e));
+        }
+      `, 40000, `importComponentByKey key=${componentKey}`)
       ) as Record<string, unknown>;
       return mapNode(r);
     },
@@ -985,16 +988,35 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           }
           return undefined;
         };
+        // Figma can leave getNodeByIdAsync(instance-descendant-id) pending even
+        // while the same live child is readable through its instance tree.
+        const resolve = async (id) => {
+          const match = /^I([^;]+);.+$/.exec(id);
+          if (!match) return figma.getNodeByIdAsync(id);
+          const root = await figma.getNodeByIdAsync(match[1]);
+          if (!root) return null;
+          const stack = [root];
+          let visited = 0;
+          while (stack.length) {
+            if (++visited > 20000) throw new Error('readPaints: instance traversal budget exceeded: ' + id);
+            const node = stack.pop();
+            if (node.id === id) return node;
+            if ('children' in node) {
+              for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
+            }
+          }
+          return null;
+        };
         const out = [];
         for (const id of ${JSON.stringify(nodeIds)}) {
-          const n = await figma.getNodeByIdAsync(id);
+          const n = await resolve(id);
           if (!n) continue;
           const fill = 'fills' in n ? first(n.fills) : undefined;
           const stroke = 'strokes' in n ? first(n.strokes) : undefined;
           out.push({ nodeId: id, ...(fill ? { fill } : {}), ...(stroke ? { stroke } : {}) });
         }
         return out;
-      `, 20000) as Array<{ nodeId: string; fill?: string; stroke?: string }> | null;
+      `, 20000, `readPaints nodes=${nodeIds.join(',')}`) as Array<{ nodeId: string; fill?: string; stroke?: string }> | null;
       return r ?? [];
     },
 
@@ -1168,13 +1190,21 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
       `, 15000);
     },
 
-    async arrangePageChildren({ pageId, gapX = 120, gapY = 120, maxWidth = 6000 }) {
+    async arrangePageChildren({ pageId, nodeIds, gapX = 120, gapY = 120, maxWidth = 6000 }) {
+      // 运行期旧调用者也必须 fail closed，不能回退到全页排列。
+      if (!nodeIds?.length) return [];
       const r = await run(`
         const page = await figma.getNodeByIdAsync(${JSON.stringify(pageId)});
         if (!page) throw new Error('arrangePageChildren: page not found: ' + ${JSON.stringify(pageId)});
         const GAP_X = ${gapX}, GAP_Y = ${gapY}, MAX_W = ${maxWidth};
-        const kids = page.children.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
-        let x = 0, y = 0, rowH = 0;
+        const ids = new Set(${JSON.stringify(nodeIds)});
+        const kids = page.children.filter(n => ids.has(n.id) &&
+          (n.type === 'COMPONENT' || n.type === 'COMPONENT_SET'))
+          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        const selected = new Set(kids.map(n => n.id));
+        const others = page.children.filter(n => !selected.has(n.id));
+        const startY = others.length ? Math.max(0, ...others.map(n => n.y + n.height)) + GAP_Y : 0;
+        let x = 0, y = startY, rowH = 0;
         const out = [];
         for (const n of kids) {
           if (x > 0 && x + n.width > MAX_W) { x = 0; y += rowH + GAP_Y; rowH = 0; }
@@ -1322,6 +1352,15 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
           try {
             const set = figma.combineAsVariants(comps, partsPage);
             set.name = PROJECT + ' / 零件 / ' + setName;
+            // 仅排列本轮重建集的内部成员，不让 Page 排列提升/移动祖先。
+            let variantY = 40, variantW = 0;
+            for (const comp of comps) {
+              comp.x = 40;
+              comp.y = variantY;
+              variantY += comp.height + 40;
+              variantW = Math.max(variantW, comp.width);
+            }
+            set.resizeWithoutConstraints(variantW + 80, variantY);
             set.x = 0;
             set.y = 0;
             out.sets.push({ setId: set.id, name: set.name, variants: comps.map((c) => c.name) });
@@ -1399,29 +1438,44 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         r = (await retryTransient(() =>
           run(`
         ${SERIALIZE_NODE_FN}
-        const comp = await figma.importComponentByKeyAsync(${JSON.stringify(componentKey)});
-        if (!comp) throw new Error('instantiateByKey: component not found for key ' + ${JSON.stringify(componentKey)});
-        const inst = comp.createInstance();
-        ${name != null ? `inst.name = ${JSON.stringify(name)};` : ''}
-        ${parentId != null ? `
-          const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
-          if (!parent) throw new Error('instantiateByKey: parent not found: ' + ${JSON.stringify(parentId)});
-          parent.appendChild(inst);
-        ` : ''}
-        return serNode(inst);
-      `, 30000)
+        let stage = 'import';
+        let inst;
+        try {
+          const comp = await figma.importComponentByKeyAsync(${JSON.stringify(componentKey)});
+          if (!comp) throw new Error('instantiateByKey: component not found for key ' + ${JSON.stringify(componentKey)});
+          stage = 'create';
+          inst = comp.createInstance();
+          ${name != null ? `inst.name = ${JSON.stringify(name)};` : ''}
+          stage = 'parent';
+          ${parentId != null ? `
+            const parent = await figma.getNodeByIdAsync(${JSON.stringify(parentId)});
+            if (!parent) throw new Error('instantiateByKey: parent not found: ' + ${JSON.stringify(parentId)});
+            parent.appendChild(inst);
+          ` : ''}
+          stage = 'serialize';
+          return serNode(inst);
+        } catch (e) {
+          let cleanup = '';
+          if (inst) {
+            try { inst.remove(); } catch (ce) { cleanup = ' cleanupFailed=' + inst.id + ': ' + String(ce.message || ce); }
+          }
+          throw new Error('[instantiateByKey stage=' + stage + ' actualFile=' + figma.fileKey + '] ' + String(e.message || e) + cleanup);
+        }
+      `, 30000, `instantiateByKey key=${componentKey}`)
         )) as Record<string, unknown>;
       } catch (err) {
-        // 库重新发布会换 key：旧包里的 key 会 import 失败。这条以前和「没连上插件」
-        // 「节点找不到」混在一起，看到的人根本不知道去重取 key。
         const original = (err as Error).message ?? String(err);
+        const stale = /Could not find.*(?:published )?component|published component.*not found|component not found for key/i.test(original);
+        const prior = err as Error & { code?: string; details?: unknown };
         throw Object.assign(
           new Error(
-            `模板包的库组件 key 已失效（key=${componentKey}${name ? `，用途=${name}` : ''}）。` +
-              '组件库重新发布后 key 会变：用 figma_compile_template(phase="verify") 重新取 key 并更新模板包。\n' +
-              `原始报错：${original}`
+            `[instantiateByKey key=${componentKey}${name ? ` purpose=${name}` : ''}] ${original}` +
+              (stale ? '\n组件不可用：用 figma_compile_template(phase="verify") 核验当前 key 并更新模板包。' : '')
           ),
-          { code: 'V2_TEMPLATE_KEY_STALE', details: { componentKey } }
+          {
+            ...(stale ? { code: 'V2_TEMPLATE_KEY_STALE' } : prior.code ? { code: prior.code } : {}),
+            details: { componentKey, ...(prior.details ? { upstream: prior.details } : {}) }
+          }
         );
       }
       return mapNode(r);
@@ -1580,6 +1634,163 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         const parent = ${parentId ? `await figma.getNodeByIdAsync(${JSON.stringify(parentId)})` : 'figma.currentPage'};
         if (!parent) throw new Error('buildChapterShell: parent not found');
 
+        // 只看章根及一层布局容器；不扫描业务簇。明确槽位优先于尺寸猜测。
+        const visible = (n) => n.visible !== false;
+        const hosts = [src, ...src.children.filter((n) => visible(n) && n.type !== 'TEXT' &&
+          n.children && n.layoutMode === 'HORIZONTAL')];
+        const pairs = hosts.flatMap((host) => {
+          const kids = host.children.filter(visible);
+          const columns = kids.filter((n) => n.name === 'Text' && n.type !== 'TEXT' && n.children);
+          const graphics = kids.filter((n) => ['舞台', 'rec组', '主图占位'].includes(n.name));
+          return columns.flatMap((column) => graphics.map((graphic) => ({ host, column, graphic })));
+        });
+        const hasSlots = hosts.some((host) => host.children.some((n) => visible(n) &&
+          ((n.name === 'Text' && n.type !== 'TEXT') || ['舞台', '主图占位'].includes(n.name))));
+        if (pairs.length > 1 || (hasSlots && pairs.length !== 1)) {
+          throw new Error('buildChapterShell: ambiguous or incomplete chapter slots');
+        }
+        if (pairs.length === 1) {
+          const { host, column, graphic } = pairs[0];
+          const mains = graphic.name === '主图占位' ? [graphic] :
+            (graphic.children || []).filter((n) => visible(n) && n.name === '主图占位');
+          if (mains.length > 1) throw new Error('buildChapterShell: ambiguous main image slot');
+          const main = mains[0] || graphic;
+          const fonts = ['Regular', 'Bold'].map((style) => ({ family: 'Noto Sans SC', style }));
+          await Promise.all(fonts.map((font) => figma.loadFontAsync(font)));
+          const normalize = (node) => {
+            const texts = node.type === 'TEXT' ? [node] : node.findAll((n) => n.type === 'TEXT');
+            for (const text of texts) {
+              const weight = typeof text.fontWeight === 'number' ? text.fontWeight : 400;
+              text.fontName = fonts[weight >= 600 ? 1 : 0];
+            }
+          };
+          // 仅造同属性容器，不克隆右列的数千业务节点。
+          const shell = (source, label) => {
+            const out = figma.createFrame();
+            out.name = label || source.name;
+            out.resize(Math.max(source.width, 1), Math.max(source.height, 1));
+            for (const key of ['fills','strokes','strokeWeight','strokeAlign','effects','opacity',
+              'cornerRadius','topLeftRadius','topRightRadius','bottomLeftRadius','bottomRightRadius',
+              'clipsContent','layoutMode','itemSpacing','counterAxisSpacing','layoutWrap',
+              'paddingLeft','paddingRight','paddingTop','paddingBottom',
+              'primaryAxisSizingMode','counterAxisSizingMode','primaryAxisAlignItems','counterAxisAlignItems']) {
+              if (source[key] !== undefined && key in out) out[key] = source[key];
+            }
+            return out;
+          };
+          const root = shell(src, ${JSON.stringify(name ?? '章节')});
+          parent.appendChild(root);
+          root.x = src.x;
+          root.y = src.y;
+          const content = host === src ? root : shell(host);
+          const copyPosition = (out, source) => {
+            // ABSOLUTE 仅能写入自动布局父级；自由布局靠 x/y 定位。
+            const layoutMode = out.parent && out.parent.layoutMode;
+            if (source.layoutPositioning && layoutMode && layoutMode !== 'NONE') {
+              out.layoutPositioning = source.layoutPositioning;
+            }
+            out.x = source.x;
+            out.y = source.y;
+          };
+          const addGraphic = (target) => {
+            const stage = shell(graphic, '舞台');
+            // 舞台内绝对定位；主图尺寸不能由标题/状态或右列推导。
+            stage.layoutMode = 'NONE';
+            stage.clipsContent = false;
+            target.appendChild(stage);
+            copyPosition(stage, graphic);
+            const image = figma.createRectangle();
+            image.name = '主图占位';
+            image.resize(Math.max(main.width, 1), Math.max(main.height, 1));
+            image.fills = [{ type: 'SOLID', color: { r: 0.96, g: 0.96, b: 0.96 } }];
+            image.strokes = [{ type: 'SOLID', color: { r: 0.75, g: 0.75, b: 0.75 } }];
+            image.dashPattern = [12, 12];
+            stage.appendChild(image);
+            image.x = main === graphic ? 0 : main.x;
+            image.y = main === graphic ? 0 : main.y;
+            for (const child of graphic.children || []) {
+              if (child.name !== '气泡') continue;
+              const bubble = child.clone();
+              stage.appendChild(bubble);
+              copyPosition(bubble, child);
+              normalize(bubble);
+            }
+            const hint = figma.createText();
+            hint.name = '主图占位文案';
+            hint.fontName = fonts[1];
+            hint.characters = '主图占位：待手动替换';
+            hint.fontSize = 68;
+            hint.textAutoResize = 'NONE';
+            hint.resize(Math.min(920, image.width), Math.min(96, image.height));
+            hint.textAlignHorizontal = 'CENTER';
+            hint.textAlignVertical = 'CENTER';
+            stage.appendChild(hint);
+            hint.x = image.x + (image.width - hint.width) / 2;
+            hint.y = image.y + (image.height - hint.height) / 2;
+          };
+          const fillHost = () => {
+            for (const child of host.children) {
+              if (child === graphic) addGraphic(content);
+              else if (child === column) {
+                const col = shell(column, 'Text');
+                content.appendChild(col);
+                copyPosition(col, column);
+                col.resize(Math.max(column.width, 1), 1);
+                if (col.layoutMode !== 'NONE') col.layoutSizingVertical = 'HUG';
+              } else if (visible(child)) {
+                const copy = child.clone();
+                content.appendChild(copy);
+                copyPosition(copy, child);
+                normalize(copy);
+              }
+            }
+          };
+          if (host === src) fillHost();
+          else for (const child of src.children) {
+            if (child === host) {
+              root.appendChild(content);
+              copyPosition(content, host);
+              fillHost();
+            } else if (visible(child)) {
+              const copy = child.clone();
+              root.appendChild(copy);
+              copyPosition(copy, child);
+              normalize(copy);
+            }
+          }
+          // 已有内置标题优先，不重复插入另传的 chapterTitle。
+          const ownTitle = root.findAll((n) => n.type === 'TEXT' && n.name === '#Name');
+          ${titleSourceId ? `
+          if (ownTitle.length === 0) {
+            const title = await figma.getNodeByIdAsync(${JSON.stringify(titleSourceId)});
+            if (title) {
+              const copy = title.clone();
+              if (host === src && root.layoutMode === 'HORIZONTAL') {
+                const stage = root.children.find((n) => n.name === '舞台');
+                const index = root.children.indexOf(stage);
+                const left = figma.createFrame();
+                left.name = '左列';
+                left.fills = [];
+                left.clipsContent = false;
+                left.resize(Math.max(graphic.width, 1), 1);
+                left.layoutMode = 'VERTICAL';
+                left.primaryAxisSizingMode = 'AUTO';
+                left.counterAxisSizingMode = 'FIXED';
+                left.itemSpacing = title.parent === src.parent
+                  ? Math.min(Math.max(Math.round(src.y - title.y - title.height), 24), 200) : 24;
+                root.insertChild(index, left);
+                left.appendChild(copy);
+                left.appendChild(stage);
+              } else root.insertChild(0, copy);
+              normalize(copy);
+              const text = copy.type === 'TEXT' ? copy : copy.findAll((n) => n.type === 'TEXT')[0];
+              if (text) text.name = '#Name';
+            }
+          }` : ''}
+          root.resize(Math.max(src.width, 1), root.height);
+          return serNode(root);
+        }
+
         const root = figma.createFrame();
         root.name = ${JSON.stringify(name ?? '章节')};
         root.fills = [];
@@ -1591,12 +1802,17 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
 
         // 说明栏 = 最高的那个子节点（横跨整章）；图区 = 另一个最宽的。
         // 不用「统计文本数」：那要遍历整棵 7000 节点子树，单次调用会超 10 秒。
+        const titleId = ${JSON.stringify(titleSourceId ?? null)};
+        const candidates = src.children.filter((c) => visible(c) && c.type !== 'TEXT' &&
+          c.id !== titleId && c.name !== '标题' &&
+          !(c.children || []).some((n) => n.name === '#Name'));
+        if (candidates.length !== 2) throw new Error('buildChapterShell: cannot identify two chapter columns');
         let graphic = null, column = null, gBest = -1, cBest = -1;
-        for (const c of src.children) {
+        for (const c of candidates) {
           const h = c.height ?? 0;
           if (h > cBest) { cBest = h; column = c; }
         }
-        for (const c of src.children) {
+        for (const c of candidates) {
           if (c === column) continue;
           const w = c.width ?? 0;
           if (w > gBest) { gBest = w; graphic = c; }
@@ -1672,6 +1888,14 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         g.strokeWeight = 2;
         g.dashPattern = [12, 12];
         stage.appendChild(g);
+        // 旧直接两列模板也保留气泡/隐藏母版，不复制原稿业务图。
+        for (const child of graphic?.children || []) {
+          if (child.name !== '气泡') continue;
+          const bubble = child.clone();
+          stage.appendChild(bubble);
+          bubble.x = child.x;
+          bubble.y = child.y;
+        }
 
         // 主图占位文案：模板里居中那句「主图占位：待手动替换」。没有它，文档
         // 没配截图时左列就是一块纯灰，看不出是占位。有图时渲染会删掉它。
@@ -1730,6 +1954,11 @@ export function buildFigmaConsoleBackend(client: Client, fileKey?: string): Figm
         root.layoutSizingHorizontal = 'FIXED';
         root.layoutSizingVertical = 'HUG';
         root.resize(Math.max(gw + gap + (column ? colW : 0), 1), root.height);
+        await Promise.all(['Regular', 'Bold'].map((style) => figma.loadFontAsync({ family: 'Noto Sans SC', style })));
+        for (const text of root.findAll((n) => n.type === 'TEXT')) {
+          const bold = typeof text.fontWeight === 'number' && text.fontWeight >= 600;
+          text.fontName = { family: 'Noto Sans SC', style: bold ? 'Bold' : 'Regular' };
+        }
 
         return serNode(root);
       `, 30000) as Record<string, unknown>;

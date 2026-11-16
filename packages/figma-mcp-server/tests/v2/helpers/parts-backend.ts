@@ -286,7 +286,9 @@ export function partsBackend(rootSpec: PNodeSpec): PartsBackend {
       calls.push(`import:${componentKey}`);
       const spec = components.get(componentKey);
       if (!spec) throw new Error(`parts backend: component ${componentKey} not registered`);
-      return info(cloneSpec(spec, parentId, name).id);
+      const instance = cloneSpec(spec, parentId, name);
+      instance.type = 'INSTANCE';
+      return info(instance.id);
     },
     async detachInstance(nodeId: string) {
       calls.push(`detach:${nodeId}`);

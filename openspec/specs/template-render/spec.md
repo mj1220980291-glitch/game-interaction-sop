@@ -21,6 +21,17 @@ TBD - created by archiving change engine-multi-part-template-render. Update Purp
 - **WHEN** 模板包 `components.footer` 为 `null`
 - **THEN** 渲染 SHALL 正常完成，文档不含结尾区，SHALL NOT 报错
 
+### Requirement: 嵌套 none 簇内容宿主保留
+
+`clusterGroups:none` 簇的正文槽位位于同一嵌套容器时，渲染 SHALL 在该宿主内复用顺序构建机制，按 IR 交错创建普通正文、职能实例与配图；无图、多正文、长文同样适用。SHALL 保留 Number、簇标题与宿主布局，仅清除模板内容及不承载正文/标题的旧职能标签框。正文跨宿主 SHALL 明确失败，不扁平化样板，不以能力 none 降级规避。
+
+#### Scenario: 嵌套职能实例与配图参与同步
+- **WHEN** 簇 text 宿主含普通正文、GUI / 程序 / 拼接条目及多张配图
+- **THEN** SHALL 按 IR 顺序渲染并按文档深度优先顺序打标，职能实例记录规范 role 和独立正文内容，不把标签文本当正文
+- **AND** 相同输入重复规划 SHALL 无变更，修改单条职能正文 SHALL 局部更新；旧 parts 文档未打职能条目标记时 SHALL 保持旧同步口径
+- **AND** 扁平与 slot-run 既有行为 SHALL 保持兼容；CCS=拼接仅作项目映射，不新增全局别名；缺变体明确失败
+- **AND** 自动测试不替代发布、跨文件导入、长文视觉与真实重复同步验收
+
 ### Requirement: 部件导入与拼装
 
 新路径 SHALL 对每个部件执行 `importComponentByKey` → `createInstance` → `detach`，并把 detach 后的节点挂到新建的文档根帧下：`top` 在前，`chapter` 按 md 顺序，`footer` 在末。

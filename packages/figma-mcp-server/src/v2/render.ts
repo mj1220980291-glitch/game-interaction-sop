@@ -2094,13 +2094,32 @@ export async function fillCluster(
   // path keeps slot 1's frame and lets fillGroupSlots drop the followers'
   // (the @roles line is cluster-level, so repeating it per sub-group would
   // just be noise).
-  const roleFrames = allDescendants.filter(
-    (n) => n.type === 'FRAME' && isRoleFrame(n.name)
+  const protectedContent = allDescendants.filter(
+    (n) => n.type === 'TEXT' &&
+      (n.name === SECTION_CHILD_NAMES.clusterBulletText || n.name === SECTION_CHILD_NAMES.clusterTitle)
   );
-  if (singleDefault && roleFrames.length > 1) {
+  const byId = new Map(allDescendants.map((n) => [n.id, n]));
+  const carriesContent = (candidate: NodeInfo): boolean => protectedContent.some((content) => {
+    let parent = content.parentId;
+    while (parent && parent !== clusterNode.id) {
+      if (parent === candidate.id) return true;
+      parent = byId.get(parent)?.parentId;
+    }
+    return false;
+  });
+  const roleFrames = allDescendants.filter(
+    (n) => n.type === 'FRAME' && isRoleFrame(n.name) && !carriesContent(n)
+  );
+  const nestedContent = singleDefault && protectedContent.some(
+    (n) => n.name === SECTION_CHILD_NAMES.clusterBulletText && n.parentId !== clusterNode.id
+  );
+  if (nestedContent && roleFrames.length > 0) {
+    await backend.deleteNodes(roleFrames.map((n) => n.id));
+  }
+  if (!nestedContent && singleDefault && roleFrames.length > 1) {
     await backend.deleteNodes(roleFrames.slice(1).map((n) => n.id));
   }
-  const primaryRoleFrame = roleFrames[0];
+  const primaryRoleFrame = nestedContent ? undefined : roleFrames[0];
   if (primaryRoleFrame) {
     const info = await backend.getNodeInfo(primaryRoleFrame.id);
     if (info.childIds && info.childIds.length > 0) {
@@ -2207,14 +2226,21 @@ async function fillBlockContent(
       n.type === 'TEXT' && n.name === SECTION_CHILD_NAMES.clusterBulletText
   );
 
-  // `fillBlockContentInline` 的「追加-再删原件」策略假设正文是**块的直接子级**
-  // （官方形状）。蛋仔这类空壳部件的正文在 `Frame 808` 里，克隆会跑到外面、
-  // 原占位也删不掉 —— 真机就是文字跑到配图下面、一堆白框。嵌套结构一律走就地填充。
+  // 嵌套正文复用顺序构建，但追加到正文自身宿主；不扁平化编号/标题外壳。
   const bulletParent = bulletTexts[0]?.parentId;
   const nestedShell = bulletParent !== undefined && bulletParent !== p.blockId;
   const hasImageBullets = bullets.some(isFigureSlotBullet);
+  if (nestedShell) {
+    if (bulletTexts.some((n) => n.parentId !== bulletParent)) {
+      throw Object.assign(new Error('嵌套正文/规则必须共享唯一宿主，不能跨容器重排'), {
+        code: 'V2_TEMPLATE_STRUCTURE_INVALID'
+      });
+    }
+    await fillBlockContentInline(backend, { ...p, blockId: bulletParent }, bulletTexts);
+    return;
+  }
 
-  if (!nestedShell && (hasImageBullets || bullets.some((b) => parseRoleBullet(b) !== undefined))) {
+  if (hasImageBullets || bullets.some((b) => parseRoleBullet(b) !== undefined)) {
     await fillBlockContentInline(backend, p, bulletTexts);
     return;
   }
