@@ -11,6 +11,7 @@
 
 import { CHAPTER_SLOTS, TOP_SLOTS } from '../template-slots.js';
 import type { TemplatePack } from '../template/schema.js';
+import { ruleFor, ruleOf } from '../capability-contract.js';
 
 export interface MdContractOptions {
   /** 模板实际拥有的槽位；缺省视为都有。 */
@@ -25,56 +26,33 @@ export interface MdContract {
 
 export const MD_CONTRACT_RELATIVE_PATH = '.interaction-sop/md-contract.md';
 
+/** 槽位探针说没有标号容器时的兜底文案（能力值与实测可能不一致）。 */
+const BADGE_MISSING_FORBID = '不要依赖图上标号（模板没有标号容器，标号不会生成）';
+
 export function buildMdContract(pack: TemplatePack, opts: MdContractOptions = {}): MdContract {
   const c = pack.capabilities;
-  const hasFigure = opts.slots?.figure ?? c.figure !== 'none';
-  const hasBadge = opts.slots?.badge ?? c.badgeSlot === 'container';
+  const hasFigure = opts.slots?.figure ?? ruleOf(c, 'figure').render?.figureSlots === 'consume';
+  const hasBadge = opts.slots?.badge ?? ruleOf(c, 'badgeSlot').render?.badgeCount === 'clusters';
   const hasTitle = opts.slots?.sectionTitle ?? true;
   const project = pack.project ?? '未命名项目';
 
-  const forbid: string[] = [];
-  if (c.overview === 'none') forbid.push('不要写 `## 设计总览`（模板没有总览区，写了会拒绝渲染）');
-  if (c.clusterGroups === 'none') forbid.push('不要使用 `####`（模板簇内不支持分级，写了会拒绝渲染）');
-  if (c.figure === 'none') forbid.push('不要写 `配图：`（模板没有配图槽，配图会被丢弃）');
-  if (!hasBadge) forbid.push('不要依赖图上标号（模板没有标号容器，标号不会生成）');
-
-  const overview =
-    c.overview === 'two-frames'
-      ? '`## 设计总览` 下写 `### 功能背景` 与 `### 核心交互` 两段，各一段正文。'
-      : c.overview === 'single-block'
-        ? '`## 设计总览` 下只写一段（模板只有单块总览，第二段会被隐藏）。'
-        : '不写总览（模板没有总览区）。';
-
-  const groups =
-    c.clusterGroups === 'slot-run'
-      ? '簇内可用 `#### 分组标题` 分组，每组下接 `- ` 条目。'
-      : c.clusterGroups === 'inline-subtitle'
-        ? '簇内不用 `####`；把分组标题写在首条条目的句首（渲染成「标题：内容」）。'
-        : '簇内不分组：一个 `### 簇` 直接跟 `- ` 条目。';
-
-  const roles =
-    c.roleAnnotation === 'component-variant'
-      ? '职能写成独立一行 `@GUI @程序`（渲染为「职能标记」组件）。'
-      : c.roleAnnotation === 'inline-suffix'
-        ? '职能写在条目句尾，例如 `- 点击入口打开面板 @GUI`。'
-        : '不写 `@职能`（模板不表达职能）。';
-
+  // 文案与禁写项全部来自能力表；槽位实测与之冲突时以实测为准并回落到兜底文案。
+  const overview = ruleOf(c, 'overview').contract?.overview ?? '';
+  const groups = ruleOf(c, 'clusterGroups').contract?.groups ?? '';
+  const roles = ruleOf(c, 'roleAnnotation').contract?.roles ?? '';
   const figure = hasFigure
-    ? '在条目位置写 `- 配图：说明文字`，渲染时按顺序放入配图槽。'
-    : '不写配图条目（模板没有配图槽）。';
+    ? ruleFor('figure', 'named-group').contract?.figure ?? ''
+    : ruleFor('figure', 'none').contract?.figure ?? '';
+  const badge = ruleOf(c, 'badgeSlot').contract?.badge ?? '';
+  const number = ruleOf(c, 'numberBadge').contract?.number ?? '';
+  const column = ruleOf(c, 'column').contract?.column ?? '';
 
-  const badge =
-    c.badgeSlot === 'container'
-      ? `每个簇在图上自动生成一个标号（1、2、3…），位置按模板网格；不要手写编号。`
-      : '模板不在图上生成标号，需要人工摆放。';
-
-  const number =
-    c.numberBadge === 'none'
-      ? '簇不显示编号。'
-      : '簇编号由引擎按顺序写入，不要在标题里重复写编号。';
-
-  const column =
-    c.column === 'right' ? '说明栏在图右侧。' : '说明栏在图下方。';
+  const forbid = [
+    ruleOf(c, 'overview').contract?.forbid,
+    ruleOf(c, 'clusterGroups').contract?.forbid,
+    hasFigure ? undefined : ruleFor('figure', 'none').contract?.forbid,
+    hasBadge ? undefined : ruleOf(c, 'badgeSlot').contract?.forbid ?? BADGE_MISSING_FORBID
+  ].filter((f): f is string => typeof f === 'string');
 
   const content = [
     `# ${project} 交互文档书写契约`,
@@ -133,14 +111,14 @@ export function buildMdContract(pack: TemplatePack, opts: MdContractOptions = {}
     `需求组：${'<需求组>'}`,
     '易协作链接：#待补充',
     '最后更新时间：YYYY.MM.DD',
-    ...(c.overview !== 'none'
+    ...(ruleOf(c, 'overview').render?.overviewSlots !== 'none'
       ? ['', '## 设计总览', '', '### 功能背景', '<一段说明>', '', '### 核心交互', '- <一条交互>']
       : []),
     '',
     '## 01. 界面名称',
     '',
     '### 簇标题',
-    c.roleAnnotation === 'component-variant' ? '@GUI' : '',
+    ruleOf(c, 'roleAnnotation').render?.roleBlocks === 'insert' ? '@GUI' : '',
     '- <一条规则>',
     ...(hasFigure ? ['- 配图：<说明>'] : []),
     '```',

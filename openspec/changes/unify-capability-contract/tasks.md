@@ -14,9 +14,9 @@
 
 ## 3. 契约文案切表
 
-- [ ] 3.1 `md-contract.ts` 的 8 段文案改为 `contract.*` 读取，删除手写三元分支
-- [ ] 3.2 快照式断言：官方 1.14 / 蛋仔 / none 样例的契约文本关键句与表一致
-- [ ] 3.3 确认 `roleAnnotation=none` 契约不再出现"不写 @职能"与解析器冲突
+- [x] 3.1 `md-contract.ts` 的 8 段文案改为 `contract.*` 读取，删除手写三元分支；禁写清单也由表拼装（槽位实测冲突时回落兜底文案）
+- [x] 3.2 断言：`capability-contract.spec` 遍历 8 项 × 全取值，要求生成契约包含表中声明文案；`compile-md-contract.spec` 9 条原用例全过（文本未变）
+- [x] 3.3 `roleAnnotation=none` 契约（不写 @职能）与解析（可选）已一致；最小骨架的角色行改用 `render.roleBlocks === 'insert'` 判定
 
 ## 4. 渲染 / 编译 / 对账切表
 

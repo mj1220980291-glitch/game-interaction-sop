@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## 未发布 — 契约文案切表（阶段 3：输出不变的重构）
+
+- `md-contract.ts` 的 8 段文案（总览/分组/职能/配图/标号/编号/列布局/禁写清单）改为从 `capability-contract` 读取，删掉手写三元分支；槽位实测与能力值冲突时回落兜底文案（`BADGE_MISSING_FORBID`）。
+- 最小骨架的两处判定也改走表：总览段看 `render.overviewSlots !== 'none'`，角色示例行看 `render.roleBlocks === 'insert'`。
+- 契约文本逐字节未变：`compile-md-contract.spec` 9 条原用例全过；`capability-contract.spec` 遍历 8 项 × 全取值断言文案包含关系。
+- 全量串行 **88 文件 / 744 测试**。未碰 Figma、未改模板包。
+
 ## 未发布 — 能力契约表接入解析闸门（阶段 2：修 none 漏判）
 
 - `render.ts` 的 parse 开关改为 `parseOptsFor(packCaps ?? DEFAULT_CAPABILITIES)`，不再手写 `overview === 'none'` / `roleAnnotation === 'inline-suffix'` 两个分支——解析松紧从此只有一个来源。
