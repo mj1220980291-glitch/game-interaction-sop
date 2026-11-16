@@ -24,7 +24,7 @@
 ## 4. 槽位归一化与真编译
 
 - [x] 4.1 归一化簇 `Number` / `#Title_Main` / 正文 / 职能载体 / 配图，章节 `#Name` / 主图占位 / `Text`；只改名不改结构 → 已改 `#Name`、`主图占位`+`主图占位文案`、`Text`、`说明块01`、`#Title_Main`、`正文/规则`；`Number` 被挡（在 Tag 实例子节点内，实例子节点不可改名）
-- [ ] 4.2 `phase=compile` 真编译，失败清理本轮半成品；不得靠改名宣称通过 → 干跑卡在 `V2_COMPILE_STAGED_PART_MISSING`（缺顶部部件）：旧稿是整篇文档，不是四部件；头部 5 个 TEXT 槽需新建。已写入 design「真编译首批结论」，D4 修正为「优先改名，必要时新建最小槽位节点并记录」
+- [x] 4.2 `phase=compile` 真编译，失败清理本轮半成品；不得靠改名宣称通过 → 先 dry-run 报 `STAGED_PART_MISSING`（补最小 top `206:49728`）；真编译报 `buildChapterShell: ambiguous or incomplete chapter slots`（sect 设 HORIZONTAL、`img`→`舞台`、内层帧→`主图占位` 后通过）；补 `badgeContainerSourceId=188:38122` 后 `written:true`，产出 top `207:49788` / chapter `207:49798` / cluster `207:49809`，收编 `Tag`→`Number`。坑已记入回执第 6 节
 - [ ] 4.3 处理嵌套正文与配图结构的编译支持；不支持时明确记录，不猜不降级 → 待 4.2 打通后再评估
 
 ## 5. 章节示例簇清理（承接 8.27）

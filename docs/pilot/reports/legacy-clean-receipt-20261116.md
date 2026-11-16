@@ -48,7 +48,34 @@
 - 文本全部为占位文案，字体全为 `Noto Sans SC`（Bold / Regular）
 - 截图：标题、状态、占位图（两块虚线灰板 + 文案）、簇标题与两行占位正文；无业务信息、无职能 pill
 
-## 6. 环境注记（下次直接照做）
+## 6. 真编译结果（任务 4，2026-11-16）
+
+干跑与真编译各跑过一轮，最终 `written: true`：
+
+| 部件 | 组件 | 说明 |
+|---|---|---|
+| top | `207:49788` | 最小验证件（5 个命名 TEXT：文档标题/设计师名称/需求组名称/易协作单号链接/更新时间） |
+| chapter | `207:49798` | 由清洗副本 `205:42223` 造壳；结构对齐后通过（`sect` 设 HORIZONTAL、`img`→`舞台`、内层帧→`主图占位`） |
+| cluster | `207:49809` | 由 `205:42251`（`说明块01`）造壳 |
+| 收编 | `207:49821` | `Color=默认·红`（原 `Tag` 组件集），簇内 `Tag` 被重命名为 `Number` |
+| 标号容器 | 复用燕云章节的 `气泡` `188:38122`（`badgeContainerSourceId`） | 解决「标号无处摆放」的 gap |
+
+**卡点与处理（按 A 方案：先跑通、坑后记录）**
+1. 首次干跑：`V2_COMPILE_STAGED_PART_MISSING`（缺 top）→ 建最小 top。
+2. 首次真编译：`buildChapterShell: ambiguous or incomplete chapter slots` → 章节需「水平布局宿主 + `Text` 列 + `舞台/主图占位`」；对副本做了最小结构对齐（仅设布局模式与改名）。
+3. 第二轮 gap：缺标号容器 → 传入 `badgeContainerSourceId=188:38122` 后通过。
+
+**仍未解决（记录，后续统一优化）**
+- 旧稿不是四部件结构，需要显式拆分（本次 top 为最小验证件，不是从旧稿抬头清洗得来）。
+- 头部 5 个槽位需新建，而不是改名。
+- 编号在 `Tag` 实例内，实例子节点不可改名；本次靠编译期 `Tag → Number` 重命名绕开。
+- 章节缺外层留白框（渲染会贴边）；结尾块缺失（契约允许）。
+- `roleAnnotation` 实测为 `none`；能力项多数回落到源模板判定。
+
+**下一步（人工）**：在库文件 `旧稿清洗验证 20261116` 页发布上述 3 个组件，之后测 key → `phase=verify` → pack → 渲染 → 同步。
+
+
+## 7. 环境注记（下次直接照做）
 
 1. 截图要求**目标文件在前台**：先 `figma_navigate(url, lock:true)`，否则 `figma_capture_screenshot` 会报 `Unable to establish connection after 10 seconds`（不是桥断）。
 2. `figma_execute` 偶发 `Cannot connect to Figma Desktop.`，**并不代表脚本没执行**：本次文本替换其实已生效，只有建文案那步断了。重试前先 `figma_get_status(probe:true)`，再用小步脚本补差，不要整段重放。
