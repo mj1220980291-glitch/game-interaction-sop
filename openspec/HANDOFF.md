@@ -39,7 +39,7 @@
 - **真机已通过（8.23）**：重启 MCP 后新构建生效（supervisor 32572 / worker 19624，`worker-lifecycle.log` 首条即 boot `probe failed`，插件 10–20s 后重连）。两文件重开插件后一次 `phase=verify`（`write:false`）全过：四原子真实 import、geometry、spacing，gaps/diffs 空，宿主 cost **3.72s**。插件上报版本仍是 1.39.0（磁盘 code.js 已是 1.41.5，Figma 侧加载缓存），另查。
 - **pack / 渲染 / 同步已留证（8.9e 部分）**：pack 在 `f:\vibecoding\game-interaction-sop\.interaction-sop\template.json`（origin=cwd，deep 4 key ok，roleBlock 三角色）；渲染 root `182:625`（2 章 3 簇、图 1 + 占位 1）；同步两次 `changes: []`；改单条正文只 1 处 update。
 - **职能行问题已闭环（8.24–8.26）**：新建 `187:2759` 视觉只留标注角色（01/1 只 GUI、01/2 无、02/1 程序+拼接）；同步两次均 `changes: []` 且 `conflicts: []`；改单条正文只 1 处 update、冲突 0；两章 状态说明按 foreign 保留。修复点在 `render/parts/index.ts` 的 `syncRoleCarriers`（D10）+ `reconcile/plan.ts`（parts 且 md 无职能子弹时把 role 条目剔出序列）。
-- **下一个要解决的问题（8.27）**：章节母版自带示例簇仍随章出现（①簇标题 + 正文占位 + 程序/GUI/CCS 三行 + 配图占位），就是 8.8 记过的「章节与独立簇重复」。需先补 design 明确口径（删/隐藏示例簇、空说明栏保留），再改代码 + 回归 + 重渲染。
+- **下一个要解决的问题（新立项 `add-legacy-template-cleaning`）**：旧正式稿 → 干净模板（8B）与章节示例簇（8.27）已迁到 `openspec/changes/add-legacy-template-cleaning/`（proposal/design D1–D6/spec delta/tasks 1–7）。顺序：识别与歧义 → 隔离提取 → 清洗 → 槽位归一化 + 真编译 → 章节示例簇清理 → 真机全链验收 → 回归文档。`sop-sharing-readiness` 的 8B/8.27 只保留历史索引。
 - 另：宿主在空闲后会整轮重启 MCP（今日多次：10:54 / 14:50 / 16:32 / 16:49 / 16:54 / 16:55），冷启动窗口内首次 Figma 调用会被 `V2_BRIDGE_DOWN` 挡住；lifecycle 文件已记录每次启动，重试前先 `figma_get_status(probe:true)` 确认桥通即可。
 - 另：期间宿主又整轮替换过 MCP（32572→55500），冷启动时渲染被新 `V2_BRIDGE_DOWN` 预检挡住、未误报四键；两次启动均在 lifecycle 文件里。readPaints 修复已在该次 verify 的 geometry 阶段真实走到；不扩全局重试、不延长超时、不加 worker、不动配置/凭据。
 
