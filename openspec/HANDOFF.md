@@ -1,18 +1,71 @@
 # 交接说明（2026-11-03）
 
-## 换对话先读（2026-11-16 最终交接：先查 worker 生命周期，别再盲目重启/verify）
+## 换对话先读（2026-11-17：能力契约重构进行到阶段 3/7）
 
-### 新会话最短接续指南
+### 一句话状态
 
-**目标不变**：向其他设计团队推广，必须同时支持「正规模板直接接入」与「旧正式稿抽取清洗后接入」。当前在燕云真实接入验收，不是已经交付了自动清洗功能。用户要求能直接做的直接推进，只有人工发布等必须人工的环节才找用户。
+两条活跃 change：`unify-capability-contract`（阶段 3 / 7 完成，下一步阶段 4）与 `add-legacy-template-cleaning`（全链已跑通，遗留坑待优化）。工作区干净，已双推，HEAD `9826ef2`。
 
-**当前状态**：模板候选已在独立项目 Page「燕云」，用户已人工发布四原子+三职能组件；四原子跨文件导入有历史成功证据，完整 verify/pack/render/sync 尚未完成。worker 生命周期已只读查清（2026-11-16 诊断，见下），下一步补 design/spec 再最小修复，不要重新抽模板或要求再次发布。
+### 立刻要做的下一步：阶段 4「渲染/编译/对账切表」
 
-#### 先读这些
+**规则**：只把「按能力取值决定是否/如何」的判定换成 `ruleOf(caps, key).render.*`；纯几何算法（网格坐标、等比缩放）**不进表**；一次只改一个文件，改完立刻 `tsc` + 相关用例，再跑全量串行。
 
-1. 本节及下方最新两轮 2026-11-16 快照。
-2. `docs/pilot/reports/yanyun-deeper-focused-20261113.json`，`lifecycleDiagnosis20261116`（本轮只读定位）+ `postReadPaintsReloadAcceptance.latestBoundedVerify`（最新结果）；`readPaintsFocusedFix` 保存已证实挂起根因；其他字段是历史，不混用。
-3. 活跃变更 `openspec/changes/sop-sharing-readiness/` 下 proposal/design/specs/tasks。
+按文件清单（行号为改前位置，可能漂移）：
+
+| 文件 | 位置 | 现在读什么 → 改成 |
+|---|---|---|
+| `v2/render/parts/index.ts` | ~382 badgeCount（`badgeSlot === 'container'`） | `render.badgeCount === 'clusters'` |
+| 同上 | ~518 `overview === 'none'` 冲突告警 | `render.overviewSlots === 'none'` |
+| 同上 | ~526 `clusterGroups === 'none'` 拒绝 `####` | `render.subgroup === 'reject'` |
+| 同上 | ~609/621 总览渲染分支 | `render.overviewSlots` |
+| 同上 | ~801 `figure === 'none'` 丢弃告警 | `render.figureSlots === 'drop'` |
+| 同上 | ~813-826 role 载体处理 / inline 后缀 | `render.roleBlocks`（insert/suffix/strip） |
+| `v2/render/parts/geometry.ts` | ~293/309 `badgeSlot === 'none' / 'container'` | `render.badgeCount` |
+| `v2/compile/normalize-slots.ts` | ~332 `clusterGroups === 'slot-run'`；~585-590 `figure` | `render.subgroup` / `render.figureSlots` |
+| `v2/compile/slim-parts.ts` | ~69 `overview === 'none'`；~535 `figure === 'none'` | `render.overviewSlots` / `render.figureSlots` |
+| `v2/compile/index.ts` | ~388 `clusterGroups === 'slot-run'` | `render.subgroup` |
+| `v2/reconcile/index.ts` | ~161 `roleAnnotation === 'inline-suffix'` | `render.roleBlocks === 'suffix'` |
+
+阶段 4 之后：阶段 5 加载期自检（`checkCapabilityContract` + `V2_W_CAPABILITY_CONTRACT_MISMATCH`）→ 阶段 6 表驱动一致性测试 → 阶段 7 回归 + 真机（旧稿清洗模板不写 `@角色`、官方 1.14、蛋仔各跑一次同步）。
+
+### 已完成（新对话不要重做）
+
+- **阶段 1**：新增 `packages/figma-mcp-server/src/v2/capability-contract.ts` —— 8 项能力 × 全取值，每项 `parse` / `contract` / `render` 三段规则；表按枚举穷尽（`Record<CapabilityKey, Record<ValueOf<K>, Rule>>`），加值不补表即 `tsc` 报错。6 条 characterization 测试。88 文件 / 743 测试。
+- **阶段 2**：`render.ts` 的 parse 开关改 `parseOptsFor(packCaps ?? DEFAULT_CAPABILITIES)`；修复 `roleAnnotation = none` 强制 `@角色` 的漏判（现在可选，写了给 `V2_W_ROLE_LINE_IGNORED` 软警告）。88 / 744。
+- **阶段 3**：`md-contract.ts` 的 8 段文案 + 禁写清单改读 `contract.*`；最小骨架判定改读 `render.overviewSlots / roleBlocks`。文本逐字节未变。88 / 744。
+
+### 另一条线：旧稿清洗（`add-legacy-template-cleaning`）
+
+- 清洗副本 `205:42223`（源 `173:15935` 未动，生成区 `204:32206` 于 `_staging` `3:10`）
+- 编译产出：top `207:49788` / chapter `207:49798` / cluster `207:49809`（用户已人工发布；库页 `206:49735`），`Tag` 收编为 `Number`
+- 全链已过：verify（`write:false`，gaps 空）→ pack deep 3/3 ok → 渲染 `191:289`（沙盒 `159:2927`，2 章 3 簇）→ 同步两次 `changes/conflicts` 均空 → 改单条只 `02/1/#1`
+- 回执与坑：`docs/pilot/reports/legacy-clean-receipt-20261116.md`（第 6 节编译坑、第 7 节全链结果、第 8 节环境注记）＋ `legacy-template-identification-20261116.md`
+- 遗留优先级：① 契约矛盾（已由阶段 2 修）② 旧稿→四部件显式拆分 + 头部 5 槽新建 + 编号从实例取 ③ 标号容器按旧稿生成（现借燕云 `188:38122`，标号落主图区）④ 章节外层留白 / 无结尾块 ⑤ 7.x 回归与文档
+
+### 必读
+
+1. 本节 + 下方 2026-11-16 生命周期诊断（结论仍有效，别再重复排查）
+2. `openspec/changes/unify-capability-contract/{proposal,design,tasks}.md`（D1–D6；tasks 1–3 已勾）
+3. `openspec/changes/add-legacy-template-cleaning/` 与两份 `docs/pilot/reports/legacy-*.md`
+4. `packages/figma-mcp-server/src/v2/capability-contract.ts`（表本身，就是规格）
+
+### 环境事实（省时间）
+
+- node/npm 用绝对路径；`vitest` 必须 `--no-file-parallelism`（见 AGENTS.md）
+- **宿主会周期性整轮重启 MCP**（2026-11-16 至少 6 次）。冷启动窗口里首次 Figma 调用会报 `Cannot connect`，先 `figma_get_status(probe:true)` 确认桥通再重试；`figma_execute` 报错**不代表脚本没执行**（可能执行了一半），重试前先读回状态
+- 截图要求**目标文件在前台**：先 `figma_navigate(url, lock:true)`，否则报 `Unable to establish connection after 10 seconds`（不是桥断）
+- 运行中的 worker **不会**自动加载新 `dist`（多次实测）；要验证新代码必须请用户重启 MCP
+- 资产：库 `jQf7zj33pzOGsGKO4d73OO`；沙盒 `0eoR7aPlpzIva8IdWATWkL` / page `159:2927`；清洗生成区 `204:32206`；清洗库页 `206:49735`
+- `.interaction-sop/template.json` 当前是**燕云 pack**（备份 `template.燕云.json`）；渲染别的项目要临时替换并**还原**
+
+### 不要做
+
+- 不要 `git push --force` / 改 remote / 提交 `dist`、`node_modules`
+- 不要自行杀进程、开新 worker 抢 9223、改 MCP 配置或凭据
+- 不要把「能力取值判定」写回消费点；不要用 `default` 兜底绕过穷尽检查
+- 没跑全量串行测试前不要声明完成
+
+### 历史：2026-11-16 生命周期诊断（结论仍有效，勿重复排查）
 
 #### 2026-11-16 生命周期诊断结论（只读复核版，已推翻上一轮的因果判断）
 
@@ -33,7 +86,7 @@
   - 「每部件 ~16s 是 figma-console 等回连」——错，无客户端时它立即抛错。
   - 「插件在 import 期间沉默」——只能说 figma-console 判定没有活客户端；「插件忙 / socket 陈旧 / 被心跳 terminate」三者当前证据分不开。
 
-#### 下一个要解决的问题
+#### 历史：2026-11-16 当时的进展与下一步（已被上方 2026-11-17 交接取代，仅作证据索引）
 
 - **观测已落地（8.22，D9）**：import 冒烟逐部件记 `{part, key, startedAt, elapsedMs, errorKind}` 并进错误 `details`；`errorKind` 分 `no-client`/`no-reply`/`busy`/`not-published`/`other`；桥级失败短路并列未尝试部件；失败信息附只读桥快照；`phase=verify` 前有 `verify.bridge` 有界探活（`return 1`，5s）；worker 启动追加 `~/.game-interaction-sop/worker-lifecycle.log`。tsc + 全量串行 87 文件 / 734 测试通过。未操作 Figma。
 - **真机已通过（8.23）**：重启 MCP 后新构建生效（supervisor 32572 / worker 19624，`worker-lifecycle.log` 首条即 boot `probe failed`，插件 10–20s 后重连）。两文件重开插件后一次 `phase=verify`（`write:false`）全过：四原子真实 import、geometry、spacing，gaps/diffs 空，宿主 cost **3.72s**。插件上报版本仍是 1.39.0（磁盘 code.js 已是 1.41.5，Figma 侧加载缓存），另查。
