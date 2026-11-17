@@ -1,25 +1,25 @@
 # 交接说明（2026-11-03）
 
-## 换对话先读（2026-11-17：能力契约重构进行到阶段 7/7，真机待跑）
+## 换对话先读（2026-11-17：能力契约 7.1–7.3 已跑，7.4 归档待做）
 
 ### 一句话状态
 
-两条活跃 change：`unify-capability-contract`（7.1/7.2 完成、7.3 真机阻塞、7.4 归档待做）与 `add-legacy-template-cleaning`（全链已跑通，遗留坑待优化）。工作区已改未提交，基线 **90 文件 / 795 测试**。
+`unify-capability-contract` 阶段 1–6 完成、7.1/7.2 完成、7.3 旧稿清洗与官方 1.14 通过、蛋仔撞**既有**结构缺陷、7.4 归档未做。工作区已改未提交，基线 **90 文件 / 795 测试**。
 
-### 立刻要做的下一步：阶段 7 的真机三项（需用户配合）
+### 立刻要做的下一步
 
-阻塞点（两条，缺一不可）：
+1. **蛋仔另案修**：`V2_TEMPLATE_STRUCTURE_INVALID`「嵌套正文/规则必须共享唯一宿主，不能跨容器重排」由 `2b8c087`（0.4.11，2026-11-16）引入，与本 change 无关；最小 md（1 章 1 簇）即复现，说明蛋仔簇组件的 `正文/规则` 分散在多个宿主。修完再补蛋仔同步零变更
+2. **归档**：跑 `openspec-archive-change`，把 delta 合入正式 specs（新增 `capability-contract`，修改 `markdown-v2-contract`），同步 CHANGELOG / HANDOFF
+3. 4.6 剩余三项（`numberBadge` 删编号、`readBadges` 的 manual、`findFigure` 探测策略）仍按取值判断，收口要先扩 `RenderRule` + 改 design
 
-1. **必须重启 MCP**：运行中的 worker 不会自动加载新 `dist`（多次实测），不重启跑的还是阶段 3 之前的代码，真机结论无效
-2. **目标未定位**：旧稿清洗 pack 的三个发布 key 只在回执里留了前缀（`e2112768…` / `ad871654…` / `a5231020…`），仓库内无完整值；官方 1.14 / 蛋仔也没有现成的「已渲染文档 + md」对照
+### 阶段 7 真机结果（2026-11-17）
 
-跑法（三项顺序无关）：
-
-- 旧稿清洗模板：写入 roleAnnotation=none 的 pack → 用**不带 `@角色`** 的 md 渲染 → 断言 `ok:true` 且无 `V2_C2_ROLE_LINE_MISSING`
-- 官方 1.14：`assets/packs/default.json` → 渲染一次 → 立刻 sync 一次，断言 `changes: []` / `conflicts: []`
-- 蛋仔：`assets/packs/蛋仔派对.json` + `samples/蛋仔派对-局内道具拾取.md` → 同上
-
-完成后：勾 7.3、更新 7.4，跑 `openspec-archive-change` 把 delta 合入正式 specs（新增 `capability-contract`，修改 `markdown-v2-contract`）。
+- 前提：`GISOP_BRIDGE_HOST=1`（已写入 `~/.codemaker/mcps.json` 的引擎条目 env，备份 `mcps.json.bak-2026-11-17T14-15-12-510Z`）。不开这个开关，宿主每次调用换 supervisor → 新桥等不到插件回连 → `V2_BRIDGE_DOWN`，与代码无关
+- 旧稿清洗 `roleAnnotation=none`：pack 由库页 `206:49735` 的三个发布 key（top `e2112768…`、chapter `ad871654…`、cluster `a5231020…`）+ `~/.game-interaction-sop/templates/燕云旧稿清洗20261116.geometry.json` 组装，存 `.interaction-sop/template.旧稿清洗.json`。不带 `@角色` 的 md 渲染 `ok:true`（root `194:2941`）→ 同步 `changes: []` / `conflicts: []`
+- 官方 1.14：root `194:803` → 同步 `changes: []` / `conflicts: []`
+- 蛋仔：渲染失败（同上），未完成同步验收
+- 两次真机都是同一 worker（`63308`），`pluginConnected: true`，roundtrip 3–14ms
+- `.interaction-sop/template.json` 已还原为燕云 pack
 
 ### 阶段 7 已做什么（2026-11-17）
 
@@ -72,7 +72,7 @@
 - **阶段 4**：渲染/编译/对账切表（见上表），零行为变化，88 / 744。
 - **阶段 5**：`checkCapabilityContract` 上线并接入 `render.ts` + `audit_template_pack`；修 `hiddenPool.absent` 表值并让 `resetHiddenPool` 读表；新增 5 条自检用例。89 / 749。
 - **阶段 6**：`capability-matrix.spec` 表驱动 44 条 + 覆盖清单 2 条；「枚举加值不补表」的 `tsc` 闸门实测过。90 / 795。
-- **阶段 7（部分）**：全量 90 / 795 全绿；`sandbox:newuser` 与基线 `20261112-144031` 断言逐条相同。真机三项与归档未做。
+- **阶段 7（部分）**：全量 90 / 795 全绿；`sandbox:newuser` 与基线 `20261112-144031` 断言逐条相同；真机旧稿清洗（`roleAnnotation=none`，不写 `@角色`）与官方 1.14 均渲染 + 同步零变更；蛋仔撞既有结构缺陷。归档未做。
 
 ### 另一条线：旧稿清洗（`add-legacy-template-cleaning`）
 

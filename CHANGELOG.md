@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## 未发布 — 阶段 7 真机：旧稿清洗与官方 1.14 通过，蛋仔撞既有结构缺陷
+
+- 常驻桥：`GISOP_BRIDGE_HOST=1` 下真机可连续调用（同一 worker `63308`，`pluginConnected: true`，roundtrip 3–14ms）。顺手修 `bridgeHost.attach()` 每连接重复挂 `stdout` 监听（重连会让同一帧写多遍，`5f689c6`）。
+- 旧稿清洗模板（`roleAnnotation = none`）：从库页找回三个发布 key，配 `燕云旧稿清洗20261116.geometry.json` 组装 pack；**md 不写 `@角色`** 渲染 `ok:true`（root `194:2941`），无 `V2_C2_ROLE_LINE_MISSING`；同步 `changes: []` / `conflicts: []`（`状态说明占位` 按 foreign preserved）。
+- 官方 1.14：`assets/packs/default.json` 渲染 root `194:803`（1 章 1 簇 1 气泡），同步 `changes: []` / `conflicts: []`。
+- 蛋仔：渲染失败 `V2_TEMPLATE_STRUCTURE_INVALID`「嵌套正文/规则必须共享唯一宿主，不能跨容器重排」。定位为既有缺陷 —— 报错由 `2b8c087`（0.4.11，2026-11-16）引入，本次未改该路径；最小 md（1 章 1 簇）同样复现，属蛋仔模板本身正文宿主分裂，另案修。
+
 ## 未发布 — 阶段 7 回归：全量测试 + 新用户沙盒
 
 - `tsc -p tsconfig.json` 通过；全量串行 **90 文件 / 795 测试**（本 change 起点 88 / 744）。
