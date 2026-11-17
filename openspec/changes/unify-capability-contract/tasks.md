@@ -25,14 +25,15 @@
 - [x] 4.3 `compile/normalize-slots.ts`、`slim-parts.ts`、`compile/index.ts`：分组/配图/总览判定读表
 - [x] 4.4 `reconcile/index.ts`：`inlineRoles` 由 `render.roleBlocks === 'suffix'` 推导
 - [x] 4.5 纯几何计算（气泡网格、图片等比缩放）保持原样，不塞进表
-- [x] 4.6 记录表缺字段的四处判定（本阶段保留原写法，零行为变化）：`numberBadge = none` 删簇编号（表只有 `contract` 段）、`readBadges` 的 `none` 早退（`manual` 仍照读画布，`badgeCount` 合并了两者）、`findFigure` 的 `named-group` 名字探测（`figureSlots` 只有 consume/drop）；另 `hiddenPool` 表值 `absent → keep` 与 `resetHiddenPool` 的实现（absent 也删隐藏节点）相反，阶段 1 抄表错误。补字段前需先改 design / delta spec
+- [x] 4.6 记录表缺字段的四处判定（本阶段保留原写法，零行为变化）：`numberBadge = none` 删簇编号（表只有 `contract` 段）、`readBadges` 的 `none` 早退（`manual` 仍照读画布，`badgeCount` 合并了两者）、`findFigure` 的 `named-group` 名字探测（`figureSlots` 只有 consume/drop）、`resetHiddenPool`（表值当时写成 `absent → keep`，与实现相反）。补字段前需先改 design / delta spec；其中 `resetHiddenPool` 已在 5.4 修表并切表，剩下三项待补字段
 - [x] 4.7 `tsc` + 全量串行：88 文件 / 744 测试
 
 ## 5. 运行时自检
 
-- [ ] 5.1 新增 `checkCapabilityContract(pack)`：按表比对允许写法、契约文本与解析闸门
-- [ ] 5.2 接入 pack 加载路径与 `audit_template_pack`，不一致产出 `V2_W_CAPABILITY_CONTRACT_MISMATCH`（含能力项/取值/期望/实际），不中断
-- [ ] 5.3 用例：注入一条不一致（模拟漏分支），断言只出警告且渲染继续
+- [x] 5.1 新增 `checkCapabilityContract(pack)`：按表比对允许写法、契约文本与解析闸门（`capabilityContractMismatches` 逐项给出能力项/取值/期望/实际；`ObservedBehavior` 供注入实测口径）
+- [x] 5.2 接入 pack 加载路径（`render.ts` 解析之后，失败路径也带出）与 `audit_template_pack`，不一致产出 `V2_W_CAPABILITY_CONTRACT_MISMATCH`（含能力项/取值/期望/实际），不中断
+- [x] 5.3 用例：`capability-contract.spec` 三个（现网全取值零告警、注入解析漏分支、注入渲染漏分支）；`capability-selfcheck.spec` 两个（正常 pack 零告警且渲染成功、表上抹掉一段契约文案后只出警告且渲染继续）
+- [x] 5.4 修掉阶段 4 留下的表值矛盾：`hiddenPool.absent` 改为 `delete`（与 spec `template-render`「不存在池子」及实现一致），`resetHiddenPool` 改读表（行为不变）
 
 ## 6. 表驱动一致性测试
 

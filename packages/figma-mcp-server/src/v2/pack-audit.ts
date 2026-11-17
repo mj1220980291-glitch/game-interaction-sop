@@ -18,6 +18,7 @@ import type { SoftWarning } from './ir.js';
 import { SOFT_WARNING_CODES } from './ir.js';
 import type { TemplatePack } from './template/schema.js';
 import { CLUSTER_SLOTS } from './template-slots.js';
+import { checkCapabilityContract } from './capability-contract.js';
 
 /**
  * 正文层名。审计只统计这些文本：章节标题是白字、标号是数字，把它们算进来会让
@@ -178,12 +179,15 @@ export async function smokePackKeys(
   return out;
 }
 
-/** 工具入口：字段体检 + （可选）渲染后对比度体检的组合。 */export async function auditTemplatePack(input: {
+/** 工具入口：字段体检 + 能力表自检 + （可选）渲染后对比度体检的组合。 */export async function auditTemplatePack(input: {
   pack?: TemplatePack;
   backend?: FigmaBackend;
   chapterIds?: string[];
 }): Promise<{ warnings: SoftWarning[] }> {
-  const warnings = auditPackFields(input.pack);
+  const warnings = [
+    ...auditPackFields(input.pack),
+    ...(input.pack ? checkCapabilityContract(input.pack) : [])
+  ];
   if (input.backend && input.chapterIds && input.chapterIds.length > 0) {
     warnings.push(
       ...(await auditRenderedContrast(

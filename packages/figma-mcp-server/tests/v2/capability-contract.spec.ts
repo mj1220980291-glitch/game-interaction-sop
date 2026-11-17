@@ -10,7 +10,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   CAPABILITY_RULES,
+  capabilityContractMismatches,
   capabilityCoverage,
+  checkCapabilityContract,
   parseOptsFor,
   ruleFor
 } from '../../src/v2/capability-contract.js';
@@ -164,3 +166,39 @@ describe('capability-contract：契约文案等价（现状基线）', () => {
     }
   });
 });
+
+describe('capability-contract：加载期自检', () => {
+  it('表的现有取值自洽：8 项 × 全取值零告警', () => {
+    for (const { key, value } of capabilityCoverage()) {
+      const caps = { ...DEFAULT_CAPABILITIES, [key]: value } as Capabilities;
+      expect(capabilityContractMismatches(caps), `${key}=${value}`).toEqual([]);
+    }
+    const warnings = checkCapabilityContract(packWith({}));
+    expect(warnings).toEqual([]);
+  });
+
+  it('注入「解析器漏分支」：只出警告，带能力项/取值/期望/实际', () => {
+    const pack = packWith({ roleAnnotation: 'none' });
+    const observed = { parseOpts: { roleLineOptional: false, roleLineIgnored: true } };
+    const warnings = checkCapabilityContract(pack, observed);
+
+    expect(warnings).toHaveLength(1);
+    const w = warnings[0]!;
+    expect(w.code).toBe('V2_W_CAPABILITY_CONTRACT_MISMATCH');
+    expect(w.message).toContain('roleAnnotation=none');
+    expect(w.message).toContain('期望「@角色 行可选');
+    expect(w.message).toContain('实际「解析器按必写处理');
+  });
+
+  it('注入「渲染没跟上表」：总览无槽位却仍要求写，告警不抛错', () => {
+    const caps: Capabilities = { ...DEFAULT_CAPABILITIES, overview: 'two-frames' };
+    const mismatches = capabilityContractMismatches(caps, {
+      render: { overview: { overviewSlots: 'none' } }
+    });
+    expect(mismatches.length).toBeGreaterThan(0);
+    expect(mismatches[0]!.key).toBe('overview');
+    expect(mismatches[0]!.expected).toContain('总览可选');
+    expect(mismatches[0]!.actual).toContain('必写');
+  });
+});
+

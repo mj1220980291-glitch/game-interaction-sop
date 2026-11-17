@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 未发布 — 能力契约加载期自检（阶段 5）
+
+- 新增 `checkCapabilityContract(pack)` / `capabilityContractMismatches(caps, observed)`：按表比对「解析闸门 ⟺ 渲染分支 ⟺ 契约文案」，逐项给出能力项、取值、期望、实际；`ObservedBehavior` 可注入实测口径，便于复现消费点漏分支。
+- 接入 `render.ts`（解析之后，解析失败路径也带出该警告）与 `audit_template_pack`；不一致产出软警告 `V2_W_CAPABILITY_CONTRACT_MISMATCH`，不中断渲染、不改模板。
+- 修表值矛盾：`hiddenPool.absent` 由 `keep` 改为 `delete`（spec `template-render` 说 absent「不存在池子」，实现本来也删）；`resetHiddenPool` 改读表，行为不变（阶段 4.6 的遗留之一就此关闭）。
+- 用例：`capability-contract.spec` 新增 3 条（全取值零告警、注入解析漏分支、注入渲染漏分支）；新增 `capability-selfcheck.spec` 2 条（正常 pack 零告警且渲染成功、抹掉一段契约文案后只出警告且渲染继续）。
+- `tsc` 通过；全量串行 **89 文件 / 749 测试**。
+
 ## 未发布 — 渲染/编译/对账切表（阶段 4：行为不变的重构）
 
 - 消费点改读能力表：`render/parts/index.ts`（`bubbleCount` / 冲突校验 / 总览填充 / 配图丢弃告警 / 职能载体 / 行内后缀与分组前缀）、`render/parts/geometry.ts`（标号摆放与自检口径）、`compile/normalize-slots.ts`（分组槽缺口、配图槽丢弃）、`compile/slim-parts.ts`（顶部残留清理、簇媒体清理）、`compile/index.ts`（干跑 run 预检）、`reconcile/index.ts`（`inlineRoles`）。

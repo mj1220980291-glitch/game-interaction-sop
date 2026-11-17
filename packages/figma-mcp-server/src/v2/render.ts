@@ -41,7 +41,7 @@
  */
 
 import { parseV2 } from './parser.js';
-import { parseOptsFor } from './capability-contract.js';
+import { checkCapabilityContract, parseOptsFor } from './capability-contract.js';
 import {
   HEADER_SLOTS,
   OVERVIEW_SLOTS,
@@ -472,6 +472,9 @@ export async function renderV2MarkdownToFigma(
   // Phase A — Parse + hard-validate.
   // 校验松紧要跟模板走：没有总览区 / 职能写句尾的模板，按官方形状要求会一律拒收。
   const parsed = parseV2(input.markdown, parseOptsFor(packCaps ?? DEFAULT_CAPABILITIES));
+  // 能力表 ↔ 实现的加载期自检：不一致只出一条软告警，渲染照旧（解析失败路径也带出去）。
+  const contractWarnings = packCaps ? checkCapabilityContract(packCaps) : [];
+  parsed.warnings.unshift(...contractWarnings);
   if (!parsed.ok || !parsed.ir) {
     return {
       ok: false,

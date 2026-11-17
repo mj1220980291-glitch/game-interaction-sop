@@ -287,7 +287,13 @@ export const SOFT_WARNING_CODES = {
    * 走了默认值。缺字段不算错（不同模板结构可以不同），但使用者要知道「为什么
    * 这次底色/外框跟以前不一样」。
    */
-  W_PACK_GEOMETRY_DEFAULTED: 'V2_W_PACK_GEOMETRY_DEFAULTED'
+  W_PACK_GEOMETRY_DEFAULTED: 'V2_W_PACK_GEOMETRY_DEFAULTED',
+  /**
+   * render/compile — 能力表（`capability-contract.ts`）声明的写法与实现不一致：
+   * 解析闸门松紧、渲染分支或契约文案有一处没跟上表。只告警不中断——渲染照旧，
+   * 但按契约写的 md 可能被拒收、或产物与契约不符，排查从这里开始。
+   */
+  W_CAPABILITY_CONTRACT_MISMATCH: 'V2_W_CAPABILITY_CONTRACT_MISMATCH'
 } as const;
 
 export type SoftWarningCode =

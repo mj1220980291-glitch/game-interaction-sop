@@ -1061,7 +1061,7 @@ async function resetHiddenPool(
   policy: TemplatePack['capabilities']['hiddenPool'],
   warnings: SoftWarning[]
 ): Promise<void> {
-  if (policy === 'reuse') return;
+  if (ruleFor('hiddenPool', policy).render?.hiddenPool === 'keep') return;
   const { nodes } = await backend.scanSubtree(cluster.id, 400);
   const hidden = nodes.filter((n) => n.visible === false && n.id !== cluster.id).map((n) => n.id);
   // 逐个删：整批删一个藏着别的库实例的隐藏节点时，插件会卡过 Bridge 的 10s 上限。

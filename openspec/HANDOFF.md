@@ -1,20 +1,27 @@
 # 交接说明（2026-11-03）
 
-## 换对话先读（2026-11-17：能力契约重构进行到阶段 4/7）
+## 换对话先读（2026-11-17：能力契约重构进行到阶段 5/7）
 
 ### 一句话状态
 
-两条活跃 change：`unify-capability-contract`（阶段 4 / 7 完成，下一步阶段 5）与 `add-legacy-template-cleaning`（全链已跑通，遗留坑待优化）。工作区已改未提交，基线 **88 文件 / 744 测试**。
+两条活跃 change：`unify-capability-contract`（阶段 5 / 7 完成，下一步阶段 6）与 `add-legacy-template-cleaning`（全链已跑通，遗留坑待优化）。工作区已改未提交，基线 **89 文件 / 749 测试**。
 
-### 立刻要做的下一步：阶段 5「运行时自检」
+### 立刻要做的下一步：阶段 6「表驱动一致性测试」
 
-**规则**：`checkCapabilityContract(pack)` 只报不一致、不崩、不改模板；`V2_W_CAPABILITY_CONTRACT_MISMATCH` 带能力项/取值/期望/实际，单条去重。
+**规则**：用例由「能力 × 取值 × 关注面」遍历生成，不手写单个组合；覆盖清单要能打印出来，新增取值缺覆盖即失败。
 
-1. `packages/figma-mcp-server/src/v2/capability-contract.ts` 新增 `checkCapabilityContract(pack)`：按表推导允许写法、契约文本与解析闸门
-2. 接入 pack 加载路径与 `audit_template_pack`
-3. 用例：注入一条不一致（模拟漏分支），断言只出警告且渲染继续
+1. 遍历「能力 × 取值 × 关注面」生成用例：契约 ⟺ 解析、契约 ⟺ 渲染、表 ⟺ 文本（现成的 `capabilityCoverage()`、`parseOptsFor`、`buildMdContract`、`capabilityContractMismatches` 都可直接复用）
+2. 覆盖清单输出：哪个取值被哪条断言覆盖；新增取值缺覆盖时测试失败
+3. 断言：临时新增一个假取值只改枚举 + 表即可通过类型检查与测试；只在枚举加值则 `tsc` 失败
 
-**动手前必须先定 4.6 的表值矛盾**（否则自检会拿错表值误报）：`hiddenPool` 表里写 `absent → keep`，而 `resetHiddenPool` 对 `absent` 也删隐藏节点（`policy === 'reuse'` 才保留），与 spec `template-render`「absent 不存在池子」一致的是**实现**、不是表。要先改表或先改 design，再写自检。
+**阶段 5 已把自检落地**：`checkCapabilityContract(pack)` 在 `render.ts`（解析之后）与 `audit_template_pack` 各接一次，不一致只出 `V2_W_CAPABILITY_CONTRACT_MISMATCH`，不中断。阶段 6 的用例可以把 `ObservedBehavior` 注入当「消费点漏分支」的模拟手段。
+
+### 阶段 5 已做什么（2026-11-17）
+
+- `capability-contract.ts` 新增 `capabilityContractMismatches(caps, observed)` / `checkCapabilityContract(pack, observed)`：比对三条不变式 —— 总览槽位 ⟺ 解析是否要求总览；`roleBlocks` ⟺ 角色行可选/忽略；丢弃或拒绝 ⟺ 契约里有禁写条目；另检查 7 段契约文案非空。
+- `render.ts` 在 `parseV2` 之后 `unshift` 自检告警（解析失败路径也带出）；`audit_template_pack` 把自检并进 `warnings`。
+- 修表值矛盾：`hiddenPool.absent` → `delete`（对齐 spec `template-render`「不存在池子」与实现），`resetHiddenPool` 改读表，行为不变。
+- 新增 `tests/v2/capability-selfcheck.spec.ts`：用旧路径产物当部件源，验证「正常 pack 零告警」「表上抹掉一段契约文案后只警告、渲染仍 `ok:true`」。
 
 ### 阶段 4 已做什么（2026-11-17）
 
@@ -22,21 +29,20 @@
 
 | 文件 | 切了哪些判定 |
 |---|---|
-| `v2/render/parts/index.ts` | `bubbleCount`（badgeCount）、冲突校验（overviewSlots/subgroup）、`fillTop` 两处（overviewSlots）、配图丢弃（figureSlots）、职能载体与行内后缀（roleBlocks）、分组前缀（subgroup） |
+| `v2/render/parts/index.ts` | `bubbleCount`（badgeCount）、冲突校验（overviewSlots/subgroup）、`fillTop` 两处（overviewSlots）、配图丢弃（figureSlots）、职能载体与行内后缀（roleBlocks）、分组前缀（subgroup）、隐藏池（hiddenPool） |
 | `v2/render/parts/geometry.ts` | `placeBadges` 是否摆放（badgeCount）、`readBadges` 数量自检口径（badgeCount） |
 | `v2/compile/normalize-slots.ts` | 分组槽缺口（subgroup）、配图槽丢弃（figureSlots） |
 | `v2/compile/slim-parts.ts` | 顶部残留清理（overviewSlots）、簇媒体清理（figureSlots） |
 | `v2/compile/index.ts` | 干跑 run 预检（subgroup） |
 | `v2/reconcile/index.ts` | `inlineRoles`（roleBlocks === 'suffix'） |
 
-**4.6 未切（表里没有对应字段，保留原写法并已加注释）**：
+**4.6 还剩三项未切（表里没有对应字段，保留原写法并已加注释）**：
 
 - `numberBadge = none` 删簇编号 —— 表只有 `contract` 段，没有 render 段
 - `readBadges` 的 `badgeSlot === 'none'` 早退 —— `manual` 仍要照读画布（设计师手工摆的标号），`badgeCount` 把 manual/none 合并了
 - `findFigure` 的 `figure === 'named-group'` —— 名字探测（找不到就不认）与 first-non-text 是两条算法，`figureSlots` 只有 consume/drop
-- `resetHiddenPool` —— 见上，表值 `absent → keep` 与实现相反
 
-补这四项前要先改 design + delta spec（扩 `RenderRule` 字段），不要直接在消费点写回枚举分支后又忘了表。
+补这三项前要先改 design + delta spec（扩 `RenderRule` 字段），不要直接在消费点写回枚举分支后又忘了表。阶段 6 的遍历测试要显式跳过它们（或列为已知未覆盖）。
 
 ### 已完成（新对话不要重做）
 
@@ -44,8 +50,9 @@
 - **阶段 2**：`render.ts` 的 parse 开关改 `parseOptsFor(packCaps ?? DEFAULT_CAPABILITIES)`；修复 `roleAnnotation = none` 强制 `@角色` 的漏判（现在可选，写了给 `V2_W_ROLE_LINE_IGNORED` 软警告）。88 / 744。
 - **阶段 3**：`md-contract.ts` 的 8 段文案 + 禁写清单改读 `contract.*`；最小骨架判定改读 `render.overviewSlots / roleBlocks`。文本逐字节未变。88 / 744。
 - **阶段 4**：渲染/编译/对账切表（见上表），零行为变化，88 / 744。
+- **阶段 5**：`checkCapabilityContract` 上线并接入 `render.ts` + `audit_template_pack`；修 `hiddenPool.absent` 表值并让 `resetHiddenPool` 读表；新增 5 条自检用例。89 / 749。
 
-阶段 4 之后：阶段 5 加载期自检 → 阶段 6 表驱动一致性测试 → 阶段 7 回归 + 真机（旧稿清洗模板不写 `@角色`、官方 1.14、蛋仔各跑一次同步）。
+阶段 5 之后：阶段 6 表驱动一致性测试 → 阶段 7 回归 + 真机（旧稿清洗模板不写 `@角色`、官方 1.14、蛋仔各跑一次同步）。
 
 ### 另一条线：旧稿清洗（`add-legacy-template-cleaning`）
 
@@ -58,7 +65,7 @@
 ### 必读
 
 1. 本节 + 下方 2026-11-16 生命周期诊断（结论仍有效，别再重复排查）
-2. `openspec/changes/unify-capability-contract/{proposal,design,tasks}.md`（D1–D6；tasks 1–4 已勾，4.6 是表缺字段的遗留清单）
+2. `openspec/changes/unify-capability-contract/{proposal,design,tasks}.md`（D1–D6；tasks 1–5 已勾，4.6 是表缺字段的遗留清单）
 3. `openspec/changes/add-legacy-template-cleaning/` 与两份 `docs/pilot/reports/legacy-*.md`
 4. `packages/figma-mcp-server/src/v2/capability-contract.ts`（表本身，就是规格）
 

@@ -17,8 +17,10 @@
 import {
   CAPABILITY_VALUES,
   type Capabilities,
-  type CapabilityKey
+  type CapabilityKey,
+  type TemplatePack
 } from './template/schema.js';
+import { SOFT_WARNING_CODES, type SoftWarning } from './ir.js';
 
 export type { CapabilityKey };
 
@@ -179,7 +181,8 @@ export const CAPABILITY_RULES: RuleTable = {
   hiddenPool: {
     reuse: { render: { hiddenPool: 'keep' } },
     ignore: { render: { hiddenPool: 'delete' } },
-    absent: { render: { hiddenPool: 'keep' } }
+    // absent = 模板没有池子：隐藏节点是残留，删掉（此前误写成 keep，与实现相反）。
+    absent: { render: { hiddenPool: 'delete' } }
   },
 
   column: {
@@ -225,4 +228,142 @@ export function capabilityCoverage(): Array<{ key: CapabilityKey; value: string 
   return (Object.keys(CAPABILITY_VALUES) as CapabilityKey[]).flatMap((key) =>
     (CAPABILITY_VALUES[key] as readonly string[]).map((value) => ({ key, value }))
   );
+}
+
+// --- 自检 ------------------------------------------------------------------
+
+/** 一处「表声明」与「实现实际」的不一致。 */
+export interface ContractMismatch {
+  key: CapabilityKey;
+  value: string;
+  /** 表声明的行为。 */
+  expected: string;
+  /** 实现（或注入的实测值）实际行为。 */
+  actual: string;
+}
+
+/**
+ * 实测口径：缺省取表自身。
+ *
+ * 测试与排查时注入「实现实际怎么看」的值，用来复现「消费点漏了分支」——
+ * 表说可选、解析器却强制，正是 2026-11-16 那次自相矛盾的形状。
+ */
+export interface ObservedBehavior {
+  parseOpts?: ReturnType<typeof parseOptsFor>;
+  render?: Partial<Record<CapabilityKey, Partial<RenderRule>>>;
+}
+
+/** 每个取值都必须说得出的那一段契约文案。 */
+const REQUIRED_CONTRACT_TEXT: Array<[CapabilityKey, Exclude<keyof ContractRule, 'forbid'>]> = [
+  ['overview', 'overview'],
+  ['clusterGroups', 'groups'],
+  ['roleAnnotation', 'roles'],
+  ['figure', 'figure'],
+  ['badgeSlot', 'badge'],
+  ['numberBadge', 'number'],
+  ['column', 'column']
+];
+
+/** 表 × 实现的逐项比对；返回不一致清单（空 = 自洽）。 */
+export function capabilityContractMismatches(
+  caps: Capabilities,
+  observed: ObservedBehavior = {}
+): ContractMismatch[] {
+  const out: ContractMismatch[] = [];
+  const opts = observed.parseOpts ?? parseOptsFor(caps);
+  const renderOf = (key: CapabilityKey): Partial<RenderRule> => ({
+    ...(ruleOf(caps, key).render ?? {}),
+    ...(observed.render?.[key] ?? {})
+  });
+
+  // 总览：渲染期没有槽位 ⟺ 解析期不要求写总览。
+  const overviewSlots = renderOf('overview').overviewSlots;
+  const overviewOptional = opts.overviewOptional === true;
+  const overviewExpectedOptional = overviewSlots === 'none';
+  if (overviewOptional !== overviewExpectedOptional) {
+    out.push({
+      key: 'overview',
+      value: caps.overview,
+      expected: `总览${overviewExpectedOptional ? '可选' : '必写'}（render.overviewSlots = ${overviewSlots}）`,
+      actual: `解析器按${overviewOptional ? '可选' : '必写'}处理（parse.overviewOptional = ${String(
+        opts.overviewOptional ?? false
+      )}）`
+    });
+  }
+
+  // 职能：插组件实例 ⟺ 角色行必写；句尾/删除 ⟺ 可选；删除 ⟺ 写了只警告。
+  const roleBlocks = renderOf('roleAnnotation').roleBlocks;
+  const roleOptional = opts.roleLineOptional === true;
+  const roleExpectedOptional = roleBlocks !== 'insert';
+  if (roleOptional !== roleExpectedOptional) {
+    out.push({
+      key: 'roleAnnotation',
+      value: caps.roleAnnotation,
+      expected: `@角色 行${roleExpectedOptional ? '可选' : '必写'}（render.roleBlocks = ${roleBlocks}）`,
+      actual: `解析器按${roleOptional ? '可选' : '必写'}处理（parse.roleLineOptional = ${String(
+        opts.roleLineOptional ?? false
+      )}）`
+    });
+  }
+  const roleIgnored = opts.roleLineIgnored === true;
+  const roleExpectedIgnored = roleBlocks === 'strip';
+  if (roleIgnored !== roleExpectedIgnored) {
+    out.push({
+      key: 'roleAnnotation',
+      value: caps.roleAnnotation,
+      expected: roleExpectedIgnored ? '写了 @角色 只给软警告' : '写了 @角色 照常生效',
+      actual: roleIgnored ? '解析器忽略 @角色' : '解析器按 @角色 处理'
+    });
+  }
+
+  // 不该写的写法（丢弃 / 拒绝）⟺ 契约里必须有对应的禁写条目。
+  const forbidExpectations: Array<[CapabilityKey, boolean]> = [
+    ['overview', overviewSlots === 'none'],
+    ['clusterGroups', renderOf('clusterGroups').subgroup === 'reject'],
+    ['figure', renderOf('figure').figureSlots === 'drop']
+  ];
+  for (const [key, expectForbid] of forbidExpectations) {
+    const hasForbid = Boolean(ruleOf(caps, key).contract?.forbid);
+    if (hasForbid !== expectForbid) {
+      out.push({
+        key,
+        value: String(caps[key]),
+        expected: expectForbid ? '契约里有禁写条目' : '契约里没有禁写条目',
+        actual: hasForbid ? '契约里有禁写条目' : '契约里没有禁写条目'
+      });
+    }
+  }
+
+  // 文案存在性：表里声明了行为，契约就必须说得出来。
+  for (const [key, field] of REQUIRED_CONTRACT_TEXT) {
+    const text = ruleOf(caps, key).contract?.[field];
+    if (!text || text.trim() === '') {
+      out.push({
+        key,
+        value: String(caps[key]),
+        expected: '该取值有契约文案（contract 段非空）',
+        actual: '契约文案为空'
+      });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * pack 加载/渲染入口的自检：把「表 ↔ 实现」不一致折成软告警。
+ *
+ * 只告警、不中断、不改模板——自检不能变成新的故障源。
+ */
+export function checkCapabilityContract(
+  pack: TemplatePack | Capabilities,
+  observed: ObservedBehavior = {}
+): SoftWarning[] {
+  const caps = 'capabilities' in pack ? pack.capabilities : pack;
+  return capabilityContractMismatches(caps, observed).map((m) => ({
+    code: SOFT_WARNING_CODES.W_CAPABILITY_CONTRACT_MISMATCH,
+    message:
+      `能力契约自检：${m.key}=${m.value} 期望「${m.expected}」，实际「${m.actual}」。` +
+      '本次按实现继续渲染；按契约写的 md 可能被拒收或产物与契约不符，检查 capability-contract.ts 与对应消费点。'
+  }));
 }
