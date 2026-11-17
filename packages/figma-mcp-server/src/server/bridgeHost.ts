@@ -108,6 +108,12 @@ export async function startBridgeHost(
     });
     log(`child figma-console-mcp started pid=${child.pid ?? '?'}`);
 
+    // 只挂一次：以前挂在 attach() 里，worker 每重连一次就多一个 listener，
+    // 同一帧被写多遍到当前 socket，MCP 报文重复（重连频繁时必现）。
+    child.stdout?.on('data', (chunk) => {
+      for (const s of sockets) s.write(chunk);
+    });
+
     child.on('exit', (code, signal) => {
       log(`child exited code=${code ?? '?'} signal=${signal ?? '?'}`);
       child = undefined;
@@ -129,9 +135,6 @@ export async function startBridgeHost(
     if (!proc) return;
 
     socket.on('data', (chunk) => proc.stdin?.write(chunk));
-    proc.stdout?.on('data', (chunk) => {
-      for (const s of sockets) s.write(chunk);
-    });
     const drop = (): void => {
       sockets.delete(socket);
       socket.destroy();
