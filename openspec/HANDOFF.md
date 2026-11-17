@@ -1,20 +1,28 @@
 # 交接说明（2026-11-03）
 
-## 换对话先读（2026-11-17：能力契约重构进行到阶段 5/7）
+## 换对话先读（2026-11-17：能力契约重构进行到阶段 6/7）
 
 ### 一句话状态
 
-两条活跃 change：`unify-capability-contract`（阶段 5 / 7 完成，下一步阶段 6）与 `add-legacy-template-cleaning`（全链已跑通，遗留坑待优化）。工作区已改未提交，基线 **89 文件 / 749 测试**。
+两条活跃 change：`unify-capability-contract`（阶段 6 / 7 完成，下一步阶段 7 回归 + 真机）与 `add-legacy-template-cleaning`（全链已跑通，遗留坑待优化）。工作区已改未提交，基线 **90 文件 / 795 测试**。
 
-### 立刻要做的下一步：阶段 6「表驱动一致性测试」
+### 立刻要做的下一步：阶段 7「回归与文档」
 
-**规则**：用例由「能力 × 取值 × 关注面」遍历生成，不手写单个组合；覆盖清单要能打印出来，新增取值缺覆盖即失败。
+1. `npx tsc -p tsconfig.json` + `npx vitest run --no-file-parallelism` 全绿，测试数不少于 795
+2. `npm run sandbox:newuser` 与基线报告 diff 一致
+3. 真机三项：旧稿清洗模板（`roleAnnotation=none`）不写 `@角色` 跑通渲染；官方 1.14 与蛋仔各跑一次同步零变更
+4. CHANGELOG / HANDOFF / spec 同步；归档时把 delta 合入正式 specs（`openspec/specs/capability-contract`、`markdown-v2-contract`）
 
-1. 遍历「能力 × 取值 × 关注面」生成用例：契约 ⟺ 解析、契约 ⟺ 渲染、表 ⟺ 文本（现成的 `capabilityCoverage()`、`parseOptsFor`、`buildMdContract`、`capabilityContractMismatches` 都可直接复用）
-2. 覆盖清单输出：哪个取值被哪条断言覆盖；新增取值缺覆盖时测试失败
-3. 断言：临时新增一个假取值只改枚举 + 表即可通过类型检查与测试；只在枚举加值则 `tsc` 失败
+**真机前先看 4.6 剩余三项**（消费点仍按取值判断，测试显式列为已知未覆盖）：`numberBadge = none` 删簇编号、`readBadges` 的 `badgeSlot === 'none'` 早退（manual 仍照读画布）、`findFigure` 的 `named-group` 名字探测。要收口得先扩 `RenderRule` 字段（改 design + delta spec）。
 
-**阶段 5 已把自检落地**：`checkCapabilityContract(pack)` 在 `render.ts`（解析之后）与 `audit_template_pack` 各接一次，不一致只出 `V2_W_CAPABILITY_CONTRACT_MISMATCH`，不中断。阶段 6 的用例可以把 `ObservedBehavior` 注入当「消费点漏分支」的模拟手段。
+### 阶段 6 已做什么（2026-11-17）
+
+- 新增 `tests/v2/capability-matrix.spec.ts`：44 条遍历用例 + 2 条覆盖清单用例。三面口径：
+  - `parse`：`overview` / `roleAnnotation` 的契约松紧 ⟺ `parseV2` 实际行为
+  - `render`：`EXPECTED_RENDER` 写死「枚举名 → 渲染规则」映射；再断言规则 ⟺ 契约文案 / 禁写清单 / 最小骨架（如 `roleBlocks === 'insert'` ⟺ 骨架里有 `@GUI`）
+  - `text`：每段契约文案逐字出现在 `buildMdContract` 输出
+- `REQUIRED_COVERAGE` 是唯一需要人工维护的清单：枚举与清单双向比对，新增取值漏登记即失败；`coverageIssues` 有「假取值」自证用例。
+- 类型闸门实测：`CAPABILITY_VALUES` 单加值 → `tsc` 报 `TS2741`（`capability-contract.ts` 缺该键）；补表即通过。
 
 ### 阶段 5 已做什么（2026-11-17）
 
@@ -51,8 +59,9 @@
 - **阶段 3**：`md-contract.ts` 的 8 段文案 + 禁写清单改读 `contract.*`；最小骨架判定改读 `render.overviewSlots / roleBlocks`。文本逐字节未变。88 / 744。
 - **阶段 4**：渲染/编译/对账切表（见上表），零行为变化，88 / 744。
 - **阶段 5**：`checkCapabilityContract` 上线并接入 `render.ts` + `audit_template_pack`；修 `hiddenPool.absent` 表值并让 `resetHiddenPool` 读表；新增 5 条自检用例。89 / 749。
+- **阶段 6**：`capability-matrix.spec` 表驱动 44 条 + 覆盖清单 2 条；「枚举加值不补表」的 `tsc` 闸门实测过。90 / 795。
 
-阶段 5 之后：阶段 6 表驱动一致性测试 → 阶段 7 回归 + 真机（旧稿清洗模板不写 `@角色`、官方 1.14、蛋仔各跑一次同步）。
+阶段 6 之后：阶段 7 回归 + 真机（旧稿清洗模板不写 `@角色`、官方 1.14、蛋仔各跑一次同步）→ 归档时把 delta 合入正式 specs。
 
 ### 另一条线：旧稿清洗（`add-legacy-template-cleaning`）
 
@@ -65,7 +74,7 @@
 ### 必读
 
 1. 本节 + 下方 2026-11-16 生命周期诊断（结论仍有效，别再重复排查）
-2. `openspec/changes/unify-capability-contract/{proposal,design,tasks}.md`（D1–D6；tasks 1–5 已勾，4.6 是表缺字段的遗留清单）
+2. `openspec/changes/unify-capability-contract/{proposal,design,tasks}.md`（D1–D6；tasks 1–6 已勾，4.6 是表缺字段的遗留清单）
 3. `openspec/changes/add-legacy-template-cleaning/` 与两份 `docs/pilot/reports/legacy-*.md`
 4. `packages/figma-mcp-server/src/v2/capability-contract.ts`（表本身，就是规格）
 

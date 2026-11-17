@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## 未发布 — 表驱动一致性测试（阶段 6）
+
+- 新增 `tests/v2/capability-matrix.spec.ts`：按「能力 × 取值 × 关注面」遍历生成 44 条用例。
+  - `parse`：契约说可选 ⟺ 解析器接受缺省写法（`overview` / `roleAnnotation`，含 `@角色` 写了只警告）
+  - `render`：枚举名 ⟺ 渲染规则（写死期望映射），且规则 ⟺ 生成的契约文案 / 禁写清单 / 最小骨架
+  - `text`：契约文案非空，且逐字出现在 `buildMdContract` 输出里
+- 覆盖清单 `REQUIRED_COVERAGE` 显式登记每个取值的关注面；与枚举双向比对，新增取值漏登记直接失败（`coverageIssues` 有自证用例）。
+- 机制实测：只给 `CAPABILITY_VALUES` 加值不补表 → `tsc` 报 `TS2741`；补表 + 登记即通过（验证后已回退）。
+- 全量串行 **90 文件 / 795 测试**。
+
 ## 未发布 — 能力契约加载期自检（阶段 5）
 
 - 新增 `checkCapabilityContract(pack)` / `capabilityContractMismatches(caps, observed)`：按表比对「解析闸门 ⟺ 渲染分支 ⟺ 契约文案」，逐项给出能力项、取值、期望、实际；`ObservedBehavior` 可注入实测口径，便于复现消费点漏分支。
