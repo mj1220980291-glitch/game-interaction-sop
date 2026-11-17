@@ -1,19 +1,31 @@
 # 交接说明（2026-11-03）
 
-## 换对话先读（2026-11-17：能力契约重构进行到阶段 6/7）
+## 换对话先读（2026-11-17：能力契约重构进行到阶段 7/7，真机待跑）
 
 ### 一句话状态
 
-两条活跃 change：`unify-capability-contract`（阶段 6 / 7 完成，下一步阶段 7 回归 + 真机）与 `add-legacy-template-cleaning`（全链已跑通，遗留坑待优化）。工作区已改未提交，基线 **90 文件 / 795 测试**。
+两条活跃 change：`unify-capability-contract`（7.1/7.2 完成、7.3 真机阻塞、7.4 归档待做）与 `add-legacy-template-cleaning`（全链已跑通，遗留坑待优化）。工作区已改未提交，基线 **90 文件 / 795 测试**。
 
-### 立刻要做的下一步：阶段 7「回归与文档」
+### 立刻要做的下一步：阶段 7 的真机三项（需用户配合）
 
-1. `npx tsc -p tsconfig.json` + `npx vitest run --no-file-parallelism` 全绿，测试数不少于 795
-2. `npm run sandbox:newuser` 与基线报告 diff 一致
-3. 真机三项：旧稿清洗模板（`roleAnnotation=none`）不写 `@角色` 跑通渲染；官方 1.14 与蛋仔各跑一次同步零变更
-4. CHANGELOG / HANDOFF / spec 同步；归档时把 delta 合入正式 specs（`openspec/specs/capability-contract`、`markdown-v2-contract`）
+阻塞点（两条，缺一不可）：
 
-**真机前先看 4.6 剩余三项**（消费点仍按取值判断，测试显式列为已知未覆盖）：`numberBadge = none` 删簇编号、`readBadges` 的 `badgeSlot === 'none'` 早退（manual 仍照读画布）、`findFigure` 的 `named-group` 名字探测。要收口得先扩 `RenderRule` 字段（改 design + delta spec）。
+1. **必须重启 MCP**：运行中的 worker 不会自动加载新 `dist`（多次实测），不重启跑的还是阶段 3 之前的代码，真机结论无效
+2. **目标未定位**：旧稿清洗 pack 的三个发布 key 只在回执里留了前缀（`e2112768…` / `ad871654…` / `a5231020…`），仓库内无完整值；官方 1.14 / 蛋仔也没有现成的「已渲染文档 + md」对照
+
+跑法（三项顺序无关）：
+
+- 旧稿清洗模板：写入 roleAnnotation=none 的 pack → 用**不带 `@角色`** 的 md 渲染 → 断言 `ok:true` 且无 `V2_C2_ROLE_LINE_MISSING`
+- 官方 1.14：`assets/packs/default.json` → 渲染一次 → 立刻 sync 一次，断言 `changes: []` / `conflicts: []`
+- 蛋仔：`assets/packs/蛋仔派对.json` + `samples/蛋仔派对-局内道具拾取.md` → 同上
+
+完成后：勾 7.3、更新 7.4，跑 `openspec-archive-change` 把 delta 合入正式 specs（新增 `capability-contract`，修改 `markdown-v2-contract`）。
+
+### 阶段 7 已做什么（2026-11-17）
+
+- 全量：`tsc` 通过，90 文件 / 795 测试（起点 88 / 744）
+- 沙盒：`npm run sandbox:newuser` 与基线 `20261112-144031` 断言逐条相同（27/27），报告 `docs/pilot/reports/20261117-165621.{md,json}`
+- CHANGELOG 的阶段 7 条目只记了回归与沙盒，**没有**写真机结论
 
 ### 阶段 6 已做什么（2026-11-17）
 
@@ -50,7 +62,7 @@
 - `readBadges` 的 `badgeSlot === 'none'` 早退 —— `manual` 仍要照读画布（设计师手工摆的标号），`badgeCount` 把 manual/none 合并了
 - `findFigure` 的 `figure === 'named-group'` —— 名字探测（找不到就不认）与 first-non-text 是两条算法，`figureSlots` 只有 consume/drop
 
-补这三项前要先改 design + delta spec（扩 `RenderRule` 字段），不要直接在消费点写回枚举分支后又忘了表。阶段 6 的遍历测试要显式跳过它们（或列为已知未覆盖）。
+补这三项前要先改 design + delta spec（扩 `RenderRule` 字段），不要直接在消费点写回枚举分支后又忘了表。阶段 6 的遍历测试未覆盖这三项（只覆盖表内可表达的判定）。
 
 ### 已完成（新对话不要重做）
 
@@ -60,8 +72,7 @@
 - **阶段 4**：渲染/编译/对账切表（见上表），零行为变化，88 / 744。
 - **阶段 5**：`checkCapabilityContract` 上线并接入 `render.ts` + `audit_template_pack`；修 `hiddenPool.absent` 表值并让 `resetHiddenPool` 读表；新增 5 条自检用例。89 / 749。
 - **阶段 6**：`capability-matrix.spec` 表驱动 44 条 + 覆盖清单 2 条；「枚举加值不补表」的 `tsc` 闸门实测过。90 / 795。
-
-阶段 6 之后：阶段 7 回归 + 真机（旧稿清洗模板不写 `@角色`、官方 1.14、蛋仔各跑一次同步）→ 归档时把 delta 合入正式 specs。
+- **阶段 7（部分）**：全量 90 / 795 全绿；`sandbox:newuser` 与基线 `20261112-144031` 断言逐条相同。真机三项与归档未做。
 
 ### 另一条线：旧稿清洗（`add-legacy-template-cleaning`）
 
@@ -74,7 +85,7 @@
 ### 必读
 
 1. 本节 + 下方 2026-11-16 生命周期诊断（结论仍有效，别再重复排查）
-2. `openspec/changes/unify-capability-contract/{proposal,design,tasks}.md`（D1–D6；tasks 1–6 已勾，4.6 是表缺字段的遗留清单）
+2. `openspec/changes/unify-capability-contract/{proposal,design,tasks}.md`（D1–D6；tasks 1–6 已勾，7.1/7.2 已勾，7.3 真机与 7.4 归档未做，4.6 是表缺字段的遗留清单）
 3. `openspec/changes/add-legacy-template-cleaning/` 与两份 `docs/pilot/reports/legacy-*.md`
 4. `packages/figma-mcp-server/src/v2/capability-contract.ts`（表本身，就是规格）
 

@@ -44,7 +44,8 @@
 
 ## 7. 回归与文档
 
-- [ ] 7.1 `npx tsc -p tsconfig.json` + `npx vitest run --no-file-parallelism` 全绿，测试数不少于基线
-- [ ] 7.2 `npm run sandbox:newuser` 与基线报告 diff 一致
+- [x] 7.1 `npx tsc -p tsconfig.json` + `npx vitest run --no-file-parallelism` 全绿：90 文件 / 795 测试（基线 88 / 744）
+- [x] 7.2 `npm run sandbox:newuser` 与基线报告 diff 一致：`docs/pilot/reports/20261117-165621.{md,json}` vs 基线 `20261112-144031`，8 步全 pass、断言 27 条逐条相同
 - [ ] 7.3 真机：旧稿清洗模板（`roleAnnotation=none`）不写 `@角色` 跑通渲染；官方 1.14 与蛋仔各跑一次同步零变更
-- [ ] 7.4 CHANGELOG / HANDOFF / spec 同步；归档时把 delta 合入正式 specs
+  - 阻塞项：运行中的 worker 不会自动加载新 `dist`，需用户重启 MCP；另需确认两项真机的目标文件/page 与 md（旧稿清洗 pack 的三个发布 key 只在回执里留了前缀 `e2112768…` / `ad871654…` / `a5231020…`，仓库内无完整值）
+- [ ] 7.4 CHANGELOG / HANDOFF / spec 同步；归档时把 delta 合入正式 specs（待 7.3 结论，归档动作不在本节自动做）

@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 未发布 — 阶段 7 回归：全量测试 + 新用户沙盒
+
+- `tsc -p tsconfig.json` 通过；全量串行 **90 文件 / 795 测试**（本 change 起点 88 / 744）。
+- `npm run sandbox:newuser` 与基线 `20261112-144031` 对齐：8 步全 pass，27 条断言逐条相同，报告 `docs/pilot/reports/20261117-165621.{md,json}`。新自检在沙盒的 `pack-resolution` / `contract` 两步里未产生额外告警（表与实现一致）。
+- 真机三项（旧稿清洗模板 `roleAnnotation=none` 渲染、官方 1.14 / 蛋仔同步零变更）未跑：需要重启 MCP 让新 `dist` 生效，且需确认目标文件与 md。
+
 ## 未发布 — 表驱动一致性测试（阶段 6）
 
 - 新增 `tests/v2/capability-matrix.spec.ts`：按「能力 × 取值 × 关注面」遍历生成 44 条用例。
