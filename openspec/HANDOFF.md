@@ -1,38 +1,51 @@
 # 交接说明（2026-11-03）
 
-## 换对话先读（2026-11-17：能力契约重构进行到阶段 3/7）
+## 换对话先读（2026-11-17：能力契约重构进行到阶段 4/7）
 
 ### 一句话状态
 
-两条活跃 change：`unify-capability-contract`（阶段 3 / 7 完成，下一步阶段 4）与 `add-legacy-template-cleaning`（全链已跑通，遗留坑待优化）。工作区干净，已双推，HEAD `9826ef2`。
+两条活跃 change：`unify-capability-contract`（阶段 4 / 7 完成，下一步阶段 5）与 `add-legacy-template-cleaning`（全链已跑通，遗留坑待优化）。工作区已改未提交，基线 **88 文件 / 744 测试**。
 
-### 立刻要做的下一步：阶段 4「渲染/编译/对账切表」
+### 立刻要做的下一步：阶段 5「运行时自检」
 
-**规则**：只把「按能力取值决定是否/如何」的判定换成 `ruleOf(caps, key).render.*`；纯几何算法（网格坐标、等比缩放）**不进表**；一次只改一个文件，改完立刻 `tsc` + 相关用例，再跑全量串行。
+**规则**：`checkCapabilityContract(pack)` 只报不一致、不崩、不改模板；`V2_W_CAPABILITY_CONTRACT_MISMATCH` 带能力项/取值/期望/实际，单条去重。
 
-按文件清单（行号为改前位置，可能漂移）：
+1. `packages/figma-mcp-server/src/v2/capability-contract.ts` 新增 `checkCapabilityContract(pack)`：按表推导允许写法、契约文本与解析闸门
+2. 接入 pack 加载路径与 `audit_template_pack`
+3. 用例：注入一条不一致（模拟漏分支），断言只出警告且渲染继续
 
-| 文件 | 位置 | 现在读什么 → 改成 |
-|---|---|---|
-| `v2/render/parts/index.ts` | ~382 badgeCount（`badgeSlot === 'container'`） | `render.badgeCount === 'clusters'` |
-| 同上 | ~518 `overview === 'none'` 冲突告警 | `render.overviewSlots === 'none'` |
-| 同上 | ~526 `clusterGroups === 'none'` 拒绝 `####` | `render.subgroup === 'reject'` |
-| 同上 | ~609/621 总览渲染分支 | `render.overviewSlots` |
-| 同上 | ~801 `figure === 'none'` 丢弃告警 | `render.figureSlots === 'drop'` |
-| 同上 | ~813-826 role 载体处理 / inline 后缀 | `render.roleBlocks`（insert/suffix/strip） |
-| `v2/render/parts/geometry.ts` | ~293/309 `badgeSlot === 'none' / 'container'` | `render.badgeCount` |
-| `v2/compile/normalize-slots.ts` | ~332 `clusterGroups === 'slot-run'`；~585-590 `figure` | `render.subgroup` / `render.figureSlots` |
-| `v2/compile/slim-parts.ts` | ~69 `overview === 'none'`；~535 `figure === 'none'` | `render.overviewSlots` / `render.figureSlots` |
-| `v2/compile/index.ts` | ~388 `clusterGroups === 'slot-run'` | `render.subgroup` |
-| `v2/reconcile/index.ts` | ~161 `roleAnnotation === 'inline-suffix'` | `render.roleBlocks === 'suffix'` |
+**动手前必须先定 4.6 的表值矛盾**（否则自检会拿错表值误报）：`hiddenPool` 表里写 `absent → keep`，而 `resetHiddenPool` 对 `absent` 也删隐藏节点（`policy === 'reuse'` 才保留），与 spec `template-render`「absent 不存在池子」一致的是**实现**、不是表。要先改表或先改 design，再写自检。
 
-阶段 4 之后：阶段 5 加载期自检（`checkCapabilityContract` + `V2_W_CAPABILITY_CONTRACT_MISMATCH`）→ 阶段 6 表驱动一致性测试 → 阶段 7 回归 + 真机（旧稿清洗模板不写 `@角色`、官方 1.14、蛋仔各跑一次同步）。
+### 阶段 4 已做什么（2026-11-17）
+
+消费点全部改读 `ruleOf/ruleFor(...).render.*`，零行为变化；签名与告警文案保留原值（`badgeSlot = ${badges}` 不变）：
+
+| 文件 | 切了哪些判定 |
+|---|---|
+| `v2/render/parts/index.ts` | `bubbleCount`（badgeCount）、冲突校验（overviewSlots/subgroup）、`fillTop` 两处（overviewSlots）、配图丢弃（figureSlots）、职能载体与行内后缀（roleBlocks）、分组前缀（subgroup） |
+| `v2/render/parts/geometry.ts` | `placeBadges` 是否摆放（badgeCount）、`readBadges` 数量自检口径（badgeCount） |
+| `v2/compile/normalize-slots.ts` | 分组槽缺口（subgroup）、配图槽丢弃（figureSlots） |
+| `v2/compile/slim-parts.ts` | 顶部残留清理（overviewSlots）、簇媒体清理（figureSlots） |
+| `v2/compile/index.ts` | 干跑 run 预检（subgroup） |
+| `v2/reconcile/index.ts` | `inlineRoles`（roleBlocks === 'suffix'） |
+
+**4.6 未切（表里没有对应字段，保留原写法并已加注释）**：
+
+- `numberBadge = none` 删簇编号 —— 表只有 `contract` 段，没有 render 段
+- `readBadges` 的 `badgeSlot === 'none'` 早退 —— `manual` 仍要照读画布（设计师手工摆的标号），`badgeCount` 把 manual/none 合并了
+- `findFigure` 的 `figure === 'named-group'` —— 名字探测（找不到就不认）与 first-non-text 是两条算法，`figureSlots` 只有 consume/drop
+- `resetHiddenPool` —— 见上，表值 `absent → keep` 与实现相反
+
+补这四项前要先改 design + delta spec（扩 `RenderRule` 字段），不要直接在消费点写回枚举分支后又忘了表。
 
 ### 已完成（新对话不要重做）
 
 - **阶段 1**：新增 `packages/figma-mcp-server/src/v2/capability-contract.ts` —— 8 项能力 × 全取值，每项 `parse` / `contract` / `render` 三段规则；表按枚举穷尽（`Record<CapabilityKey, Record<ValueOf<K>, Rule>>`），加值不补表即 `tsc` 报错。6 条 characterization 测试。88 文件 / 743 测试。
 - **阶段 2**：`render.ts` 的 parse 开关改 `parseOptsFor(packCaps ?? DEFAULT_CAPABILITIES)`；修复 `roleAnnotation = none` 强制 `@角色` 的漏判（现在可选，写了给 `V2_W_ROLE_LINE_IGNORED` 软警告）。88 / 744。
 - **阶段 3**：`md-contract.ts` 的 8 段文案 + 禁写清单改读 `contract.*`；最小骨架判定改读 `render.overviewSlots / roleBlocks`。文本逐字节未变。88 / 744。
+- **阶段 4**：渲染/编译/对账切表（见上表），零行为变化，88 / 744。
+
+阶段 4 之后：阶段 5 加载期自检 → 阶段 6 表驱动一致性测试 → 阶段 7 回归 + 真机（旧稿清洗模板不写 `@角色`、官方 1.14、蛋仔各跑一次同步）。
 
 ### 另一条线：旧稿清洗（`add-legacy-template-cleaning`）
 
@@ -45,7 +58,7 @@
 ### 必读
 
 1. 本节 + 下方 2026-11-16 生命周期诊断（结论仍有效，别再重复排查）
-2. `openspec/changes/unify-capability-contract/{proposal,design,tasks}.md`（D1–D6；tasks 1–3 已勾）
+2. `openspec/changes/unify-capability-contract/{proposal,design,tasks}.md`（D1–D6；tasks 1–4 已勾，4.6 是表缺字段的遗留清单）
 3. `openspec/changes/add-legacy-template-cleaning/` 与两份 `docs/pilot/reports/legacy-*.md`
 4. `packages/figma-mcp-server/src/v2/capability-contract.ts`（表本身，就是规格）
 

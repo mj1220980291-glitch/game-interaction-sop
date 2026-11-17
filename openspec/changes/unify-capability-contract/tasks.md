@@ -20,11 +20,13 @@
 
 ## 4. 渲染 / 编译 / 对账切表
 
-- [ ] 4.1 `render/parts/index.ts`：`assertCapabilityConflicts`、总览渲染、figure 丢弃告警、role 载体处理、badgeCount 读 `render.*`
-- [ ] 4.2 `render/parts/geometry.ts`：标号数量与摆放条件读表
-- [ ] 4.3 `compile/normalize-slots.ts`、`slim-parts.ts`、`compile/index.ts`：分组/配图/总览判定读表
-- [ ] 4.4 `reconcile/index.ts`：`inlineRoles` 由 `render.roleBlocks === 'suffix'` 推导
-- [ ] 4.5 纯几何计算（气泡网格、图片等比缩放）保持原样，不塞进表
+- [x] 4.1 `render/parts/index.ts`：`assertCapabilityConflicts`、总览渲染、figure 丢弃告警、role 载体处理、badgeCount 读 `render.*`
+- [x] 4.2 `render/parts/geometry.ts`：标号数量与摆放条件读表（`placeBadges` 的「是否摆放」与 `readBadges` 的自检口径）
+- [x] 4.3 `compile/normalize-slots.ts`、`slim-parts.ts`、`compile/index.ts`：分组/配图/总览判定读表
+- [x] 4.4 `reconcile/index.ts`：`inlineRoles` 由 `render.roleBlocks === 'suffix'` 推导
+- [x] 4.5 纯几何计算（气泡网格、图片等比缩放）保持原样，不塞进表
+- [x] 4.6 记录表缺字段的四处判定（本阶段保留原写法，零行为变化）：`numberBadge = none` 删簇编号（表只有 `contract` 段）、`readBadges` 的 `none` 早退（`manual` 仍照读画布，`badgeCount` 合并了两者）、`findFigure` 的 `named-group` 名字探测（`figureSlots` 只有 consume/drop）；另 `hiddenPool` 表值 `absent → keep` 与 `resetHiddenPool` 的实现（absent 也删隐藏节点）相反，阶段 1 抄表错误。补字段前需先改 design / delta spec
+- [x] 4.7 `tsc` + 全量串行：88 文件 / 744 测试
 
 ## 5. 运行时自检
 

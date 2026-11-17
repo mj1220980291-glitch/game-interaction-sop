@@ -21,6 +21,7 @@ import { bubbleOffset } from '../../render.js';
 import type { TemplateGeometry } from '../../template/schema.js';
 import { clampAnchor, isOutOfRange, isTextAnchor, type BadgeAnchor, type CoordBadgeAnchor } from '../../badge-anchor.js';
 import { resolveTextAnchors, type ImageRect } from '../../badge-resolve.js';
+import { ruleFor } from '../../capability-contract.js';
 
 export const PARTS_GEOMETRY_CODES = {
   BADGE_MASTER_MISSING: 'V2_RENDER_BADGE_MASTER_MISSING'
@@ -120,7 +121,7 @@ export async function placeBadges(
   warnMissing = true
 ): Promise<NodeInfo[]> {
   if (clusterCount === 0) return [];
-  if (badges !== 'container') {
+  if (ruleFor('badgeSlot', badges).render?.badgeCount !== 'clusters') {
     warnings.push({
       code: SOFT_WARNING_CODES.W_BADGE_UNPLACED,
       message: `第 ${chapterIndex} 章：模板不支持图上标号（badgeSlot = ${badges}），标号未摆放`
@@ -290,6 +291,8 @@ export async function readBadges(
   warnings: SoftWarning[],
   badgeSlot?: 'container' | 'manual' | 'none'
 ): Promise<NodeInfo[]> {
+  // `none` = 模板没有图上标号：空清单且不告警。`manual` 仍照读画布（设计师手工摆的也在里面），
+  // 能力表的 badgeCount 把两者合并，暂保留按取值判断（tasks 4.6）。
   if (badgeSlot === 'none') return [];
   // 清单是"附加对账"，读不到不该让整轮同步失败（老后端 / 精简 fake 没有 scanSubtree）。
   let containerId: string | undefined;
@@ -306,7 +309,7 @@ export async function readBadges(
     .sort((a, b) => badgeOrdinal(a.name) - badgeOrdinal(b.name));
   // 一个都没有：可能是模板本来就没有图上标号（manual / 老模板）。不冒险告警。
   if (frames.length === 0) {
-    if (badgeSlot === 'container' && expectedCount > 0) {
+    if (badgeSlot && ruleFor('badgeSlot', badgeSlot).render?.badgeCount === 'clusters' && expectedCount > 0) {
       warnings.push({
         code: SOFT_WARNING_CODES.W_BADGE_COUNT_MISMATCH,
         message: `第 ${chapterIndex} 章（章节 ${chapterId}）标号自检失败：模板声明 badgeSlot=container，但容器里一个标号都没有（应有 ${expectedCount} 个）`,

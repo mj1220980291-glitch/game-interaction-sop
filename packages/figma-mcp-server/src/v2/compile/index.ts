@@ -34,6 +34,7 @@ import { captureDocSpacing, captureGeometry, captureGeometryFromKeys, readGeomet
 import type { TemplateGeometry } from '../template/schema.js';
 import { COMPILE_CODES, compileError } from './errors.js';
 import { describeBridgeSnapshot } from '../../server/bridgeState.js';
+import { ruleFor } from '../capability-contract.js';
 
 export interface CompileInput {
   phase: 'compile' | 'verify' | 'contract';
@@ -385,7 +386,7 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   }
 
   if (!input.write) {
-    if (staged.cluster && source.clusterGroups === 'slot-run') {
+    if (staged.cluster && ruleFor('clusterGroups', source.clusterGroups).render?.subgroup === 'allow') {
       checks = [
         ...checks,
         await sourceRunCheck(backend, staged.cluster, source.clusterGroups)

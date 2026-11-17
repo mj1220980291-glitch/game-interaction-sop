@@ -39,6 +39,7 @@ import { SCRATCH_ROOT_NAME, type DocStamp } from './stamp.js';
 import type { TemplateRef } from '../template-config.js';
 import type { TemplatePack } from '../template/schema.js';
 import { Tree } from './tree.js';
+import { ruleFor } from '../capability-contract.js';
 
 export type { ReconcileChange, ReconcileConflict, ReconcilePreserved } from './plan.js';
 
@@ -158,7 +159,9 @@ export async function reconcileV2(
     assetMap: input.assetMap,
     // `inline-suffix` 模板把职能拼在正文句尾：计划侧必须按同一份文本比对，
     // 否则每次同步都以为条目被改过，来回重写。
-    inlineRoles: partsPack?.capabilities.roleAnnotation === 'inline-suffix',
+    inlineRoles: partsPack
+      ? ruleFor('roleAnnotation', partsPack.capabilities.roleAnnotation).render?.roleBlocks === 'suffix'
+      : false,
     canCreate
   });
   if (!planned.ok) return fail(planned.code, planned.message, parseWarnings);

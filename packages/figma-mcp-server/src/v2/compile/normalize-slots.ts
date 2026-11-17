@@ -41,6 +41,7 @@ import {
 import type { Capabilities } from '../template/schema.js';
 import { COMPILE_CODES, compileError, type CompileGap } from './errors.js';
 import { trace } from './trace.js';
+import { ruleFor } from '../capability-contract.js';
 
 export interface SlotRename {
   part: PartName;
@@ -329,7 +330,7 @@ async function normalizeCluster(
     (t) => t.name.startsWith(CLUSTER_SLOTS.groupSlot) && t.name !== CLUSTER_SLOTS.title
   );
   for (const slot of groupSlots) await rename('cluster', slot, CLUSTER_SLOTS.groupSlot);
-  if (caps.clusterGroups === 'slot-run' && groupSlots.length === 0) {
+  if (ruleFor('clusterGroups', caps.clusterGroups).render?.subgroup === 'allow' && groupSlots.length === 0) {
     gap({
       what: '模板按 slot-run 处理分组，但簇部件里没有 `#Title` 分组槽位',
       impact: 'md 的 `####` 分组无处承载，渲染会拒绝',
@@ -582,9 +583,11 @@ function findFigure(
   figure: Capabilities['figure'],
   numberCarrier: ProbeNode | undefined
 ): ProbeNode | undefined {
-  if (figure === 'none') return undefined;
+  if (ruleFor('figure', figure).render?.figureSlots === 'drop') return undefined;
   const excluded = subtreeIds([numberCarrier]);
 
+  // 探测策略仍按取值区分：`named-group` 只认名字（找不到就不认），`first-non-text` 认第一个够大的非文本节点。
+  // 能力表只有 consume / drop，表达不了这两条算法，暂保留（tasks 4.6）。
   if (figure === 'named-group') {
     let named: ProbeNode | undefined;
     walkStructured(root, (n) => {

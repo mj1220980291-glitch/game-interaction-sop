@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## 未发布 — 渲染/编译/对账切表（阶段 4：行为不变的重构）
+
+- 消费点改读能力表：`render/parts/index.ts`（`bubbleCount` / 冲突校验 / 总览填充 / 配图丢弃告警 / 职能载体 / 行内后缀与分组前缀）、`render/parts/geometry.ts`（标号摆放与自检口径）、`compile/normalize-slots.ts`（分组槽缺口、配图槽丢弃）、`compile/slim-parts.ts`（顶部残留清理、簇媒体清理）、`compile/index.ts`（干跑 run 预检）、`reconcile/index.ts`（`inlineRoles`）。
+- 只换判定来源，不改行为：保留原入参（告警文案里的 `badgeSlot = …` 不变）、不改签名对外形状；标号网格、等比缩放等纯几何计算未进表。
+- 四处「表里没有对应字段」的判定保留原写法并记入 tasks 4.6：`numberBadge = none` 删簇编号、`readBadges` 的 `none`（`manual` 仍照读画布）、`findFigure` 的 `named-group` 名字探测、`resetHiddenPool`（表值 `absent → keep` 与实现相反）。
+- 回归：`tsc` 通过；全量串行 **88 文件 / 744 测试**。未碰 Figma、未改模板包。
+
 ## 未发布 — 契约文案切表（阶段 3：输出不变的重构）
 
 - `md-contract.ts` 的 8 段文案（总览/分组/职能/配图/标号/编号/列布局/禁写清单）改为从 `capability-contract` 读取，删掉手写三元分支；槽位实测与能力值冲突时回落兜底文案（`BADGE_MISSING_FORBID`）。

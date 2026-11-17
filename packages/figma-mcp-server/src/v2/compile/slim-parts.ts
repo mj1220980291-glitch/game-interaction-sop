@@ -22,6 +22,7 @@ import type { Capabilities } from '../template/schema.js';
 import { firstCompleteRun, runMemberIds, splitRuns, type SlotRun } from '../template/runs.js';
 import { COMPILE_CODES, compileError, type CompileGap } from './errors.js';
 import { trace } from './trace.js';
+import { ruleFor } from '../capability-contract.js';
 
 const SCAN_BUDGET = 20000;
 
@@ -66,7 +67,11 @@ export async function slimParts(input: SlimInput): Promise<SlimResult> {
         input.capabilities?.clusterGroups ?? 'slot-run',
         gaps
       );
-    } else if (part === 'top' && input.capabilities?.overview === 'none') {
+    } else if (
+      part === 'top' &&
+      input.capabilities &&
+      ruleFor('overview', input.capabilities.overview).render?.overviewSlots === 'none'
+    ) {
       cleared += await slimTop(backend, nodeId);
     }
     cleared += await placeholderSlotTexts(backend, nodeId);
@@ -532,7 +537,7 @@ async function slimClusterMedia(
     return true;
   });
 
-  if (figure === 'none') {
+  if (ruleFor('figure', figure).render?.figureSlots === 'drop') {
     return deleteAll(backend, outermost.map((n) => n.id));
   }
 

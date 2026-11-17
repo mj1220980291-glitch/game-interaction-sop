@@ -51,6 +51,7 @@ import {
 import { placeBadges, refreshChapterGeometry } from './geometry.js';
 import type { TemplateGeometry } from '../../template/schema.js';
 import { pickAnchors, type BadgeAnchorMap } from '../../badge-anchor.js';
+import { ruleFor, ruleOf, type RenderRule } from '../../capability-contract.js';
 
 export const PARTS_RENDER_CODES = {
   LAYOUT_UNSUPPORTED: 'V2_RENDER_LAYOUT_UNSUPPORTED',
@@ -379,7 +380,7 @@ export async function renderFromParts(input: PartsRenderInput): Promise<PartsRen
     summary: {
       sectionCount: ir.sections.length,
       clusterCount: ir.sections.reduce((n, s) => n + s.clusters.length, 0),
-      bubbleCount: caps.badgeSlot === 'container' ? ir.sections.reduce((n, s) => n + s.clusters.length, 0) : 0,
+      bubbleCount: ruleOf(caps, 'badgeSlot').render?.badgeCount === 'clusters' ? ir.sections.reduce((n, s) => n + s.clusters.length, 0) : 0,
       imagesPlaced,
       placeholdersUsed,
       figuresPlaced: figures.placed,
@@ -515,7 +516,7 @@ function assertCapabilityConflicts(
   const caps = pack.capabilities;
   const hasOverview =
     ir.overview.background.trim() !== '' || ir.overview.coreInteraction.trim() !== '';
-  if (caps.overview === 'none' && hasOverview) {
+  if (ruleOf(caps, 'overview').render?.overviewSlots === 'none' && hasOverview) {
     // md 语法强制要求写总览（parser 会拦），模板又没总览区：省略并告警，
     // 不能因为这条把整份文档拒掉。
     warnings.push({
@@ -523,7 +524,7 @@ function assertCapabilityConflicts(
       message: '这份模板没有总览区（overview = none），md 的总览内容未写入画布'
     });
   }
-  if (caps.clusterGroups === 'none') {
+  if (ruleOf(caps, 'clusterGroups').render?.subgroup === 'reject') {
     for (const section of ir.sections) {
       for (const cluster of section.clusters) {
         if (cluster.groups.some((g) => g.title !== null)) {
@@ -572,6 +573,7 @@ async function fillTop(
   overview: TemplatePack['capabilities']['overview'],
   warnings: SoftWarning[]
 ): Promise<void> {
+  const overviewSlots = ruleFor('overview', overview).render?.overviewSlots;
   const named = await indexCloneByName(backend, top.id, [
     TOP_SLOTS.docTitle,
     TOP_SLOTS.owner,
@@ -606,7 +608,7 @@ async function fillTop(
     });
   }
 
-  if (overview === 'none') return;
+  if (overviewSlots === 'none') return;
 
   const background = named[TOP_SLOTS.overviewBackground];
   const core = named[TOP_SLOTS.overviewCore];
@@ -618,7 +620,7 @@ async function fillTop(
     return;
   }
   if (background) await fillBlockText(backend, background, ir.overview.background);
-  if (overview === 'single-block') {
+  if (overviewSlots === 'one') {
     if (core && backend.setNodeVisible) await backend.setNodeVisible(core.id, false);
     return;
   }
@@ -798,33 +800,35 @@ async function fillChapter(
   for (let i = 0; i < section.clusters.length; i += 1) {
     const cluster = section.clusters[i];
     if (!cluster) continue;
-    if (ctx.caps.figure === 'none' && cluster.bullets.some(isFigureSlotBullet)) {
+    if (ruleOf(ctx.caps, 'figure').render?.figureSlots === 'drop' && cluster.bullets.some(isFigureSlotBullet)) {
       ctx.warnings.push({
         code: SOFT_WARNING_CODES.W_FIGURE_DROPPED,
         message: `第 ${section.index} 章：模板没有配图槽（figure = none），「${cluster.title}」的配图被丢弃`
       });
     }
     await stage(`chapter.cluster${i + 1}`, async () => {
+      const roleBlocks = ruleOf(ctx.caps, 'roleAnnotation').render?.roleBlocks;
       const node = await instantiate(b, ctx.clusterKey, cluster.title, ctx.pageId);
       await b.reparentNode({ nodeId: node.id, newParentId: host.id });
       await resetHiddenPool(backend, node, ctx.caps.hiddenPool, ctx.warnings);
       // 职能/编号的写法差异：不是组件变体 / 不显示编号时，簇里的载体没有意义，
       // 留着只会把原稿角色一起带进产物。
-      if (ctx.caps.roleAnnotation === 'component-variant') {
+      if (roleBlocks === 'insert') {
         // 组件变体：职能由「职能标记」实例承载，簇里的编辑器残留要先按 md 取舍，
         // 否则母版预置的三行会全部显示（真机 2026-11-16：燕云每簇多两行、同步 9 条 conflicts）。
         await syncRoleCarriers(backend, node, cluster, ctx.roleBlocks, ctx.warnings);
       } else {
         await deleteMatching(b, node.id, (n) => isRoleFrameNode(n));
       }
+      // numberBadge 在能力表里只有契约文案、没有 render 段，暂保留按取值判断（tasks 4.6）。
       if (ctx.caps.numberBadge === 'none') {
         await deleteMatching(b, node.id, (n) => n.name === CLUSTER_SLOTS.number);
       }
       // `inline-suffix`：职能拼在正文句尾（蛋仔这类模板没有职能位），拼装与同步
       // 共用 `withInlineRoleSuffix`，否则每次同步都会以为条目被改过。
       const effective = inlineSubtitles(
-        ctx.caps.roleAnnotation === 'inline-suffix' ? withInlineRoleSuffix(cluster) : cluster,
-        ctx.caps.clusterGroups
+        roleBlocks === 'suffix' ? withInlineRoleSuffix(cluster) : cluster,
+        ruleOf(ctx.caps, 'clusterGroups').render?.subgroup
       );
       const seedId = await findNamed(backend, node.id, CLUSTER_SLOTS.figure);
       const nestedSeed = seedId !== undefined && (await backend.getNodeInfo(seedId)).parentId !== node.id;
@@ -1141,9 +1145,9 @@ async function syncRoleCarriers(
 
 /** `inline-subtitle`：`####` 不占槽位，作为该组首行的前缀写入。 */function inlineSubtitles(
   cluster: SemanticCluster,
-  mode: TemplatePack['capabilities']['clusterGroups']
+  subgroup: RenderRule['subgroup'] | undefined
 ): SemanticCluster {
-  if (mode !== 'inline-subtitle') return cluster;
+  if (subgroup !== 'inline') return cluster;
   const bullets: string[] = [];
   for (const group of cluster.groups) {
     const title = group.title;
