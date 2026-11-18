@@ -46,9 +46,9 @@
 
 - [x] 7.1 `npx tsc -p tsconfig.json` + `npx vitest run --no-file-parallelism` 全绿：90 文件 / 795 测试（基线 88 / 744）
 - [x] 7.2 `npm run sandbox:newuser` 与基线报告 diff 一致：`docs/pilot/reports/20261117-165621.{md,json}` vs 基线 `20261112-144031`，8 步全 pass、断言 27 条逐条相同
-- [ ] 7.3 真机：旧稿清洗模板（`roleAnnotation=none`）不写 `@角色` 跑通渲染；官方 1.14 与蛋仔各跑一次同步零变更
+- [x] 7.3 真机：旧稿清洗模板（`roleAnnotation=none`）不写 `@角色` 跑通渲染；官方 1.14 与蛋仔各跑一次同步零变更
   - ✅ 旧稿清洗：从库页 `206:49735` 找回三个发布 key（top `e2112768…`、chapter `ad871654…`、cluster `a5231020…`）+ `~/.game-interaction-sop/templates/燕云旧稿清洗20261116.geometry.json` 组装 pack（`roleAnnotation=none`）；不带 `@角色` 的 md 渲染 `ok:true`（root `194:2941`），无 `V2_C2_ROLE_LINE_MISSING`；同步 `changes: []` / `conflicts: []`
   - ✅ 官方 1.14：`assets/packs/default.json` 渲染 root `194:803`，同步 `changes: []` / `conflicts: []`
   - ✅ 蛋仔：先报 `V2_TEMPLATE_STRUCTURE_INVALID`「嵌套正文/规则必须共享唯一宿主」（既有缺陷，`2b8c087` 引入）。已修：渲染端在「不需要克隆、无内联图/职能条目」时就地顺序填充；`figure=none` 时先在 parts 层摘掉 `配图：` 条目。复测 root `195:3385` 渲染 `ok:true`，同步 `changes: []` / `conflicts: []`（`底部留白` 按 foreign preserved）。编译端新增 `bulletHostGap`：单块模式下正文分宿主记 gap，不再一路绿灯到渲染
   - 环境：真机跑通依赖 `GISOP_BRIDGE_HOST=1`（常驻桥），否则每次调用换 supervisor 导致插件重连窗口内探活失败；本轮已顺手修 `bridgeHost` 的 stdout 监听累积（`5f689c6`）
-- [ ] 7.4 CHANGELOG / HANDOFF / spec 同步；归档时把 delta 合入正式 specs（待 7.3 结论，归档动作不在本节自动做）
+- [x] 7.4 CHANGELOG / HANDOFF / spec 同步：`openspec/specs/capability-contract/spec.md` 新建，`markdown-v2-contract` 的总览/角色行要求改由能力推导；归档到 `openspec/changes/archive/2026-11-18-unify-capability-contract/`

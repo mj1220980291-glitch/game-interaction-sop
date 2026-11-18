@@ -10,7 +10,7 @@
  *   2. 消费点禁止再写 `caps.xxx === 'yyy'` 分支；
  *   3. 纯几何计算（网格坐标、等比缩放）不属于契约，留在原处。
  *
- * 迁移顺序见 openspec/changes/unify-capability-contract/tasks.md：
+ * 迁移顺序见 openspec/changes/archive/2026-11-18-unify-capability-contract/tasks.md：
  * 阶段 1 只把现状等价抄进表，不改任何行为。
  */
 

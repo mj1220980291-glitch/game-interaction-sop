@@ -3,7 +3,7 @@
  *
  * 注入方式：直接在表上抹掉一段契约文案，模拟「某个消费点没跟上表」。
  *
- * Spec: openspec/changes/unify-capability-contract/specs/capability-contract/spec.md
+ * Spec: openspec/specs/capability-contract/spec.md
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';

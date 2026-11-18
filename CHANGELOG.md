@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## 未发布 — 能力契约 change 归档
+
+- `unify-capability-contract` 阶段 1–7 完成并归档：`openspec/changes/archive/2026-11-18-unify-capability-contract/`。
+- delta 合入正式 specs：新建 `openspec/specs/capability-contract/spec.md`（表、解析闸门、契约文本、加载期自检、表驱动覆盖 5 条）；`markdown-v2-contract` 的总览与角色行要求改为「由模板能力推导」，并补 `roleAnnotation=none` 的两个场景。
+- 归档前 7.3 真机三项全绿（旧稿清洗 `roleAnnotation=none`、官方 1.14、蛋仔），细节见 HANDOFF。
+- 全量串行 **90 文件 / 800 测试**。
+
 ## 未发布 — 修复「正文跨多个宿主」：蛋仔恢复渲染
 
 - 根因：蛋仔簇组件的 `正文/规则` 共 10 个，6 个在主框 `Frame 808`、4 个在嵌套组 `Group 427319363`。编译只改名不拍平，`verifyCompiledCluster` 也不查宿主；渲染在 0.4.11 加了「单宿主」硬约束，于是模板一路绿灯到渲染才炸。

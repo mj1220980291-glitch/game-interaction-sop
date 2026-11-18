@@ -1,16 +1,16 @@
 # 交接说明（2026-11-03）
 
-## 换对话先读（2026-11-17：能力契约 7.1–7.3 已跑，7.4 归档待做）
+## 换对话先读（2026-11-18：能力契约 change 已归档）
 
 ### 一句话状态
 
-`unify-capability-contract` 阶段 1–6 完成、7.1/7.2 完成、7.3 旧稿清洗与官方 1.14 通过、蛋仔撞**既有**结构缺陷、7.4 归档未做。工作区已改未提交，基线 **90 文件 / 795 测试**。
+`unify-capability-contract` 阶段 1–7 全部完成并归档到 `openspec/changes/archive/2026-11-18-unify-capability-contract/`；delta 已合入正式 specs（新建 `openspec/specs/capability-contract/spec.md`，`markdown-v2-contract` 的总览/角色行要求改为由能力推导）。基线 **90 文件 / 800 测试**。
 
 ### 立刻要做的下一步
 
-1. **归档**：跑 `openspec-archive-change`，把 delta 合入正式 specs（新增 `capability-contract`，修改 `markdown-v2-contract`），同步 CHANGELOG / HANDOFF
-2. 4.6 剩余三项（`numberBadge` 删编号、`readBadges` 的 manual、`findFigure` 探测策略）仍按取值判断，收口要先扩 `RenderRule` + 改 design
-3. 可选：修复蛋仔模板结构（4 条正文在 `Group 427319363` 里）——现在的引擎已能就地填，但条目多于槽位或带内联配图时仍会拒绝；拍平后这类限制消失
+1. 4.6 剩余三项（`numberBadge` 删编号、`readBadges` 的 manual、`findFigure` 探测策略）仍按取值判断，收口要先扩 `RenderRule` + 改 spec
+2. 可选：把蛋仔模板那 4 条嵌套正文拍平（挪到 `Frame 808` 同级）——现在引擎能兜住多宿主，但「条目多于槽位 / 带内联配图」时仍会拒绝
+3. 其他活跃 change（`add-legacy-template-cleaning` 等）按各自 tasks 继续
 
 ### 阶段 7 真机结果（2026-11-18 复测完成）
 
@@ -85,7 +85,7 @@
 ### 必读
 
 1. 本节 + 下方 2026-11-16 生命周期诊断（结论仍有效，别再重复排查）
-2. `openspec/changes/unify-capability-contract/{proposal,design,tasks}.md`（D1–D6；tasks 1–6 已勾，7.1/7.2 已勾，7.3 真机与 7.4 归档未做，4.6 是表缺字段的遗留清单）
+2. `openspec/specs/capability-contract/spec.md`（表的正式规范）＋ `openspec/changes/archive/2026-11-18-unify-capability-contract/`（迁移过程：D1–D6、tasks 1–7 全勾、4.6 是表缺字段的遗留清单）
 3. `openspec/changes/add-legacy-template-cleaning/` 与两份 `docs/pilot/reports/legacy-*.md`
 4. `packages/figma-mcp-server/src/v2/capability-contract.ts`（表本身，就是规格）
 
@@ -132,7 +132,7 @@
 - **真机已通过（8.23）**：重启 MCP 后新构建生效（supervisor 32572 / worker 19624，`worker-lifecycle.log` 首条即 boot `probe failed`，插件 10–20s 后重连）。两文件重开插件后一次 `phase=verify`（`write:false`）全过：四原子真实 import、geometry、spacing，gaps/diffs 空，宿主 cost **3.72s**。插件上报版本仍是 1.39.0（磁盘 code.js 已是 1.41.5，Figma 侧加载缓存），另查。
 - **pack / 渲染 / 同步已留证（8.9e 部分）**：pack 在 `f:\vibecoding\game-interaction-sop\.interaction-sop\template.json`（origin=cwd，deep 4 key ok，roleBlock 三角色）；渲染 root `182:625`（2 章 3 簇、图 1 + 占位 1）；同步两次 `changes: []`；改单条正文只 1 处 update。
 - **职能行问题已闭环（8.24–8.26）**：新建 `187:2759` 视觉只留标注角色（01/1 只 GUI、01/2 无、02/1 程序+拼接）；同步两次均 `changes: []` 且 `conflicts: []`；改单条正文只 1 处 update、冲突 0；两章 状态说明按 foreign 保留。修复点在 `render/parts/index.ts` 的 `syncRoleCarriers`（D10）+ `reconcile/plan.ts`（parts 且 md 无职能子弹时把 role 条目剔出序列）。
-- **根因改造已立项 `unify-capability-contract`**：8 项能力在 10 个文件、约 36 处 `=== 'x'` 分支各自解释，导致「契约这么写、引擎不接受」（`roleAnnotation=none` 撞上强制 `@角色`）。方案：单表 `capability-contract.ts` + 穷尽类型 + 表驱动一致性测试 + pack 加载自检（`V2_W_CAPABILITY_CONTRACT_MISMATCH`）。任务 1–7，见 `openspec/changes/unify-capability-contract/`。**P0 优先做这一项，再回 cleaning 的坑。**
+- **根因改造 `unify-capability-contract`（已归档 2026-11-18）**：8 项能力原先在 10 个文件、约 36 处 `=== 'x'` 分支各自解释，导致「契约这么写、引擎不接受」（`roleAnnotation=none` 撞上强制 `@角色`）。改造后：单表 `capability-contract.ts` + 穷尽类型 + 表驱动一致性测试 + pack 加载自检（`V2_W_CAPABILITY_CONTRACT_MISMATCH`）。规范见 `openspec/specs/capability-contract/spec.md`。
 - **旧稿清洗路径已首次跑通（`add-legacy-template-cleaning` 6.x）**：清洗副本 `205:42223` → 编译出 top `207:49788` / chapter `207:49798` / cluster `207:49809`（最小 top + 章节结构对齐 + 借用燕云气泡 `188:38122`）→ 人工发布 → `verify(write:false)` 通过 → pack deep 3/3 ok → 渲染 `191:289` 2 章 3 簇 → 同步两次 `changes/conflicts` 均空 → 改单条只 `02/1/#1`。回执 `docs/pilot/reports/legacy-clean-receipt-20261116.md`。
 - **下一步（仍未做的坑，按优先级）**：① 契约矛盾：`mdContract` 说「不写 @职能」但解析器要求每簇 `@角色`（`V2_C2_ROLE_LINE_MISSING`）；② 旧稿→四部件显式拆分 + 头部 5 槽新建 + 编号从实例里取；③ 标号容器按旧稿生成（当前借燕云导致标号落主图区）；④ 章节外层留白与结尾块；⑤ 7.x 回归与文档。以上都属「后续统一优化」，不改今天的验收结论。
 - 另：宿主在空闲后会整轮重启 MCP（今日多次：10:54 / 14:50 / 16:32 / 16:49 / 16:54 / 16:55），冷启动窗口内首次 Figma 调用会被 `V2_BRIDGE_DOWN` 挡住；lifecycle 文件已记录每次启动，重试前先 `figma_get_status(probe:true)` 确认桥通即可。

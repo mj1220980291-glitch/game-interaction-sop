@@ -4,7 +4,7 @@
  * 阶段 1 只锁现状（不行为变化）；`roleAnnotation=none` 的已知矛盾在此显式记录，
  * 阶段 2 修表并翻转该断言。
  *
- * Spec: openspec/changes/unify-capability-contract/specs/capability-contract/spec.md
+ * Spec: openspec/specs/capability-contract/spec.md
  */
 
 import { describe, it, expect } from 'vitest';

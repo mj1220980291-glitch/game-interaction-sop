@@ -9,7 +9,7 @@
  * 新增能力取值必须在本文件 `REQUIRED_COVERAGE` 登记关注面，否则覆盖测试失败；
  * 只在枚举加值而不补表则 `tsc` 失败（阶段 1 的穷尽 `RuleTable` 类型）。
  *
- * Spec: openspec/changes/unify-capability-contract/specs/capability-contract/spec.md
+ * Spec: openspec/specs/capability-contract/spec.md
  */
 
 import { describe, it, expect } from 'vitest';

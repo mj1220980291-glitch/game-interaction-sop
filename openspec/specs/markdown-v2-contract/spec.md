@@ -35,11 +35,11 @@ v2 Markdown 文档 SHALL 在 `# [需求名称]` H1 与第一个 H2 之间，按�
 
 ### Requirement: 设计总览段必须存在且仅含两个固定子段
 
-文档 SHALL 包含恰好一个 `## 设计总览` 段；其下 SHALL 仅包含两个 H3 子段，按顺序为 `### 功能背景` 与 `### 核心交互`，缺一不可，多一不允。
+当模板 `overview = two-frames` 时，文档 SHALL 包含恰好一个 `## 设计总览` 段；其下 SHALL 仅包含两个 H3 子段，按顺序为 `### 功能背景` 与 `### 核心交互`，缺一不可，多一不允。`single-block` 时只要求一段（引擎只填一栏）；`none` 时该段 SHALL 可选（契约不要求写，写了也只给软警告）。
 
 #### Scenario: 设计总览缺失或子段错误
 
-- **WHEN** 文档没有 `## 设计总览` 或其子段不是 `背景 + 交互`
+- **WHEN** 模板 `overview = two-frames`，文档没有 `## 设计总览` 或其子段不是 `背景 + 交互`
 - **THEN** parser SHALL 报 `O1_OVERVIEW_MISSING` 或 `O2_OVERVIEW_SUBSECTIONS_INVALID`
 
 ### Requirement: 章节序号连续从 01 开始
@@ -53,7 +53,7 @@ v2 Markdown 文档 SHALL 在 `# [需求名称]` H1 与第一个 H2 之间，按�
 
 ### Requirement: 每个章节至少包含一个语义簇且每个簇带角色行
 
-每个 `## NN.` SHALL 至少包含一个 H3 `### [簇名]`；除"设计总览"两个固定子段外，每个 H3 簇 SHALL 在其下一行包含 `@角色1 @角色2 …` 行（至少 1 个 `@角色`，空格分隔）。
+每个 `## NN.` SHALL 至少包含一个 H3 `### [簇名]`；除"设计总览"两个固定子段外，当模板 `roleAnnotation` 为 `component-variant` 时，每个 H3 簇 SHALL 在其下一行包含 `@角色1 @角色2 …` 行（至少 1 个 `@角色`，空格分隔）。取值为 `inline-suffix` 或 `none` 时该行 SHALL 可选（见「解析期硬校验 SHALL 由模板能力决定」）。
 
 #### Scenario: 章节无簇
 
@@ -62,8 +62,37 @@ v2 Markdown 文档 SHALL 在 `# [需求名称]` H1 与第一个 H2 之间，按�
 
 #### Scenario: 簇缺角色行
 
-- **WHEN** `### 入口规则` 下一行不是 `@xxx` 而是空行 + bullets
+- **WHEN** 模板 `roleAnnotation = component-variant`，且 `### 入口规则` 下一行不是 `@xxx` 而是空行 + bullets
 - **THEN** parser SHALL 报 `C2_ROLE_LINE_MISSING`
+
+### Requirement: 解析期硬校验 SHALL 由模板能力决定
+
+`parseV2` 的总览要求、角色行要求、簇内分组与配图条目限制 SHALL 由模板能力推导，SHALL NOT 硬编码单一模板形状（官方 1.14 的两段总览 + 簇首行角色）。当 `roleAnnotation` 为 `inline-suffix` 或 `none` 时，SHALL NOT 要求簇首行 `@角色`；当 `overview` 为 `single-block` 或 `none` 时，SHALL NOT 要求两段总览。允许写法、契约文案与渲染行为 SHALL 统一取自 `capability-contract`（见 capability-contract 规范）。
+
+#### Scenario: 无总览区模板
+
+- **WHEN** 模板 `overview = none`，md 未写 `## 设计总览`
+- **THEN** 解析 SHALL 成功
+
+#### Scenario: 单块总览模板
+
+- **WHEN** 模板 `overview = single-block`，md 只写一段总览
+- **THEN** 解析 SHALL 成功，SHALL NOT 因缺少第二段报错
+
+#### Scenario: roleAnnotation=none 不写角色行
+
+- **WHEN** 模板 `roleAnnotation = none`，md 的簇首行直接是条目
+- **THEN** 解析 SHALL 成功，SHALL NOT 报 `V2_C2_ROLE_LINE_MISSING`
+
+#### Scenario: roleAnnotation=none 写了角色行
+
+- **WHEN** 模板 `roleAnnotation = none`，md 仍然写了 `@角色` 行
+- **THEN** 解析 SHALL 继续，SHALL 只产出软警告 `V2_W_ROLE_LINE_IGNORED`
+
+#### Scenario: component-variant 缺角色行
+
+- **WHEN** 模板 `roleAnnotation = component-variant`，簇首行不是 `@角色`
+- **THEN** 解析 SHALL 报 `V2_C2_ROLE_LINE_MISSING`
 
 ### Requirement: 簇支持子分类小标题（####）
 
