@@ -17,6 +17,8 @@
 - 前提：`GISOP_BRIDGE_HOST=1`（已写入 `~/.codemaker/mcps.json` 的引擎条目 env，备份 `mcps.json.bak-2026-11-17T14-15-12-510Z`）。不开这个开关，宿主每次调用换 supervisor → 新桥等不到插件回连 → `V2_BRIDGE_DOWN`，与代码无关
 - 旧稿清洗 `roleAnnotation=none`：pack 由库页 `206:49735` 的三个发布 key（top `e2112768…`、chapter `ad871654…`、cluster `a5231020…`）+ `~/.game-interaction-sop/templates/燕云旧稿清洗20261116.geometry.json` 组装，存 `.interaction-sop/template.旧稿清洗.json`。不带 `@角色` 的 md 渲染 `ok:true`（root `194:2941`）→ 同步 `changes: []` / `conflicts: []`
 - 官方 1.14：root `194:803` → 同步 `changes: []` / `conflicts: []`
+- 燕云（`.interaction-sop/template.json`，2026-11-18 补测）：root `200:3933` 渲染 `ok:true`（职能解析到 3 个变体 GUI/程序/拼接）→ 同步 `changes: []` / `conflicts: []`（`状态说明` 按 foreign preserved）
+- 环境坑：跨文件 `importComponentByKeyAsync` 会整段卡住（连昨天导入过的旧稿 key 也卡），表现为渲染/`audit_template_pack(deep)` 超时且画布无残留；库文件内部导入 0–3ms。重新发布/等待库同步后恢复，与本仓库代码无关
 - 蛋仔：2026-11-17 首次复测报 `V2_TEMPLATE_STRUCTURE_INVALID`（正文分两个宿主：`Frame 808` × 6 + `Group 427319363` × 4）。已修 —— 渲染端在不需要克隆、无内联图/职能条目时就地顺序填；`figure=none` 时 parts 层先摘 `配图：` 条目；编译端新增 `bulletHostGap` 提前记账。2026-11-18 复测 root `195:3385` 渲染 `ok:true` + 同步 `changes: []` / `conflicts: []`
 - 两次真机都是同一 worker（`63308` / `3944`），`pluginConnected: true`
 - `.interaction-sop/template.json` 已还原为燕云 pack
