@@ -8,17 +8,17 @@
 
 ### 立刻要做的下一步
 
-1. **蛋仔另案修**：`V2_TEMPLATE_STRUCTURE_INVALID`「嵌套正文/规则必须共享唯一宿主，不能跨容器重排」由 `2b8c087`（0.4.11，2026-11-16）引入，与本 change 无关；最小 md（1 章 1 簇）即复现，说明蛋仔簇组件的 `正文/规则` 分散在多个宿主。修完再补蛋仔同步零变更
-2. **归档**：跑 `openspec-archive-change`，把 delta 合入正式 specs（新增 `capability-contract`，修改 `markdown-v2-contract`），同步 CHANGELOG / HANDOFF
-3. 4.6 剩余三项（`numberBadge` 删编号、`readBadges` 的 manual、`findFigure` 探测策略）仍按取值判断，收口要先扩 `RenderRule` + 改 design
+1. **归档**：跑 `openspec-archive-change`，把 delta 合入正式 specs（新增 `capability-contract`，修改 `markdown-v2-contract`），同步 CHANGELOG / HANDOFF
+2. 4.6 剩余三项（`numberBadge` 删编号、`readBadges` 的 manual、`findFigure` 探测策略）仍按取值判断，收口要先扩 `RenderRule` + 改 design
+3. 可选：修复蛋仔模板结构（4 条正文在 `Group 427319363` 里）——现在的引擎已能就地填，但条目多于槽位或带内联配图时仍会拒绝；拍平后这类限制消失
 
-### 阶段 7 真机结果（2026-11-17）
+### 阶段 7 真机结果（2026-11-18 复测完成）
 
 - 前提：`GISOP_BRIDGE_HOST=1`（已写入 `~/.codemaker/mcps.json` 的引擎条目 env，备份 `mcps.json.bak-2026-11-17T14-15-12-510Z`）。不开这个开关，宿主每次调用换 supervisor → 新桥等不到插件回连 → `V2_BRIDGE_DOWN`，与代码无关
 - 旧稿清洗 `roleAnnotation=none`：pack 由库页 `206:49735` 的三个发布 key（top `e2112768…`、chapter `ad871654…`、cluster `a5231020…`）+ `~/.game-interaction-sop/templates/燕云旧稿清洗20261116.geometry.json` 组装，存 `.interaction-sop/template.旧稿清洗.json`。不带 `@角色` 的 md 渲染 `ok:true`（root `194:2941`）→ 同步 `changes: []` / `conflicts: []`
 - 官方 1.14：root `194:803` → 同步 `changes: []` / `conflicts: []`
-- 蛋仔：渲染失败（同上），未完成同步验收
-- 两次真机都是同一 worker（`63308`），`pluginConnected: true`，roundtrip 3–14ms
+- 蛋仔：2026-11-17 首次复测报 `V2_TEMPLATE_STRUCTURE_INVALID`（正文分两个宿主：`Frame 808` × 6 + `Group 427319363` × 4）。已修 —— 渲染端在不需要克隆、无内联图/职能条目时就地顺序填；`figure=none` 时 parts 层先摘 `配图：` 条目；编译端新增 `bulletHostGap` 提前记账。2026-11-18 复测 root `195:3385` 渲染 `ok:true` + 同步 `changes: []` / `conflicts: []`
+- 两次真机都是同一 worker（`63308` / `3944`），`pluginConnected: true`
 - `.interaction-sop/template.json` 已还原为燕云 pack
 
 ### 阶段 7 已做什么（2026-11-17）

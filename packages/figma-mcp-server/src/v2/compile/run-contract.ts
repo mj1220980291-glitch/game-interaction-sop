@@ -12,7 +12,7 @@
 import type { FigmaBackend, NodeInfo } from '../figma-client.js';
 import { CLUSTER_SLOTS } from '../template-slots.js';
 import { firstCompleteRun, splitRuns, type ClusterGroupsMode } from '../template/runs.js';
-import { COMPILE_CODES, compileError } from './errors.js';
+import { COMPILE_CODES, compileError, type CompileGap } from './errors.js';
 
 const SCAN_BUDGET = 20000;
 
@@ -79,8 +79,41 @@ export async function verifyCompiledCluster(
   return problems;
 }
 
-/** `配图` 必须是 GROUP，且内含 1 个矩形 + 1 个占位文案 TEXT。 */
-function figureProblems(nodes: ReadonlyArray<NodeInfo>, figureId: string): string[] {
+/**
+ * 多宿主正文自检（编译期，只记 gap 不拒绝）。
+ *
+ * 分组模式（slot-run）每段 run 各自带正文，是多宿主但属正常形状，跳过。
+ * 单块模式（none / inline-subtitle）下正文必须同宿主：渲染只在这种形状下能确定
+ * 「往哪克隆 / 插图插在哪」。蛋仔 2026-11-11 那份就是在嵌套组里多出 4 条正文，
+ * 编译一路绿灯，直到渲染才报错。
+ */
+export async function bulletHostGap(
+  backend: FigmaBackend,
+  clusterRootId: string,
+  mode: ClusterGroupsMode
+): Promise<CompileGap | undefined> {
+  if (mode === 'slot-run') return undefined;
+  const nodes = await scan(backend, clusterRootId);
+  const hosts = new Map<string, number>();
+  for (const n of nodes) {
+    if (n.type !== 'TEXT' || n.visible === false) continue;
+    if (n.name !== CLUSTER_SLOTS.bullet) continue;
+    // 实例子层（id 带 `;`）不参与：渲染 detach 后按结构找，名字不可靠。
+    if (n.id.includes(';')) continue;
+    const parent = n.parentId ?? '?';
+    hosts.set(parent, (hosts.get(parent) ?? 0) + 1);
+  }
+  if (hosts.size <= 1) return undefined;
+  const detail = [...hosts.entries()].map(([id, count]) => `${id} × ${count}`).join('、');
+  return {
+    what: `簇 ${clusterRootId} 的 正文/规则 分散在 ${hosts.size} 个宿主（${detail}）`,
+    impact:
+      'md 条目多于模板槽位、或带 `配图：` 条目时，渲染会报 V2_TEMPLATE_STRUCTURE_INVALID',
+    fix: '把嵌套组里的正文拍平到主宿主（与其余正文同级），或改成分组槽 `#Title`'
+  };
+}
+
+/** `配图` 必须是 GROUP，且内含 1 个矩形 + 1 个占位文案 TEXT。 */function figureProblems(nodes: ReadonlyArray<NodeInfo>, figureId: string): string[] {
   const figure = nodes.find((n) => n.id === figureId);
   if (!figure) return [`配图槽 ${figureId} 在产物里找不到`];
   if (figure.type !== 'GROUP') {

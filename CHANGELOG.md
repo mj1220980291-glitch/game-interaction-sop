@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## 未发布 — 修复「正文跨多个宿主」：蛋仔恢复渲染
+
+- 根因：蛋仔簇组件的 `正文/规则` 共 10 个，6 个在主框 `Frame 808`、4 个在嵌套组 `Group 427319363`。编译只改名不拍平，`verifyCompiledCluster` 也不查宿主；渲染在 0.4.11 加了「单宿主」硬约束，于是模板一路绿灯到渲染才炸。
+- 渲染（`render.ts`）：多宿主时若**不需要克隆、且无内联配图/职能条目**，退回就地顺序填充（0.4.11 前的已验证行为）；需要克隆或插图时仍明确拒绝（`V2_TEMPLATE_STRUCTURE_INVALID`），不猜落点。
+- parts 渲染（`render/parts/index.ts`）：`figureSlots === 'drop'` 时先把 `配图：` 条目从整簇/各分组摘掉，避免下游误以为要插图。
+- 编译（`compile/run-contract.ts`）：新增 `bulletHostGap`，单块模式下正文分宿主时记 gap（what 带宿主与条数），不再一路绿灯到渲染；分组模式跳过（每段 run 各带正文属正常形状）。
+- 用例：`render-parts.spec` 改为「槽位足够→就地填充成功 / 条目多于槽位→仍拒绝 / figure=none→先摘条目」；`slot-run-slim.spec` 新增 3 条 `bulletHostGap` 用例。
+- 真机：蛋仔 root `195:3385` 渲染 `ok:true`，同步 `changes: []` / `conflicts: []`；`.interaction-sop/template.json` 已还原燕云 pack。
+- `tsc` 通过；全量串行 **90 文件 / 800 测试**。
+
 ## 未发布 — 阶段 7 真机：旧稿清洗与官方 1.14 通过，蛋仔撞既有结构缺陷
 
 - 常驻桥：`GISOP_BRIDGE_HOST=1` 下真机可连续调用（同一 worker `63308`，`pluginConnected: true`，roundtrip 3–14ms）。顺手修 `bridgeHost.attach()` 每连接重复挂 `stdout` 监听（重连会让同一帧写多遍，`5f689c6`）。

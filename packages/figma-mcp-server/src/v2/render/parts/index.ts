@@ -826,10 +826,16 @@ async function fillChapter(
       }
       // `inline-suffix`：职能拼在正文句尾（蛋仔这类模板没有职能位），拼装与同步
       // 共用 `withInlineRoleSuffix`，否则每次同步都会以为条目被改过。
-      const effective = inlineSubtitles(
+      const inline = inlineSubtitles(
         roleBlocks === 'suffix' ? withInlineRoleSuffix(cluster) : cluster,
         ruleOf(ctx.caps, 'clusterGroups').render?.subgroup
       );
+      // 模板没有配图槽时，`配图：` 条目已在上面告警丢弃；这里从条目里摘掉，
+      // 否则填充链路会以为要插图（多宿主模板会因此被判结构冲突）。
+      const effective =
+        ruleOf(ctx.caps, 'figure').render?.figureSlots === 'drop'
+          ? stripFigureBullets(inline)
+          : inline;
       const seedId = await findNamed(backend, node.id, CLUSTER_SLOTS.figure);
       const nestedSeed = seedId !== undefined && (await backend.getNodeInfo(seedId)).parentId !== node.id;
       const imageSeed = makeImageSeed(seedId);
@@ -1141,6 +1147,16 @@ async function syncRoleCarriers(
         '可能多显示一行或残留占位正文'
     });
   }
+}
+
+/** 摘掉 `配图：` 条目（模板没有配图槽时用）：整簇与各分组一起过滤，保持两者一致。 */
+function stripFigureBullets(cluster: SemanticCluster): SemanticCluster {
+  const keep = (bullets: string[]): string[] => bullets.filter((b) => !isFigureSlotBullet(b));
+  return {
+    ...cluster,
+    bullets: keep(cluster.bullets),
+    groups: cluster.groups.map((g) => ({ ...g, bullets: keep(g.bullets) }))
+  };
 }
 
 /** `inline-subtitle`：`####` 不占槽位，作为该组首行的前缀写入。 */function inlineSubtitles(

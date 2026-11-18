@@ -27,7 +27,7 @@ import type { CompileGap } from './errors.js';
 import { buildWeightMap, COMPILE_FONT_FAMILY } from './font-normalize.js';
 import { buildParts, PART_LABELS, planParts, type PartName } from './parts.js';
 import { preflight } from './preflight.js';
-import { assertSourceRuns, verifyCompiledCluster } from './run-contract.js';
+import { assertSourceRuns, bulletHostGap, verifyCompiledCluster } from './run-contract.js';
 import { deriveCapabilities, type CapabilityDiff } from './verify-capabilities.js';
 import { CHAPTER_SLOTS } from '../template-slots.js';
 import { captureDocSpacing, captureGeometry, captureGeometryFromKeys, readGeometrySidecar, writeGeometrySidecar } from './geometry.js';
@@ -563,9 +563,16 @@ async function compilePhase(input: CompileInput): Promise<CompileReport> {
   );
   pushGaps(slim.gaps);
 
+  const clusterPart = built.built.find((p) => p.part === 'cluster');
+  if (clusterPart) {
+    const hostGap = await stageRetry('run.hosts', () =>
+      bulletHostGap(backend, clusterPart.componentId, source.clusterGroups)
+    );
+    if (hostGap) pushGaps([hostGap]);
+  }
+
   // run 契约的第二段：产物才是渲染真正要填的东西，配图被拍平、正文被裁、
   // 孤儿职能帧都发生在瘦身这一步。失败时组件已经建好，报告里列出 id 供清理。
-  const clusterPart = built.built.find((p) => p.part === 'cluster');
   if (clusterPart) {
     const problems = await stageRetry('run.verify', () =>
       verifyCompiledCluster(backend, clusterPart.componentId, source.clusterGroups)

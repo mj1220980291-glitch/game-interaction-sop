@@ -2231,17 +2231,25 @@ async function fillBlockContent(
   const bulletParent = bulletTexts[0]?.parentId;
   const nestedShell = bulletParent !== undefined && bulletParent !== p.blockId;
   const hasImageBullets = bullets.some(isFigureSlotBullet);
-  if (nestedShell) {
-    if (bulletTexts.some((n) => n.parentId !== bulletParent)) {
-      throw Object.assign(new Error('嵌套正文/规则必须共享唯一宿主，不能跨容器重排'), {
+  const hasRoleBullets = bullets.some((b) => parseRoleBullet(b) !== undefined);
+  const multiHost = nestedShell && bulletTexts.some((n) => n.parentId !== bulletParent);
+
+  if (multiHost) {
+    // 正文分散在多个宿主（蛋仔：4 条在嵌套组、6 条在主框）。inline 的「克隆到单宿主
+    // + 删原件」只认 blockId 下的直接子级，另一个宿主的正文会留成模板残留，所以只在
+    // **不需要克隆、也没有内联图/职能条目**时退回就地顺序填充；其余情况落点不唯一，
+    // 仍然明确拒绝（不猜）。
+    if (hasImageBullets || hasRoleBullets || bullets.length > bulletTexts.length) {
+      throw Object.assign(new Error('正文/规则 分散在多个宿主，且需要克隆或内联插图，无法确定落点'), {
         code: 'V2_TEMPLATE_STRUCTURE_INVALID'
       });
     }
+  } else if (nestedShell) {
     await fillBlockContentInline(backend, { ...p, blockId: bulletParent }, bulletTexts);
     return;
   }
 
-  if (hasImageBullets || bullets.some((b) => parseRoleBullet(b) !== undefined)) {
+  if (!multiHost && (hasImageBullets || hasRoleBullets)) {
     await fillBlockContentInline(backend, p, bulletTexts);
     return;
   }

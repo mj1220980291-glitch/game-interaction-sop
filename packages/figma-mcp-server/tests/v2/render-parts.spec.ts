@@ -267,10 +267,10 @@ describe('嵌套 none 簇', () => {
     };
   }
 
-  async function run(bullets: string[], hostName = 'text', options: { split?: boolean; missingRole?: boolean } = {}) {
+  async function run(bullets: string[], hostName = 'text', options: { split?: boolean; missingRole?: boolean; caps?: Record<string, string> } = {}) {
     const md = MD.slice(0, MD.indexOf('## 01.')) +
       `## 01. 设置面板\n\n### 打开设置\n@GUI @程序 @拼接\n\n${bullets.map((b) => `- ${b}`).join('\n')}\n`;
-    const { h, ir, pack } = setup(md, { clusterGroups: 'none' });
+    const { h, ir, pack } = setup(md, { clusterGroups: 'none', ...options.caps });
     const nested = nestedSpec(hostName);
     if (options.split) nested.children!.push({ id: 'other-host', name: 'other', type: 'FRAME',
       children: [{ id: 'other-body', name: '正文/规则', type: 'TEXT', characters: '其他正文' }] });
@@ -352,10 +352,25 @@ describe('嵌套 none 簇', () => {
     expect(snapshot().sections[0]!.clusters[0]!.itemsParent?.id).toBe(host.id);
   });
 
-  it('正文跨多个宿主明确拒绝', async () => {
-    await expect(run(['正文'], 'text', { split: true })).rejects.toMatchObject({
+  it('正文跨多个宿主但槽位足够：就地顺序填充，不再拒绝', async () => {
+    const { h, host } = await run(['只有一条'], 'text', { split: true });
+    const bodies = h.byName(host.id, '正文/规则');
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.characters).toBe('只有一条');
+  });
+
+  it('正文跨多个宿主且条目多于槽位：仍拒绝（落点不唯一）', async () => {
+    await expect(run(['一', '二', '三', '四'], 'text', { split: true })).rejects.toMatchObject({
       code: 'V2_TEMPLATE_STRUCTURE_INVALID'
     });
+  });
+
+  it('figure=none 且正文多宿主：配图条目先摘掉，不触发结构冲突', async () => {
+    const { r } = await run(['一条正文', '配图：对比图'], 'text', {
+      split: true,
+      caps: { figure: 'none' }
+    });
+    expect(r.warnings.some((w) => w.code === 'V2_W_FIGURE_DROPPED')).toBe(true);
   });
 
   it('缺 GUI 变体明确失败，不回退字面文本', async () => {

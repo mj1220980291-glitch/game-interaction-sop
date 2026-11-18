@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { slimParts } from '../../src/v2/compile/slim-parts.js';
-import { assertSourceRuns, verifyCompiledCluster } from '../../src/v2/compile/run-contract.js';
+import { assertSourceRuns, bulletHostGap, verifyCompiledCluster } from '../../src/v2/compile/run-contract.js';
 import { slotsBackend } from './helpers/slots-backend.js';
 import { bareFigureRun, officialTwoRuns } from './fixtures/slot-runs.js';
 import { n } from './helpers/slots-backend.js';
@@ -110,5 +110,42 @@ describe('run 契约探针', () => {
     const h = slotsBackend(bareFigureRun());
     const problems = await verifyCompiledCluster(h.backend, 'k', 'slot-run');
     expect(problems.join('；')).toContain('应为 GROUP');
+  });
+});
+
+describe('编译期多宿主正文自检', () => {
+  /** 主框里 2 条正文 + 嵌套组里 1 条（蛋仔 2026-11-11 那份的形状）。 */
+  function splitHosts() {
+    return slotsBackend([
+      n('k', '簇', 'COMPONENT', ['h1', 'g1'], { w: 900, h: 400 }),
+      n('h1', 'Frame 808', 'FRAME', ['b1', 'b2']),
+      n('b1', '正文/规则', 'TEXT'),
+      n('b2', '正文/规则', 'TEXT'),
+      n('g1', 'Group 427319363', 'GROUP', ['b3']),
+      n('b3', '正文/规则', 'TEXT')
+    ]);
+  }
+
+  it('单块模式：正文分两个宿主 → 记 gap（含宿主与条数）', async () => {
+    const h = splitHosts();
+    const gap = await bulletHostGap(h.backend, 'k', 'none');
+    expect(gap?.what).toContain('2 个宿主');
+    expect(gap?.what).toContain('× 2');
+    expect(gap?.impact).toContain('V2_TEMPLATE_STRUCTURE_INVALID');
+  });
+
+  it('单块模式：正文同宿主 → 不记 gap', async () => {
+    const h = slotsBackend([
+      n('k', '簇', 'COMPONENT', ['h1'], { w: 900, h: 400 }),
+      n('h1', 'Frame 808', 'FRAME', ['b1', 'b2']),
+      n('b1', '正文/规则', 'TEXT'),
+      n('b2', '正文/规则', 'TEXT')
+    ]);
+    await expect(bulletHostGap(h.backend, 'k', 'inline-subtitle')).resolves.toBeUndefined();
+  });
+
+  it('分组模式：每段 run 各带正文属正常形状，不记 gap', async () => {
+    const h = slotsBackend(officialTwoRuns());
+    await expect(bulletHostGap(h.backend, 'k', 'slot-run')).resolves.toBeUndefined();
   });
 });
